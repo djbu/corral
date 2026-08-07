@@ -165,8 +165,32 @@ Prove the two risky primitives before building anything real:
 
 **Exit criteria:** manage a session on a home server from a phone browser.
 
-### Post-M5 backlog (unordered)
-Windows support, multi-user, Slack/Telegram notifier, cost budgets per task, session templates, Agent-SDK-based runner as alternative to CLI subprocess, packaged installers (brew, curl script).
+### M6 — Learning loop (working name: hermes)
+
+Thesis: every supervised session is an experiment; the runtime that observes all of them can compound their lessons into durable per-repo artifacts. Generating skills with an LLM is table stakes (`headroom learn`, skill-creator already exist) — the differentiator is **closing the loop with verification and measured adoption**, which only the runtime owner can do: corral sees full trajectories (hooks + stream-json + task outcomes + cost + corrections), can spawn cheap headless sessions to verify candidates, and can measure effect after adoption.
+
+Pipeline — every stage event-sourced, every artifact provenance-tagged:
+
+1. **Mine** the event store: repeated permission approvals, recurring command sequences, recurring failures/retries, user corrections mid-session, cost outliers, blocked-event patterns.
+2. **Synthesize** candidate artifacts (cheap model, structured output): policy rules, `CLAUDE.local.md` entries, `SKILL.md` drafts, hook configs, model-routing hints.
+3. **Verify** before proposing: re-run historical tasks headless with/without the candidate (fakeclaude for plumbing; real claude behind the E2E gate); compare success, cost, blocked count. No measured improvement → discarded, never shown.
+4. **Propose, never write silently**: PR-style diff via `corral learnings` / dashboard, one-tap adopt/reject. Only trivial-risk classes (permission suggestions) may auto-adopt, and only if the user opts in per repo.
+5. **Measure & decay**: adopted artifacts tracked against their promised metric; regression → auto-flag for rollback. Every artifact carries provenance (which sessions taught it) and a TTL — unused or stale artifacts get re-verified or retired. Bad learned rules compound too; the negative flywheel is this system's primary failure mode and every stage above is a brake on it.
+
+Attack order (hardest ground truth first):
+
+1. Policy suggestions — "you approved `npm test` 12× in this repo; allowlist it?" Perfect ground truth, immediate value.
+2. Operational memory — SessionStart hook injects distilled repo facts (setup commands, flaky tests, quirks) from prior sessions.
+3. Model-routing bandit — learn which tier suffices per task type per repo from cost/outcome history; feeds M4 tiering defaults.
+4. Skill synthesis — recurring multi-step procedures → draft `SKILL.md`, sandbox-verified before proposal.
+5. Failure regression corpus — every failed task saved as a replayable scenario; `corral regress` re-runs the corpus after any config/skill change. "CI for your agent setup" — standalone sellable feature.
+
+Explicitly out of scope: fine-tuning, unsupervised self-modification, cross-user telemetry. Team-shared learnings ("fleet memory sync") is the natural paid tier; single-user OSS stays complete.
+
+**Exit criteria:** on a dogfooded repo over 2 weeks, measurable reduction in blocked-events and cost versus the prior 2 weeks, with zero unapproved repo writes.
+
+### Post-M6 backlog (unordered)
+Windows support, multi-user/team mode (shared fleet learnings — the paid tier), Slack/Telegram notifier, session templates, Agent-SDK-based runner as alternative to CLI subprocess.
 
 ## 5. Test harness
 
@@ -269,6 +293,7 @@ Applies from M1, not bolted on later:
 | `--resume` semantics change or session files become opaque | Never write to `~/.claude` session files; only read IDs and pass them back to the CLI; headless runner (stream-json) is the fallback persistence path |
 | PTY edge cases (resize, colors, alt-screen) eat weeks | M0 spike de-risks first; attach UX can lag feature-wise (tmux exists) — hooks/orchestration are the product, not terminal emulation |
 | Scope creep toward Herdr's 19 agents | Say no. The runbook thesis is depth. Multi-agent = separate product decision with its own runbook |
+| Learning loop poisons itself (bad rules compound) | Verify-before-propose, consented adoption, measured effect with auto-flag rollback, provenance + TTL on every artifact (M6 pipeline is designed around this failure mode) |
 
 ## 10. Cross-cutting requirements
 
