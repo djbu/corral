@@ -14,3 +14,4 @@ spike/*/out/
 .DS_Store
 spike/*/run/
 spike/pty/corral-spike-pty
+spike/verify/corral-verify
