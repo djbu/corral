@@ -152,6 +152,8 @@ Prove the two risky primitives before building anything real:
 - stream-json runner: parse turns, surface tool use, capture result + cost.
 - Agents spawning agents: expose a scoped API token per session so an agent can `corral run` its own subtasks.
 - Cost accounting: record per-turn usage from stream-json; `corral ls --cost`; per-task and per-DAG budgets with stop-at-limit.
+- Model/effort tiering per DAG node: each task declares (or inherits) `--model` and effort — cheap models for mechanical stages, big models for hard ones. The orchestrator is the only layer that can make this call.
+- Session hygiene: per-turn usage reveals bloated contexts; corral flags them and can trigger compaction or restart-with-summary as a task policy.
 - Auto-answer policy engine v1: rules over `Blocked` events — auto-approve allowlisted tools/commands per repo (`.corral.toml`), escalate everything else to the notifier. Default deny; rules are additive allowlists only; every auto-answer is audit-logged. This is the second moat: corral receives permission requests structured, so it can classify them — a scraper can't.
 
 **Exit criteria:** a 3-node DAG (plan → implement → review) runs unattended with fakeclaude; with real claude behind an env-var gate.
@@ -277,6 +279,7 @@ Things that belong to no single milestone but must not be improvised late:
 - **Packaging & service install:** goreleaser (darwin/linux × amd64/arm64), curl installer, brew tap, `corral service install` writes the launchd plist / systemd unit with restart-on-crash. macOS: codesign + notarize — an unsigned background daemon gets flagged by Gatekeeper and kills adoption on first contact.
 - **Data retention:** the event-sourced `events` table and logs grow unbounded by design — prune by age + size (configurable), `corral gc` command, scheduled SQLite `VACUUM`/WAL checkpoint.
 - **Resource limits & backpressure:** cap on concurrent live sessions (queue beyond it), per-session log size caps, disk-low behavior = checkpoint everything and refuse new spawns loudly.
+- **Token economy — division of labor:** request-level compression (payload shrinking, cache alignment) is **out of scope permanently** — delegate to [headroom](https://github.com/headroomlabs-ai/headroom) via composition: when enabled (config or `--headroom` flag), corral spawns sessions with `ANTHROPIC_BASE_URL` pointed at the local headroom proxy; corral is the policy point for which sessions get it. Corral owns only *orchestration-level* economy: model/effort tiering per task, budgets, compaction triggers (see M4). Rebuilding compression would mean competing with a 65k-star dedicated product while fighting Herdr — the risk table's scope-creep rule applies.
 - **Decisions to record as ADRs (`docs/adr/`) before M1:** license (Apache-2.0 matches the ecosystem and Herdr — being *more* restrictive than the incumbent is a handicap), telemetry (recommendation: none, or opt-in crash reports only — "self-hosted and silent" is part of the pitch), final name + GitHub org / domain availability check. §8 of this runbook becomes ADR-0001.
 
 ## 11. Working agreements
