@@ -126,6 +126,9 @@ Prove the two risky primitives before building anything real:
 **Exit criteria:** both primitives demonstrated in a script; findings written into `docs/spike-notes.md` (quirks, escape sequences, resume edge cases).
 
 ### M1 — Daemon skeleton + interactive sessions
+
+> **Spike findings folded in (see docs/spike-notes.md):** (a) reattach requires a headless terminal emulator tracking screen-grid state per session — raw byte-ring replay corrupts alt-screen TUIs (proven with vi and claude); (b) daemonization = setsid re-exec pattern; (c) child env is a minimal explicit whitelist, never `os.Environ()` passthrough; (d) detach = tmux-style prefix key + socket goodbye frame so the daemon can tell detach from client crash; (e) every supervised session gets a pinned settings file — global user settings leak into headless behavior.
+
 - `corral daemon` with unix-socket HTTP API; `corral ls / new / attach / kill`.
 - Supervisor owns PTYs; attach/detach tmux-style; sessions survive client disconnect and daemon keeps them across its own restart (re-adopt or resume).
 - SQLite store with migrations; structured logging (`log/slog`).
