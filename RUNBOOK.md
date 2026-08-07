@@ -154,6 +154,9 @@ Prove the two risky primitives before building anything real:
 - Cost accounting: record per-turn usage from stream-json; `corral ls --cost`; per-task and per-DAG budgets with stop-at-limit.
 - Model/effort tiering per DAG node: each task declares (or inherits) `--model` and effort — cheap models for mechanical stages, big models for hard ones. The orchestrator is the only layer that can make this call.
 - Session hygiene: per-turn usage reveals bloated contexts; corral flags them and can trigger compaction or restart-with-summary as a task policy.
+- Quota-aware scheduling: an always-on fleet lives inside subscription rate-limit windows (5-hour / weekly caps) — N agents against ONE quota. The orchestrator tracks per-window usage from stream-json, prioritizes interactive sessions over background tasks, schedules low-priority DAG nodes into fresh windows, and pauses/resumes the fleet at configurable thresholds instead of slamming into 429s mid-DAG. Optional burst-to-API: overflow to a metered API key when the window is exhausted, gated by the task's budget. No competitor handles this; it is the #1 operational pain of running many agents on one plan.
+- `corral mcp`: the daemon exposed as an MCP server, so in-session agents get structured tools (`corral_status`, `corral_run`, `corral_wait`) with the same scoped per-session token — discoverable and typed, no shelling out and parsing CLI output. The CLI remains for humans and scripts.
+- Review gate: task outputs stay on branches in their worktrees; nothing merges or pushes without human action. `corral review` lists pending diffs; the M5 dashboard renders them with one-tap approve.
 - Auto-answer policy engine v1: rules over `Blocked` events — auto-approve allowlisted tools/commands per repo (`.corral.toml`), escalate everything else to the notifier. Default deny; rules are additive allowlists only; every auto-answer is audit-logged. This is the second moat: corral receives permission requests structured, so it can classify them — a scraper can't.
 
 **Exit criteria:** a 3-node DAG (plan → implement → review) runs unattended with fakeclaude; with real claude behind an env-var gate.
@@ -190,7 +193,11 @@ Explicitly out of scope: fine-tuning, unsupervised self-modification, cross-user
 **Exit criteria:** on a dogfooded repo over 2 weeks, measurable reduction in blocked-events and cost versus the prior 2 weeks, with zero unapproved repo writes.
 
 ### Post-M6 backlog (unordered)
-Windows support, multi-user/team mode (shared fleet learnings — the paid tier), Slack/Telegram notifier, session templates, Agent-SDK-based runner as alternative to CLI subprocess.
+Windows support, multi-user/team mode (shared fleet learnings — the paid tier), Slack/Telegram notifier, session templates, Agent-SDK-based runner as alternative to CLI subprocess, claude version pinning per repo (`corral doctor` flags drift).
+
+---
+
+**This runbook is feature-complete for the v1 thesis.** Further additions before code exist are scope risk, not vision. The next information that should change this document comes from the M0 spike, not from more planning.
 
 ## 5. Test harness
 
@@ -276,6 +283,7 @@ Applies from M1, not bolted on later:
 - Hook relay authenticates to the daemon with a per-session secret injected at spawn time (env var), so arbitrary local processes can't forge state events.
 - `corral answer` payloads are delivered as data, never shell-interpolated.
 - Secrets (notifier tokens, API tokens) in `~/.corral/config.toml` mode 0600; never logged.
+- Event ingest runs a secret scan (common token/key/credential patterns) and redacts before persisting — the event store is append-only and long-lived; storing leaked credentials forever is a liability corral must not create. Redactions are marked in place, never silent.
 
 ## 8. Language decision record (Go over Rust/C)
 
