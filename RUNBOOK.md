@@ -141,6 +141,9 @@ Prove the two risky primitives before building anything real:
 **Exit criteria:** run a real agent, walk away, get a phone notification "corral/api-refactor blocked: permission to run `npm test`", answer from the phone via ntfy reply → agent continues. This is the demo that sells the product — record it (asciinema + phone screen capture) for the README and launch post.
 
 ### M3 — Checkpoint/resume + idle reaping
+
+> **Spike finding (M0, claude 2.1.224):** the session `.jsonl` is NOT flushed incrementally — a SIGKILL between "user message sent" and the post-turn flush loses the entire in-flight turn *cleanly* (no corruption, resume works, but the model has zero memory of the turn — even if the API had fully completed and streamed the answer to stdout). Consequences baked into this milestone: (a) corral tees and persists the CLI's stdout stream itself as the authoritative record of in-flight turns — never trusts the session file for the current turn; (b) the reaper checkpoints only at turn boundaries it has *observed flushed* (session file contains the matching assistant record), never mid-turn; (c) crash recovery compares corral's own stream log against the session file and re-sends the last prompt when the assistant record is missing, accepting the regeneration cost. Also: pin a known settings file for supervised sessions — permission behavior in `-p` is environment-dependent (global user settings leak into headless mode).
+
 - Idle reaper (configurable timeout) kills idle sessions after checkpointing.
 - `corral wake`, auto-wake on incoming answer/task.
 - Daemon crash recovery: SIGKILL the daemon, restart, all sessions restored to correct state (running ones re-adopted or resumed, checkpointed ones stay checkpointed).
