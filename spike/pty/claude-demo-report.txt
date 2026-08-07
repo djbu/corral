@@ -1,0 +1,12 @@
+daemon started pid=73246 sock=/Users/danielbecerra/code/research/corral/spike/pty/run/claude.sock log=/Users/danielbecerra/code/research/corral/spike/pty/run/claude.sock.log
+[PASS] daemon-detached-and-running: pid=73246 alive=true
+[info] daemon pid=73246 direct children=[73247] (expect exactly one: the claude TUI)
+[info] startup capture: 2784 bytes
+[info] sending the single test prompt
+[info] response capture: 3739 bytes
+[PASS] claude-responds-in-pty: response contains OK=true
+[info] post-resize capture: 3294 bytes (see claude-tui-capture.txt + NOTES.md for redraw analysis)
+[PASS] detach-without-kill: daemon+claude still alive=true
+[info] reattach replay: 8192 bytes, starts-with-ESC=false, first32="\x80──────────\xe2"
+[info] wrote raw capture (18043 bytes) to /Users/danielbecerra/code/research/corral/spike/pty/claude-tui-capture.txt
+[PASS] clean-shutdown-no-orphans: daemon-alive=false tracked-claude-children-still-alive=[] sock-refs=[]

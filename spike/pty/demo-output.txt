@@ -1,0 +1,87 @@
+=== demo-bash: daemon detach + attach/detach/replay/resize ===
+daemon started pid=71550 sock=/Users/danielbecerra/code/research/corral/spike/pty/run/bash.sock log=/Users/danielbecerra/code/research/corral/spike/pty/run/bash.sock.log
+[PASS] daemon-detached-and-running: pid=71550 alive after launcher exited
+--- initial prompt (201 bytes) ---
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+[?1034hbash-3.2$ 
+--- after echo (56 bytes) ---
+echo hello-from-pty-$$
+hello-from-pty-71551
+bash-3.2$ 
+[PASS] echo-round-trip: marker seen in live output
+--- stty size after resize (43 bytes) ---
+[Kbash-3.2$ stty size
+40 100
+bash-3.2$ 
+[PASS] resize-tiocswinsz: bash reports new pty winsize 40 100
+[PASS] detach-without-kill: daemon+bash still alive after client disconnect
+--- replay on reattach (4110 bytes) ---
+ine
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+spew-line
+s...[3510 more bytes]
+[end replay]
+replay contains marker=false spew=true (small-cap truncation is expected to evict the marker; see NOTES.md)
+[PASS] reattach-gets-live-screen-state: reattach shows current (tail) screen state even though marker aged out of the small buffer
+--- post-reattach command (41 bytes) ---
+echo still-alive
+still-alive
+bash-3.2$ 
+[PASS] interactive-after-reattach: shell still responsive after reattach
+[PASS] clean-shutdown-no-orphans: daemon pid=71550 alive=false, procs referencing sock=[]
+=== demo-bash done ===

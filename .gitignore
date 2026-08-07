@@ -12,3 +12,5 @@ spike/*/out/
 
 # os
 .DS_Store
+spike/*/run/
+spike/pty/corral-spike-pty
