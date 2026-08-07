@@ -138,7 +138,7 @@ Prove the two risky primitives before building anything real:
 - Notifier v1: ntfy.sh + generic webhook. Notification includes the structured reason.
 - `corral answer <session> "text"` delivers a reply into the session (PTY write for interactive; stream-json message for headless).
 
-**Exit criteria:** run a real agent, walk away, get a phone notification "corral/api-refactor blocked: permission to run `npm test`", answer from the phone via ntfy reply → agent continues. This is the demo that sells the product.
+**Exit criteria:** run a real agent, walk away, get a phone notification "corral/api-refactor blocked: permission to run `npm test`", answer from the phone via ntfy reply → agent continues. This is the demo that sells the product — record it (asciinema + phone screen capture) for the README and launch post.
 
 ### M3 — Checkpoint/resume + idle reaping
 - Idle reaper (configurable timeout) kills idle sessions after checkpointing.
@@ -151,6 +151,8 @@ Prove the two risky primitives before building anything real:
 - Task model: `corral run "prompt" --repo X --worktree --depends-on <task>`; DAG execution, retries with backoff, per-task worktree isolation.
 - stream-json runner: parse turns, surface tool use, capture result + cost.
 - Agents spawning agents: expose a scoped API token per session so an agent can `corral run` its own subtasks.
+- Cost accounting: record per-turn usage from stream-json; `corral ls --cost`; per-task and per-DAG budgets with stop-at-limit.
+- Auto-answer policy engine v1: rules over `Blocked` events — auto-approve allowlisted tools/commands per repo (`.corral.toml`), escalate everything else to the notifier. Default deny; rules are additive allowlists only; every auto-answer is audit-logged. This is the second moat: corral receives permission requests structured, so it can classify them — a scraper can't.
 
 **Exit criteria:** a 3-node DAG (plan → implement → review) runs unattended with fakeclaude; with real claude behind an env-var gate.
 
@@ -203,14 +205,29 @@ steps:
 | Golden/compat | recorded real-claude outputs per version in `testdata/golden/`; parser must handle all; a `make record-golden` target regenerates against the installed claude (run on claude upgrades) | every push (parse), manual (record) |
 | E2E (real claude) | one cheap real task ("create hello.txt") through the full stack, gated by `CORRAL_E2E=1` + API key | manual / nightly |
 
-### 5.3 Invariants to assert everywhere
+### 5.3 Hardening layers (required from the milestone noted)
+
+| Layer | What | From |
+|---|---|---|
+| Contract tests (mock fidelity) | The same scenario assertions run against **both** fakeclaude and real claude (`CORRAL_CONTRACT=1`, nightly + on claude upgrades). Any divergence = fakeclaude is lying; fixing the mock blocks everything else. Without this, the whole harness can be green against a fiction. | M2 |
+| Fake clock | All timeout/reaper logic takes an injected `Clock` interface; tests advance time synthetically. No `time.Sleep`-driven assertions, no flaky timing tests. | M1 |
+| Fuzzing | Go native fuzzing on the stream-json parser and hook-payload decoder — they consume output of an external process, treat it as untrusted. Corpus seeded from golden files. | M2 |
+| Stress | 50 concurrent fakeclaude sessions × event floods through one daemon: assert no deadlock, no lost/misordered events per session, API stays responsive. `-race` on. | M3 |
+| Soak + leak detection | Nightly: spawn/kill/resume 1000 sessions sequentially; assert open-fd count and RSS return to baseline (PTYs leak fds notoriously), SQLite file size bounded (WAL checkpointing works). | M3 |
+| Migration tests | Every schema migration ships with a test: populated DB at version N-1 → open with N → data intact. Keep fixture DBs per released version in `testdata/db/`. | M1 (first migration) |
+| Notifier tests | In-process mock ntfy/webhook server: assert payload shape, delivery retry with backoff, and that a failed notification never blocks the state machine. | M2 |
+| Security tests | §7 promises as executable tests: socket file mode is 0600; hook event without the per-session secret → rejected; child-agent scoped token cannot touch sessions outside its subtree; `corral answer` payload with shell metacharacters arrives verbatim, uninterpreted. | each item lands with its milestone |
+
+Flakiness policy: a test that flakes twice gets quarantined (skipped with a tracking issue) the same day — a suite people retry is a suite people ignore. No `time.Sleep` synchronization in tests; wait on events/channels with the fake clock.
+
+### 5.4 Invariants to assert everywhere
 
 - Daemon never crashes because of anything an agent process does.
 - Every session in the store is always in exactly one state; every transition is event-sourced (append-only `events` table) so `corral log <session>` can replay history.
 - Killing corral (daemon or client) never corrupts a Claude session — the underlying `~/.claude` data is treated as read-mostly and sacred.
 - No test talks to the network (except gated E2E). `go test ./...` works on a plane.
 
-### 5.4 CI (GitHub Actions)
+### 5.5 CI (GitHub Actions)
 
 - Matrix: `macos-latest`, `ubuntu-latest`.
 - Steps: `go vet`, `golangci-lint`, `go test -race ./...`, `go build` (CGO_ENABLED=0), integration + chaos suites, artifact upload of the binary.
@@ -251,9 +268,21 @@ Applies from M1, not bolted on later:
 | PTY edge cases (resize, colors, alt-screen) eat weeks | M0 spike de-risks first; attach UX can lag feature-wise (tmux exists) — hooks/orchestration are the product, not terminal emulation |
 | Scope creep toward Herdr's 19 agents | Say no. The runbook thesis is depth. Multi-agent = separate product decision with its own runbook |
 
-## 10. Working agreements
+## 10. Cross-cutting requirements
+
+Things that belong to no single milestone but must not be improvised late:
+
+- **Configuration:** `~/.corral/config.toml` (user) + `.corral.toml` (per-repo) + env var overrides, in that precedence order. `corral config` prints the effective merged config with each value's source. Documented schema from M1.
+- **API versioning & version skew:** all endpoints under `/v1/`; client↔daemon handshake exchanges versions on connect — mismatch fails with a clear message, never undefined behavior. Daemon upgrade with live sessions has a defined path: checkpoint-all → swap binary → resume-all, covered by an integration test.
+- **Packaging & service install:** goreleaser (darwin/linux × amd64/arm64), curl installer, brew tap, `corral service install` writes the launchd plist / systemd unit with restart-on-crash. macOS: codesign + notarize — an unsigned background daemon gets flagged by Gatekeeper and kills adoption on first contact.
+- **Data retention:** the event-sourced `events` table and logs grow unbounded by design — prune by age + size (configurable), `corral gc` command, scheduled SQLite `VACUUM`/WAL checkpoint.
+- **Resource limits & backpressure:** cap on concurrent live sessions (queue beyond it), per-session log size caps, disk-low behavior = checkpoint everything and refuse new spawns loudly.
+- **Decisions to record as ADRs (`docs/adr/`) before M1:** license (Apache-2.0 matches the ecosystem and Herdr — being *more* restrictive than the incumbent is a handicap), telemetry (recommendation: none, or opt-in crash reports only — "self-hosted and silent" is part of the pitch), final name + GitHub org / domain availability check. §8 of this runbook becomes ADR-0001.
+
+## 11. Working agreements
 
 - Conventional commits; branch per milestone task; PR-sized changes even solo.
 - Every bug found manually becomes a scenario in `testdata/scenarios/` before the fix lands.
 - `internal/claude/` is the only package allowed to know Claude Code exists; everything else speaks corral's own types. This keeps the (unlikely) multi-agent pivot possible without betting on it.
 - Cut a tagged release at each milestone; `corral --version` from day one.
+- Dogfood from M2 onward: corral itself is developed inside corral-supervised sessions. Every pain point felt while dogfooding outranks the backlog.
