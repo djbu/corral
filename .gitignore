@@ -1,0 +1,14 @@
+# binaries
+/corral
+/dist/
+
+# spike scratch — session sandboxes and raw captures stay local
+spike/*/sandbox/
+spike/*/out/
+
+# go
+*.test
+*.out
+
+# os
+.DS_Store
