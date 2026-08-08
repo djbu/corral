@@ -29,8 +29,10 @@ type LiveSession struct {
 	// DebugGrid()/a snapshot for repaint-on-attach.
 	Screen *screen.Screen
 
-	// Attachment is a placeholder slot for step 10's single-attachment
-	// protocol. M1 (step 9) never assigns it; it exists so step 10 doesn't
-	// need to touch this struct's shape again.
-	Attachment any
+	// Attachment is the currently-attached client, if any (design doc
+	// §5.5: at most one at a time). nil when nobody is attached. Guarded
+	// by Registry.mu — see attach.go's installAttachment/
+	// clearAttachmentIfCurrent, which are the only code that reads or
+	// writes this field.
+	Attachment *Attachment
 }

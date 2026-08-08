@@ -210,7 +210,7 @@ func (d *Daemon) startup(ctx context.Context) error {
 	// recovery cannot do anything real without them).
 	grace := d.cfg.ShutdownGrace
 	claudeHome := filepath.Join(mustHomeDir(), ".claude")
-	sessionCfg, _, _, _, err := config.LoadSession(daemonCwd(), nil)
+	sessionCfg, attachCfg, _, _, err := config.LoadSession(daemonCwd(), nil)
 	if err != nil {
 		return fmt.Errorf("daemon: loading default session config: %w", err)
 	}
@@ -228,6 +228,8 @@ func (d *Daemon) startup(ctx context.Context) error {
 		CorralVersion:     version.Version,
 		APIVersion:        version.APIVersion,
 		RecoveryGrace:     grace,
+		PingInterval:      attachCfg.PingInterval,
+		PingTimeout:       attachCfg.PingTimeout,
 	}, d.log)
 	d.supervisor = registry
 
@@ -269,6 +271,7 @@ func (d *Daemon) startup(ctx context.Context) error {
 		Engine:   d.engine,
 		Registry: registry,
 	})
+	srv.RegisterAttach(registry, d.log)
 	d.srv = &http.Server{Handler: srv.Handler()}
 	go func() {
 		if err := d.srv.Serve(ln); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {

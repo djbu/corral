@@ -75,10 +75,12 @@ func msPtrToRFC3339Ptr(ms *int64) *string {
 	return &s
 }
 
-// toSessionResponse converts a store record to the wire shape. attached is
-// always false in M1 (step 10 owns the attach protocol that would make it
-// meaningfully true).
-func toSessionResponse(sess *session.Session) sessionResponse {
+// toSessionResponse converts a store record to the wire shape. attached
+// reflects whether the registry currently has a live Attachment for this
+// session (step 10) — callers pass d.Registry.Attached(sess.ID) rather
+// than this function reaching into the registry itself, so it stays a
+// pure function of its inputs for the tests that call it directly.
+func toSessionResponse(sess *session.Session, attached bool) sessionResponse {
 	resp := sessionResponse{
 		ID:              sess.ID,
 		Name:            sess.Name,
@@ -86,7 +88,7 @@ func toSessionResponse(sess *session.Session) sessionResponse {
 		Cwd:             sess.Cwd,
 		Status:          string(sess.Status),
 		DesiredState:    string(sess.DesiredState),
-		Attached:        false,
+		Attached:        attached,
 		PID:             sess.PID,
 		Model:           sess.Model,
 		ClaudeSessionID: sess.ClaudeSessionID,
@@ -106,7 +108,7 @@ func toSessionResponse(sess *session.Session) sessionResponse {
 }
 
 func (d SessionsDeps) writeSession(w http.ResponseWriter, status int, sess *session.Session) {
-	resp := toSessionResponse(sess)
+	resp := toSessionResponse(sess, d.Registry.Attached(sess.ID))
 	resp.AgentState = string(d.Engine.State(sess.ID))
 	writeJSON(w, status, resp)
 }
@@ -135,7 +137,7 @@ func (d SessionsDeps) handleList(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]sessionResponse, 0, len(sessions))
 	for _, sess := range sessions {
-		resp := toSessionResponse(sess)
+		resp := toSessionResponse(sess, d.Registry.Attached(sess.ID))
 		resp.AgentState = string(d.Engine.State(sess.ID))
 		out = append(out, resp)
 	}

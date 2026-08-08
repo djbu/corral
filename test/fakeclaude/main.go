@@ -29,6 +29,8 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+
+	"github.com/creack/pty"
 )
 
 // fakeSpec is fakeclaude's own parsed view of the flags it was invoked
@@ -86,6 +88,15 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM)
 	ignoreSIGTERM := os.Getenv("CORRAL_FAKE_IGNORE_SIGTERM") == "1"
+
+	// design doc §10.4's TestResizePropagates (step 10): corral's PTY
+	// resize (pty.Setsize on the master) delivers SIGWINCH to this
+	// process same as it would to real claude. Registered here, next to
+	// the SIGTERM handler above, for the same reason: everything below
+	// this point takes real wall-clock time before the main select loop
+	// is even reachable.
+	sigWinch := make(chan os.Signal, 1)
+	signal.Notify(sigWinch, syscall.SIGWINCH)
 
 	spec := parseArgs(os.Args[1:])
 
@@ -148,6 +159,30 @@ func main() {
 		fatalf("flush: %v", err)
 	}
 
+	// CORRAL_FAKE_BURST=<n> writes n filler bytes in a single Write right
+	// after startup — a deliberately oversized, non-differential blast of
+	// output step 10's TestSlowClientIsDropped uses to make a subscriber
+	// fall behind its bounded channel fast enough to exercise the
+	// overflow/client_too_slow path without a slow-consuming test double.
+	if b := os.Getenv("CORRAL_FAKE_BURST"); b != "" {
+		n, err := strconv.Atoi(b)
+		if err != nil {
+			fatalf("CORRAL_FAKE_BURST=%q: %v", b, err)
+		}
+		if n > 0 {
+			buf := make([]byte, n)
+			for i := range buf {
+				buf[i] = 'x'
+			}
+			if _, err := out.Write(buf); err != nil {
+				fatalf("write burst: %v", err)
+			}
+			if err := out.Flush(); err != nil {
+				fatalf("flush burst: %v", err)
+			}
+		}
+	}
+
 	// --- Exit knobs (design doc §10.1 item 5; sigCh/ignoreSIGTERM are set
 	// up at the very top of main, above) ------------------------------------
 
@@ -186,6 +221,21 @@ func main() {
 
 		case code := <-exitCh:
 			exitGracefully(out, code)
+
+		case <-sigWinch:
+			rows, cols, err := pty.Getsize(os.Stdout)
+			if err != nil {
+				continue // not a real tty (e.g. under `go test` directly); nothing to redraw.
+			}
+			if err := writeBannerWidth(out, spec.Name, cols); err != nil {
+				fatalf("%v", err)
+			}
+			if err := writeResizeMarker(out, rows, cols); err != nil {
+				fatalf("%v", err)
+			}
+			if err := out.Flush(); err != nil {
+				fatalf("flush: %v", err)
+			}
 
 		case line, ok := <-lineCh:
 			if !ok {

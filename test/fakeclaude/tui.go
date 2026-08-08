@@ -46,24 +46,36 @@ func writeStartup(w io.Writer, name string) error {
 	return writeBanner(w, name)
 }
 
-// bannerWidth is fixed in v0 rather than derived from the real terminal
-// size. Design doc §10.4's TestResizePropagates (step 10) is the first
-// place a fakeclaude banner needs to track an actual SIGWINCH resize —
-// that is out of scope for v0's six numbered requirements (§10.1 lists
-// none) and is left as an explicit note for whoever implements step 10.
+// bannerWidth is writeStartup's fixed initial width — kept exactly as it
+// was for v0's byte-for-byte startup-sequence tests. Step 10 adds real
+// SIGWINCH tracking via writeBannerWidth below, called from main.go's
+// resize handler instead of from writeStartup, so nothing about the
+// process's initial output changes.
 const bannerWidth = 60
 
-// writeBanner draws a fixed-width, truecolor (38;2;r;g;b) box at rows
-// 1-3 of the alt screen using cursor-addressed writes.
+// writeBanner draws the fixed-width v0 banner; see bannerWidth's comment.
 func writeBanner(w io.Writer, name string) error {
+	return writeBannerWidth(w, name, bannerWidth)
+}
+
+// writeBannerWidth draws a width-wide, truecolor (38;2;r;g;b) box at rows
+// 1-3 of the alt screen using cursor-addressed writes. width must be at
+// least 4 (two border columns plus room for one label character); the
+// daemon-side PTY resize path (design doc §5.4) never sends anything
+// that small in practice, but callers that do get a degenerate box
+// rather than a panic.
+func writeBannerWidth(w io.Writer, name string, width int) error {
+	if width < 4 {
+		width = 4
+	}
 	const r, g, b = 120, 60, 220 // an arbitrary, fixed truecolor purple.
 	color := fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r, g, b)
 	const reset = "\x1b[0m"
 
-	top := "╭" + repeatStr("─", bannerWidth-2) + "╮"
+	top := "╭" + repeatStr("─", width-2) + "╮"
 	label := fmt.Sprintf(" %s (%s) ", bannerTitle, name)
-	mid := "│" + padCenter(label, bannerWidth-2) + "│"
-	bot := "╰" + repeatStr("─", bannerWidth-2) + "╯"
+	mid := "│" + padCenter(label, width-2) + "│"
+	bot := "╰" + repeatStr("─", width-2) + "╯"
 
 	_, err := fmt.Fprintf(w, "\x1b[1;1H%s%s%s\x1b[2;1H%s%s%s\x1b[3;1H%s%s%s",
 		color, top, reset,
@@ -72,6 +84,26 @@ func writeBanner(w io.Writer, name string) error {
 	)
 	if err != nil {
 		return fmt.Errorf("fakeclaude: write banner: %w", err)
+	}
+	return nil
+}
+
+// resizeMarkerRow is the blank separator row between the 3-row banner
+// and transcriptStartRow — free real estate for a plain-ASCII, grep-able
+// marker a test can assert on after sending a Resize frame, without
+// having to parse the banner's box-drawing/truecolor escapes.
+const resizeMarkerRow = 4
+
+// writeResizeMarker writes a deterministic, escape-sequence-free line
+// recording the rows/cols fakeclaude last observed via SIGWINCH (design
+// doc §10.4's TestResizePropagates). Both dimensions are recorded (not
+// just cols) so a test can confirm the full winsize round-tripped
+// through the slave side, without ever reading the PTY master directly
+// (that read would be unsynchronized against the supervisor's reaper
+// closing the master on child exit).
+func writeResizeMarker(w io.Writer, rows, cols int) error {
+	if _, err := fmt.Fprintf(w, "\x1b[%d;1H\x1b[2KFAKECLAUDE_RESIZED rows=%d cols=%d", resizeMarkerRow, rows, cols); err != nil {
+		return fmt.Errorf("fakeclaude: write resize marker: %w", err)
 	}
 	return nil
 }

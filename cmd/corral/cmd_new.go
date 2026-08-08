@@ -64,8 +64,8 @@ func cmdNew(args []string, stdout, stderr io.Writer) int {
 	}
 
 	fmt.Fprintf(stdout, "created %s (%s)\n", sess.Name, sess.ID)
-	if !*noAttach {
-		fmt.Fprintf(stdout, "created; attach with: corral attach %s\n", sess.Name)
+	if *noAttach {
+		return exitOK
 	}
-	return exitOK
+	return cmdAttach([]string{sess.Name}, stdout, stderr)
 }

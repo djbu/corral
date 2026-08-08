@@ -1,8 +1,10 @@
 package supervisor
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/danielbecerra/corral/internal/claude/sessions"
 	"github.com/danielbecerra/corral/internal/clock"
+	"github.com/danielbecerra/corral/internal/proto"
 	"github.com/danielbecerra/corral/internal/session"
 	"github.com/danielbecerra/corral/internal/state"
 	"github.com/danielbecerra/corral/internal/store"
@@ -274,6 +277,66 @@ func TestGracefulRestartResumes(t *testing.T) {
 		if !allowed[k] {
 			t.Fatalf("invocation-2 environ contains unexpected key %q (env passthrough is a strict allowlist)", k)
 		}
+	}
+
+	// Deferred reattach (design doc step 10): confirms Attach's
+	// Hello/Ready/repaint path works against a session that came back
+	// through Recover, not just one that was freshly Spawned — reg2's
+	// LiveSession is a distinct *LiveSession from reg1's, wired up by
+	// recover.go rather than Spawn directly. The repaint must contain
+	// the "hello" prompt line fakeclaude redraws from the on-disk
+	// transcript loadTranscript reads on --resume (see the write to
+	// ls.PTYMaster and the transcriptPath wait near the top of this
+	// test), proving the resumed process's redraw — not just its
+	// startup banner — reaches an attaching client.
+	ls2, ok := reg2.Get(spec.ID)
+	if !ok {
+		t.Fatal("reg2.Get(id) after Recover = false, want true")
+	}
+	waitForCondition(t, 5*time.Second, func() bool { return ls2.Screen.AltScreen() })
+
+	client, server := net.Pipe()
+	defer client.Close()
+	fc := newFakeClient(t, client)
+	attachDone := make(chan struct{})
+	go func() {
+		_ = reg2.Attach(ls2, server, bufio.NewReader(server))
+		close(attachDone)
+	}()
+
+	sendHello(t, client, proto.Hello{Rows: 24, Cols: 80, TakeOver: true, ClientVersion: "reattach"})
+	readyFrame := fc.next(t, proto.TypeReady, 5*time.Second)
+	var readyPayload proto.Ready
+	if err := proto.DecodeJSON(readyFrame.Payload, &readyPayload); err != nil {
+		t.Fatalf("decoding Ready: %v", err)
+	}
+	if readyPayload.RepaintBytes == 0 {
+		t.Fatalf("Ready.RepaintBytes = 0, want > 0 after resume")
+	}
+
+	repaint := fc.next(t, proto.TypeOutput, 5*time.Second)
+	// A bare Contains(payload, "hello") would also pass if "hello" turned
+	// up anywhere else in a full-screen dump (a common word, ClientVersion
+	// echoes, etc.) without proving fakeclaude actually redrew it at the
+	// right place. Ready's RepaintBytes comes from internal/screen's own
+	// synthesized full-screen redraw (a per-cell re-render of Screen's
+	// buffer, not a byte-for-byte replay of fakeclaude's original
+	// "\x1b[2K"-clearing writes), so pin the cursor address instead: row 5
+	// (tui.go's transcriptStartRow) col 1, immediately followed by
+	// "hello" — confirmed against this exact repaint's bytes
+	// ("\x1b[5;1Hhello\x1b[0m...").
+	const wantRedraw = "\x1b[5;1Hhello"
+	if !strings.Contains(string(repaint.Payload), wantRedraw) {
+		t.Fatalf("post-resume repaint does not contain cursor-addressed redraw %q:\n%q", wantRedraw, repaint.Payload)
+	}
+
+	if err := proto.WriteFrame(client, proto.Frame{Type: proto.TypeGoodbyeClose, Payload: mustJSON(t, proto.GoodbyeClose{Reason: "detach"})}); err != nil {
+		t.Fatalf("WriteFrame(GoodbyeClose): %v", err)
+	}
+	select {
+	case <-attachDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Attach did not return after GoodbyeClose")
 	}
 
 	// Clean up the resumed child.

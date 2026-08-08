@@ -18,6 +18,7 @@ import (
 
 	"github.com/danielbecerra/corral/internal/claude/settings"
 	"github.com/danielbecerra/corral/internal/clock"
+	"github.com/danielbecerra/corral/internal/proto"
 	"github.com/danielbecerra/corral/internal/screen"
 	"github.com/danielbecerra/corral/internal/session"
 	"github.com/danielbecerra/corral/internal/state"
@@ -56,6 +57,14 @@ type Config struct {
 	// uses when it finds a live orphan. <= 0 means recover.go's own
 	// 5-second default.
 	RecoveryGrace time.Duration
+
+	// PingInterval/PingTimeout are attach.go's daemon-side keepalive
+	// settings (design doc §5.2, config.Attach.PingInterval/PingTimeout).
+	// <= 0 falls back to attach.go's own 15s/45s defaults — every existing
+	// test that builds a zero-value Config still gets a working keepalive
+	// rather than a busy-loop or a disabled ticker.
+	PingInterval time.Duration
+	PingTimeout  time.Duration
 }
 
 // Registry is the concrete, in-process live-session tracker: it implements
@@ -310,6 +319,27 @@ func (r *Registry) runGoroutines(ls *LiveSession, id, name string) {
 		<-readerDone
 		ls.Screen.Close()
 		<-repliesDone
+
+		// If a client is attached when the child exits, tell it before
+		// tearing anything else down (design doc §5.2's 0x83 Exit frame) —
+		// attach.go's own reader loop will observe the connection error
+		// this write's subsequent close triggers and unwind on its own.
+		r.mu.Lock()
+		att := ls.Attachment
+		r.mu.Unlock()
+		if att != nil {
+			exitCode, exitSignal := exitInfo(ls.Cmd.ProcessState)
+			_ = att.writeFrame(proto.Frame{Type: proto.TypeExit, Payload: mustEncode(proto.Exit{
+				ExitCode: exitCode,
+				Signal:   exitSignal,
+				Reason:   "child_exited",
+			})})
+			// Mark why this attachment is about to see its connection
+			// error out, so attach.go's reader loop knows not to log a
+			// session.client_crashed event for what was actually a normal
+			// (or crashing, but attributable-to-the-child) session exit.
+			att.forceClose("session_exited")
+		}
 
 		r.deregister(id, name)
 		r.reap(ls, id)

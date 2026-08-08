@@ -202,6 +202,15 @@ func (s *Screen) Size() (rows, cols int) {
 	return s.emu.Height(), s.emu.Width()
 }
 
+// AltScreen reports whether the emulator is currently showing the
+// alternate screen buffer. Used by attach.go to populate Ready.AltScreen
+// (design doc §5.2) without reaching for the test-only DebugGrid snapshot.
+func (s *Screen) AltScreen() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.emu.IsAltScreen()
+}
+
 // Replies returns an io.Reader of device-query answers the emulator has
 // generated (e.g. in response to `ESC[6n`), meant to be copied to the PTY
 // master by the session's owner (supervisor, from M1 step 9 onward) so

@@ -26,8 +26,6 @@ const (
 type cmdFunc func(args []string, stdout, stderr io.Writer) int
 
 // commands is the dispatch table from subcommand name to implementation.
-// Steps 9+ add entries here (e.g. "ls", "new", "attach", "kill"); this file
-// only wires the subset in scope so far.
 var commands = map[string]cmdFunc{
 	"config":     cmdConfig,
 	"daemon":     cmdDaemon,
@@ -35,6 +33,7 @@ var commands = map[string]cmdFunc{
 	"ls":         cmdLs,
 	"new":        cmdNew,
 	"kill":       cmdKill,
+	"attach":     cmdAttach,
 }
 
 // hiddenCommands are dispatchable but never listed by printCommands.
