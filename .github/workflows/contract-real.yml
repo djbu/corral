@@ -1,0 +1,54 @@
+# Real-claude contract driver (M2 step 10, design doc A.7).
+#
+# The fake driver runs on every normal `go test` and needs no account, so it
+# is NOT here — it belongs in the standard unit workflow. This job runs ONLY
+# the real driver, which talks to a live claude account and therefore must
+# never gate a push:
+#
+#   - schedule: nightly, so a new claude release is exercised within a day
+#     (this is the practical "claude-version-change trigger" — the job records
+#     `claude --version` in its summary, so a bump shows up in the run history;
+#     a dedicated external version-watch can dispatch this same workflow later).
+#   - workflow_dispatch: manual re-run after a claude upgrade.
+#
+# NOTE: as of this commit the repository has no remote and no configured
+# secrets, so this workflow has never executed. TestContract's runReal is
+# likewise unverified until this job first goes green. See the runReal doc
+# comment in test/contract/contract_test.go.
+name: contract-real
+
+on:
+  schedule:
+    - cron: "0 7 * * *" # 07:00 UTC nightly
+  workflow_dispatch: {}
+
+# Never triggered by push/pull_request: the real driver is non-deterministic
+# by nature (it observes a live account) and would flake a merge gate.
+
+jobs:
+  contract-real:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CORRAL_CONTRACT: "1"
+      CORRAL_CONTRACT_TIMEOUT: "120" # per-case wall budget, seconds
+      # Forwarded to spawned sessions via the daemon's env snapshot whitelist
+      # (ANTHROPIC_API_KEY is already whitelisted in internal/daemon/daemon.go).
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install claude CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Record claude version
+        run: |
+          echo "claude version: $(claude --version)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Run real contract driver
+        run: go test ./test/contract/ -run TestContract -v -timeout 25m
