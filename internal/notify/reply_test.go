@@ -36,10 +36,11 @@ type writeCall struct {
 // delivery and (optionally) returns a per-call error to exercise the not-live
 // half of gate #3 without importing the supervisor package.
 type fakeInputWriter struct {
-	mu     sync.Mutex
-	calls  []writeCall
-	ch     chan writeCall
-	errFor func(id string) error
+	mu       sync.Mutex
+	calls    []writeCall
+	ch       chan writeCall
+	attempts chan string // fires on every call (before errFor); nil unless a test opts in
+	errFor   func(id string) error
 }
 
 func newFakeWriter() *fakeInputWriter {
@@ -47,6 +48,9 @@ func newFakeWriter() *fakeInputWriter {
 }
 
 func (w *fakeInputWriter) WriteInput(_ context.Context, id string, b []byte) error {
+	if w.attempts != nil {
+		w.attempts <- id
+	}
 	if w.errFor != nil {
 		if err := w.errFor(id); err != nil {
 			return err
@@ -133,6 +137,22 @@ func answeredEvents(t *testing.T, st *store.Store, id string) []map[string]any {
 	return out
 }
 
+// waitAnswered polls for at least want session.answered events on id. The
+// accept path writes the audit event after WriteInput returns, so a test that
+// syncs on WriteInput (via writer.ch) can observe the store a beat before the
+// append lands; polling closes that window without a fixed sleep.
+func waitAnswered(t *testing.T, st *store.Store, id string, want int) []map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		got := answeredEvents(t, st, id)
+		if len(got) >= want || time.Now().After(deadline) {
+			return got
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 // --- tests -------------------------------------------------------------
 
 // shellPayload is the security case: text with shell metacharacters that must
@@ -191,7 +211,7 @@ func TestReplySubscriberGates(t *testing.T) {
 	if got := answeredEvents(t, st, "id-working"); len(got) != 0 {
 		t.Fatalf("working-sess has %d session.answered events, want 0", len(got))
 	}
-	ans := answeredEvents(t, st, "id-blocked")
+	ans := waitAnswered(t, st, "id-blocked", 1)
 	if len(ans) != 1 {
 		t.Fatalf("blocked-sess has %d session.answered events, want 1", len(ans))
 	}
@@ -214,14 +234,23 @@ func TestReplySubscriberNotLiveDropped(t *testing.T) {
 
 	srv, _ := streamServer(t, "tok", 0, []string{"blocked-sess hi", "blocked-sess again"})
 	writer := newFakeWriter()
+	writer.attempts = make(chan string, 8)
 	writer.errFor = func(string) error { return errors.New("not live") }
 
 	sub := NewReplySubscriber(ReplyConfig{Server: srv.URL, Topic: "reply", Token: "tok"}, st, writer, clk, discardLogger())
 	sub.Start()
 	defer sub.Close()
 
-	// Give the stream time to process both messages; nothing should be audited.
-	time.Sleep(300 * time.Millisecond)
+	// Both messages pass gate #3's row check and reach WriteInput, which reports
+	// each as not-live. Waiting on the attempts signal (not a fixed sleep) proves
+	// both were processed; the not-live error path must audit neither.
+	for i := 0; i < 2; i++ {
+		select {
+		case <-writer.attempts:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timed out after %d delivery attempts, want 2", i)
+		}
+	}
 	if got := answeredEvents(t, st, "id-blocked"); len(got) != 0 {
 		t.Fatalf("failed delivery audited %d times, want 0", len(got))
 	}
