@@ -32,6 +32,23 @@ type Session struct {
 	Term              string
 	ScrollbackLines   int
 	OutputLogMaxBytes int64
+	// PermissionMode is user/env-settable only, never repo-settable (design
+	// doc §8.7, Amendment A.6) — see repo_allowlist.go.
+	PermissionMode string
+}
+
+// State is the resolved [state] configuration (design doc §8.7, Amendment
+// A.3.1/A.3.2). Entirely user-file/env only, never repo-settable; resolved
+// by its own LoadState pipeline, not LoadDaemon or LoadSession.
+type State struct {
+	StaleAfter           time.Duration
+	FirstHookGrace       time.Duration
+	PendingToolTTL       time.Duration
+	MaxEventPayloadBytes int64
+	PersistHookEvents    string
+	HookTimeout          time.Duration
+	PermissionSettle     time.Duration
+	PermissionTTL        time.Duration
 }
 
 // Attach is the resolved attach-scope configuration.

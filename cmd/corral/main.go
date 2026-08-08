@@ -34,14 +34,17 @@ var commands = map[string]cmdFunc{
 	"new":        cmdNew,
 	"kill":       cmdKill,
 	"attach":     cmdAttach,
+	"hook-relay": cmdHookRelay,
 }
 
 // hiddenCommands are dispatchable but never listed by printCommands.
 // "daemon-run" is the detached daemon body (design doc §3.1); it is always
 // launched by `corral daemon` itself via re-exec, never meant to be typed
-// by a human.
+// by a human. "hook-relay" is likewise always launched by the daemon's
+// generated hooks{} settings block (design doc §2.4), never by a human.
 var hiddenCommands = map[string]bool{
 	"daemon-run": true,
+	"hook-relay": true,
 }
 
 func main() {

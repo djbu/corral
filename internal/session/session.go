@@ -38,6 +38,15 @@ const (
 	AgentRunning  AgentState = "running"
 	AgentExited   AgentState = "exited"
 	AgentFailed   AgentState = "failed"
+	// AgentWorking, AgentBlocked, AgentIdle, AgentUnknown are M2 additions
+	// (design doc §4.1, Amendment A.8): a hook-driven Engine renders these
+	// once a session has started producing hook traffic. AgentUnknown is
+	// also the migration-0002 backfill value for any Status this package
+	// doesn't recognize.
+	AgentWorking AgentState = "working"
+	AgentBlocked AgentState = "blocked"
+	AgentIdle    AgentState = "idle"
+	AgentUnknown AgentState = "unknown"
 )
 
 // Session is the persisted view of a session: the store's sessions table,
@@ -72,4 +81,13 @@ type Session struct {
 	StartedAtMs      *int64
 	LastAttachedAtMs *int64
 	EndedAtMs        *int64
+
+	// New in M2 (design doc §6.1, Amendment A.8) — see migration 0002.
+	AgentState        AgentState // rendered by `corral ls`; NOT NULL, defaults to AgentStarting
+	AgentStateSinceMs *int64     // nil until an Engine first sets AgentState
+	BlockedReasonJSON string     // "" = NULL; shape owned by internal/state (later step), stored opaquely here
+	LastHookAtMs      *int64     // nil until the first hook-relay delivery for this session
+	HookCount         int
+	PermissionMode    string // "" = NULL = unset; user/env-settable only, never repo-settable (§8.7)
+	LastPromptID      string // "" = NULL; set by the most recent UserPromptSubmit hook
 }

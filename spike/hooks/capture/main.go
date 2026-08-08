@@ -20,14 +20,14 @@ import (
 )
 
 type record struct {
-	Timestamp string          `json:"timestamp"`
-	Argv      []string        `json:"argv"`
-	Pid       int             `json:"pid"`
-	Ppid      int             `json:"ppid"`
+	Timestamp string            `json:"timestamp"`
+	Argv      []string          `json:"argv"`
+	Pid       int               `json:"pid"`
+	Ppid      int               `json:"ppid"`
 	Env       map[string]string `json:"env"`
-	StdinRaw  string          `json:"stdin_raw"`
-	StdinJSON json.RawMessage `json:"stdin_json,omitempty"`
-	StdinErr  string          `json:"stdin_decode_err,omitempty"`
+	StdinRaw  string            `json:"stdin_raw"`
+	StdinJSON json.RawMessage   `json:"stdin_json,omitempty"`
+	StdinErr  string            `json:"stdin_decode_err,omitempty"`
 }
 
 func main() {

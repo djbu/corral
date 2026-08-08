@@ -60,7 +60,39 @@ type dbtx interface {
 // any pending migrations, and tightens file permissions on the DB and its
 // -wal/-shm siblings to 0600 (§6.3, §10.3). clk stamps every *_at_ms column
 // this Store writes.
+//
+// Migrations run on a separate, short-lived connection opened with
+// _pragma=foreign_keys(OFF) before the long-lived connection (foreign_keys
+// ON) is opened for normal operation (§6.2). This matters because SQLite's
+// 12-step table-rebuild recipe — used by migration 0002 and any future
+// migration that needs to change a column set SQLite can't ALTER in place —
+// renames the table being rebuilt out of the way and then DROPs it; with
+// foreign_keys ON, DROP TABLE on a table other tables reference performs an
+// implicit DELETE FROM first, and ON DELETE CASCADE on events.session_id
+// would fire for every row, silently wiping the events table. Running
+// migrations with foreign_keys OFF avoids that entirely, independent of
+// what any individual migration file does or forgets to do — PRAGMA
+// foreign_keys is a no-op once a transaction has started, so a migration
+// file cannot toggle it itself.
 func Open(path string, clk clock.Clock) (*Store, error) {
+	migDSN := fmt.Sprintf(
+		"file:%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(OFF)",
+		path,
+	)
+	migDB, err := sql.Open("sqlite", migDSN)
+	if err != nil {
+		return nil, fmt.Errorf("store: opening %s for migration: %w", path, err)
+	}
+	migDB.SetMaxOpenConns(1)
+
+	if err := runMigrations(migDB, migrationsFS()); err != nil {
+		migDB.Close()
+		return nil, err
+	}
+	if err := migDB.Close(); err != nil {
+		return nil, fmt.Errorf("store: closing migration connection for %s: %w", path, err)
+	}
+
 	dsn := fmt.Sprintf(
 		"file:%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)",
 		path,
@@ -70,11 +102,6 @@ func Open(path string, clk clock.Clock) (*Store, error) {
 		return nil, fmt.Errorf("store: opening %s: %w", path, err)
 	}
 	db.SetMaxOpenConns(1)
-
-	if err := runMigrations(db, migrationsFS()); err != nil {
-		db.Close()
-		return nil, err
-	}
 
 	if err := chmodDBFiles(path); err != nil {
 		db.Close()

@@ -17,7 +17,11 @@ import (
 var ErrNotFound = errors.New("store: not found")
 
 // ErrDuplicateName is returned by CreateSession when a session with the
-// same name already exists (sessions.name is UNIQUE).
+// same name is already in use by an active (non-terminal) session.
+// sessions.name is enforced unique only among rows not in a terminal state
+// (desired_state='stopped' AND status IN ('exited','failed')) via the
+// partial unique index sessions_name_active (migration 0002, §6.1) — a
+// stopped-and-exited/failed session's name can be reused by a new one.
 var ErrDuplicateName = errors.New("store: session name already exists")
 
 // sqliteConstraintUnique is SQLITE_CONSTRAINT_UNIQUE (sqlite3.h), the
@@ -175,7 +179,9 @@ func (s *Store) UpdateSession(ctx context.Context, id string, mutate func(*sessi
 				status = ?, pid = ?, pgid = ?, proc_start_ns = ?, rows = ?,
 				cols = ?, exit_code = ?, exit_signal = ?, resume_count = ?,
 				updated_at_ms = ?, started_at_ms = ?, last_attached_at_ms = ?,
-				ended_at_ms = ?
+				ended_at_ms = ?, agent_state = ?, agent_state_since_ms = ?,
+				blocked_reason_json = ?, last_hook_at_ms = ?, hook_count = ?,
+				permission_mode = ?, last_prompt_id = ?
 			WHERE id = ?
 		`,
 			sess.Name, string(sess.Mode), sess.Cwd, sess.ClaudeBin, nullableStr(sess.Model),
@@ -184,6 +190,9 @@ func (s *Store) UpdateSession(ctx context.Context, id string, mutate func(*sessi
 			sess.PID, sess.PGID, sess.ProcStartNs, sess.Rows, sess.Cols,
 			nullableIntPtr(sess.ExitCode), nullableStr(sess.ExitSignal), sess.ResumeCount,
 			sess.UpdatedAtMs, sess.StartedAtMs, sess.LastAttachedAtMs, sess.EndedAtMs,
+			string(sess.AgentState), sess.AgentStateSinceMs, nullableStr(sess.BlockedReasonJSON),
+			sess.LastHookAtMs, sess.HookCount, nullableStr(sess.PermissionMode),
+			nullableStr(sess.LastPromptID),
 			sess.ID,
 		)
 		if err != nil {
@@ -206,7 +215,9 @@ const sessionSelectColumns = `SELECT
 	settings_path, setting_sources, claude_session_id, desired_state,
 	status, pid, pgid, proc_start_ns, rows, cols, exit_code, exit_signal,
 	resume_count, created_at_ms, updated_at_ms, started_at_ms,
-	last_attached_at_ms, ended_at_ms`
+	last_attached_at_ms, ended_at_ms,
+	agent_state, agent_state_since_ms, blocked_reason_json, last_hook_at_ms,
+	hook_count, permission_mode, last_prompt_id`
 
 // rowScanner is implemented by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -219,12 +230,15 @@ func scanSession(row rowScanner) (*session.Session, error) {
 
 func scanSessionRow(row rowScanner) (*session.Session, error) {
 	var (
-		sess                                     session.Session
-		mode, desiredState, status               string
-		model, claudeSessionID, exitSignal       sql.NullString
-		argvJSON, envKeysJSON                    string
-		exitCode                                 sql.NullInt64
-		startedAtMs, lastAttachedAtMs, endedAtMs sql.NullInt64
+		sess                                            session.Session
+		mode, desiredState, status                      string
+		model, claudeSessionID, exitSignal              sql.NullString
+		argvJSON, envKeysJSON                           string
+		exitCode                                        sql.NullInt64
+		startedAtMs, lastAttachedAtMs, endedAtMs        sql.NullInt64
+		agentState                                      string
+		agentStateSinceMs, lastHookAtMs                 sql.NullInt64
+		blockedReasonJSON, permissionMode, lastPromptID sql.NullString
 	)
 
 	err := row.Scan(
@@ -234,6 +248,8 @@ func scanSessionRow(row rowScanner) (*session.Session, error) {
 		&sess.ProcStartNs, &sess.Rows, &sess.Cols, &exitCode, &exitSignal,
 		&sess.ResumeCount, &sess.CreatedAtMs, &sess.UpdatedAtMs,
 		&startedAtMs, &lastAttachedAtMs, &endedAtMs,
+		&agentState, &agentStateSinceMs, &blockedReasonJSON, &lastHookAtMs,
+		&sess.HookCount, &permissionMode, &lastPromptID,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -264,6 +280,19 @@ func scanSessionRow(row rowScanner) (*session.Session, error) {
 		v := endedAtMs.Int64
 		sess.EndedAtMs = &v
 	}
+
+	sess.AgentState = session.AgentState(agentState)
+	if agentStateSinceMs.Valid {
+		v := agentStateSinceMs.Int64
+		sess.AgentStateSinceMs = &v
+	}
+	sess.BlockedReasonJSON = blockedReasonJSON.String
+	if lastHookAtMs.Valid {
+		v := lastHookAtMs.Int64
+		sess.LastHookAtMs = &v
+	}
+	sess.PermissionMode = permissionMode.String
+	sess.LastPromptID = lastPromptID.String
 
 	if err := json.Unmarshal([]byte(argvJSON), &sess.Argv); err != nil {
 		return nil, fmt.Errorf("store: unmarshaling argv_json for session %s: %w", sess.ID, err)

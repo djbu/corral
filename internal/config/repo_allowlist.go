@@ -58,6 +58,12 @@ func filterRepoLayer(file string, l *layer) (*layer, []Rejection) {
 	if l.Session.OutputLogMaxBytes != nil {
 		reject("session.output_log_max_bytes")
 	}
+	// PermissionMode is user/env-settable only, never repo-settable (design
+	// doc §8.7, Amendment A.6): a repo's .corral.toml must never be able to
+	// widen a session's approval posture to bypassPermissions.
+	if l.Session.PermissionMode != nil {
+		reject("session.permission_mode")
+	}
 
 	// [attach] — nothing is repo-settable.
 	if l.Attach.PrefixKey != nil {
@@ -71,6 +77,36 @@ func filterRepoLayer(file string, l *layer) (*layer, []Rejection) {
 	}
 	if l.Attach.PingTimeout != nil {
 		reject("attach.ping_timeout")
+	}
+
+	// [state] — nothing is repo-settable (design doc §8.7, Amendment
+	// A.3.1/A.3.2): entirely user-file/env only, resolved by its own
+	// LoadState pipeline which never consults a repo file at all. These
+	// checks exist so a repo file that sets [state] keys anyway is still
+	// reported as a Rejection rather than silently ignored.
+	if l.State.StaleAfter != nil {
+		reject("state.stale_after")
+	}
+	if l.State.FirstHookGrace != nil {
+		reject("state.first_hook_grace")
+	}
+	if l.State.PendingToolTTL != nil {
+		reject("state.pending_tool_ttl")
+	}
+	if l.State.MaxEventPayloadBytes != nil {
+		reject("state.max_event_payload_bytes")
+	}
+	if l.State.PersistHookEvents != nil {
+		reject("state.persist_hook_events")
+	}
+	if l.State.HookTimeout != nil {
+		reject("state.hook_timeout")
+	}
+	if l.State.PermissionSettle != nil {
+		reject("state.permission_settle")
+	}
+	if l.State.PermissionTTL != nil {
+		reject("state.permission_ttl")
 	}
 
 	return out, rej

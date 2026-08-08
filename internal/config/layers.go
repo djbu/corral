@@ -10,6 +10,7 @@ type layer struct {
 	Daemon  daemonLayer  `toml:"daemon"`
 	Session sessionLayer `toml:"session"`
 	Attach  attachLayer  `toml:"attach"`
+	State   stateLayer   `toml:"state"`
 }
 
 type daemonLayer struct {
@@ -28,6 +29,10 @@ type sessionLayer struct {
 	Term              *string   `toml:"term"`
 	ScrollbackLines   *int      `toml:"scrollback_lines"`
 	OutputLogMaxBytes *string   `toml:"output_log_max_bytes"`
+	// PermissionMode is user/env-settable only, never repo-settable (design
+	// doc §8.7, Amendment A.6): a repo's .corral.toml must never be able to
+	// widen a session's approval posture to bypassPermissions.
+	PermissionMode *string `toml:"permission_mode"`
 }
 
 type attachLayer struct {
@@ -35,6 +40,23 @@ type attachLayer struct {
 	DetachKey    *string `toml:"detach_key"`
 	PingInterval *string `toml:"ping_interval"`
 	PingTimeout  *string `toml:"ping_timeout"`
+}
+
+// stateLayer is M2's [state] section (design doc §8.7, Amendment A.3.2/
+// A.3.1): entirely user-file/env only, never repo-settable — see
+// repo_allowlist.go. It is resolved by its own LoadState() pipeline
+// (defaults -> user file -> env, no repo file, no request), not by
+// LoadDaemon or LoadSession, so it deliberately is not touched by merge()
+// below; see mergeState.
+type stateLayer struct {
+	StaleAfter           *string `toml:"stale_after"`
+	FirstHookGrace       *string `toml:"first_hook_grace"`
+	PendingToolTTL       *string `toml:"pending_tool_ttl"`
+	MaxEventPayloadBytes *string `toml:"max_event_payload_bytes"`
+	PersistHookEvents    *string `toml:"persist_hook_events"`
+	HookTimeout          *string `toml:"hook_timeout"`
+	PermissionSettle     *string `toml:"permission_settle"`
+	PermissionTTL        *string `toml:"permission_ttl"`
 }
 
 // newLayer returns an all-nil layer, ready to be merged into.
@@ -131,6 +153,10 @@ func mergeSession(dst, src *sessionLayer, srcSource sourceFunc, sources map[stri
 		dst.OutputLogMaxBytes = src.OutputLogMaxBytes
 		sources["session.output_log_max_bytes"] = srcSource("session.output_log_max_bytes")
 	}
+	if src.PermissionMode != nil {
+		dst.PermissionMode = src.PermissionMode
+		sources["session.permission_mode"] = srcSource("session.permission_mode")
+	}
 }
 
 func mergeAttach(dst, src *attachLayer, srcSource sourceFunc, sources map[string]string) {
@@ -149,5 +175,46 @@ func mergeAttach(dst, src *attachLayer, srcSource sourceFunc, sources map[string
 	if src.PingTimeout != nil {
 		dst.PingTimeout = src.PingTimeout
 		sources["attach.ping_timeout"] = srcSource("attach.ping_timeout")
+	}
+}
+
+// mergeState is intentionally not called from merge() above: [state] has
+// its own pipeline (LoadState, load.go) with no repo-file stage and no
+// request stage, so it is merged by LoadState directly rather than folded
+// into the daemon/session/attach merge every LoadDaemon/LoadSession call
+// would otherwise perform (which would pollute their Sources maps with
+// "state.*" keys neither call site returns).
+func mergeState(dst, src *stateLayer, srcSource sourceFunc, sources map[string]string) {
+	if src.StaleAfter != nil {
+		dst.StaleAfter = src.StaleAfter
+		sources["state.stale_after"] = srcSource("state.stale_after")
+	}
+	if src.FirstHookGrace != nil {
+		dst.FirstHookGrace = src.FirstHookGrace
+		sources["state.first_hook_grace"] = srcSource("state.first_hook_grace")
+	}
+	if src.PendingToolTTL != nil {
+		dst.PendingToolTTL = src.PendingToolTTL
+		sources["state.pending_tool_ttl"] = srcSource("state.pending_tool_ttl")
+	}
+	if src.MaxEventPayloadBytes != nil {
+		dst.MaxEventPayloadBytes = src.MaxEventPayloadBytes
+		sources["state.max_event_payload_bytes"] = srcSource("state.max_event_payload_bytes")
+	}
+	if src.PersistHookEvents != nil {
+		dst.PersistHookEvents = src.PersistHookEvents
+		sources["state.persist_hook_events"] = srcSource("state.persist_hook_events")
+	}
+	if src.HookTimeout != nil {
+		dst.HookTimeout = src.HookTimeout
+		sources["state.hook_timeout"] = srcSource("state.hook_timeout")
+	}
+	if src.PermissionSettle != nil {
+		dst.PermissionSettle = src.PermissionSettle
+		sources["state.permission_settle"] = srcSource("state.permission_settle")
+	}
+	if src.PermissionTTL != nil {
+		dst.PermissionTTL = src.PermissionTTL
+		sources["state.permission_ttl"] = srcSource("state.permission_ttl")
 	}
 }

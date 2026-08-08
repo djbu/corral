@@ -15,3 +15,7 @@ spike/*/out/
 spike/*/run/
 spike/pty/corral-spike-pty
 spike/verify/corral-verify
+
+# sqlite WAL/shm sidecars — transient, regenerated on open
+testdata/db/*.db-shm
+testdata/db/*.db-wal

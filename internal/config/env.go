@@ -94,6 +94,44 @@ var envSpecs = []envSpec{
 		l.Attach.PingTimeout = strPtr(v)
 		return nil
 	}},
+
+	{"session.permission_mode", "CORRAL_SESSION_PERMISSION_MODE", func(l *layer, v string) error {
+		l.Session.PermissionMode = strPtr(v)
+		return nil
+	}},
+
+	{"state.stale_after", "CORRAL_STATE_STALE_AFTER", func(l *layer, v string) error {
+		l.State.StaleAfter = strPtr(v)
+		return nil
+	}},
+	{"state.first_hook_grace", "CORRAL_STATE_FIRST_HOOK_GRACE", func(l *layer, v string) error {
+		l.State.FirstHookGrace = strPtr(v)
+		return nil
+	}},
+	{"state.pending_tool_ttl", "CORRAL_STATE_PENDING_TOOL_TTL", func(l *layer, v string) error {
+		l.State.PendingToolTTL = strPtr(v)
+		return nil
+	}},
+	{"state.max_event_payload_bytes", "CORRAL_STATE_MAX_EVENT_PAYLOAD_BYTES", func(l *layer, v string) error {
+		l.State.MaxEventPayloadBytes = strPtr(v)
+		return nil
+	}},
+	{"state.persist_hook_events", "CORRAL_STATE_PERSIST_HOOK_EVENTS", func(l *layer, v string) error {
+		l.State.PersistHookEvents = strPtr(v)
+		return nil
+	}},
+	{"state.hook_timeout", "CORRAL_STATE_HOOK_TIMEOUT", func(l *layer, v string) error {
+		l.State.HookTimeout = strPtr(v)
+		return nil
+	}},
+	{"state.permission_settle", "CORRAL_STATE_PERMISSION_SETTLE", func(l *layer, v string) error {
+		l.State.PermissionSettle = strPtr(v)
+		return nil
+	}},
+	{"state.permission_ttl", "CORRAL_STATE_PERMISSION_TTL", func(l *layer, v string) error {
+		l.State.PermissionTTL = strPtr(v)
+		return nil
+	}},
 }
 
 func splitCommaList(v string) []string {

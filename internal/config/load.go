@@ -29,6 +29,7 @@ func defaultsLayer() *layer {
 			Term:              strPtr("xterm-256color"),
 			ScrollbackLines:   intPtr(2000),
 			OutputLogMaxBytes: strPtr("8MiB"),
+			PermissionMode:    strPtr(""),
 		},
 		Attach: attachLayer{
 			PrefixKey:    strPtr(`C-\`),
@@ -36,6 +37,23 @@ func defaultsLayer() *layer {
 			PingInterval: strPtr("15s"),
 			PingTimeout:  strPtr("45s"),
 		},
+	}
+}
+
+// defaultsStateLayer holds the [state] defaults (design doc §8.7, Amendment
+// A.3.1/A.3.2). Unlike defaultsLayer's Daemon/Session/Attach blocks, this is
+// only ever merged by LoadState, never by LoadDaemon/LoadSession's merge()
+// call.
+func defaultsStateLayer() *stateLayer {
+	return &stateLayer{
+		StaleAfter:           strPtr("15m"),
+		FirstHookGrace:       strPtr("60s"),
+		PendingToolTTL:       strPtr("30m"),
+		MaxEventPayloadBytes: strPtr("64KiB"),
+		PersistHookEvents:    strPtr("transitions"),
+		HookTimeout:          strPtr("2s"),
+		PermissionSettle:     strPtr("15s"),
+		PermissionTTL:        strPtr("6h"),
 	}
 }
 
@@ -217,7 +235,88 @@ func resolveSession(l *sessionLayer) (Session, error) {
 		Term:              derefStr(l.Term),
 		ScrollbackLines:   derefInt(l.ScrollbackLines),
 		OutputLogMaxBytes: n,
+		PermissionMode:    derefStr(l.PermissionMode),
 	}, nil
+}
+
+// resolveState parses a fully-merged stateLayer into State. All six duration
+// fields use time.ParseDuration; MaxEventPayloadBytes uses the same
+// ParseBytes helper as session.output_log_max_bytes; PersistHookEvents is
+// carried through as a plain string (its enum of values is validated by the
+// state engine, a later step, not here).
+func resolveState(l *stateLayer) (State, error) {
+	staleAfter, err := time.ParseDuration(derefStr(l.StaleAfter))
+	if err != nil {
+		return State{}, fmt.Errorf("config: state.stale_after=%q: %w", derefStr(l.StaleAfter), err)
+	}
+	firstHookGrace, err := time.ParseDuration(derefStr(l.FirstHookGrace))
+	if err != nil {
+		return State{}, fmt.Errorf("config: state.first_hook_grace=%q: %w", derefStr(l.FirstHookGrace), err)
+	}
+	pendingToolTTL, err := time.ParseDuration(derefStr(l.PendingToolTTL))
+	if err != nil {
+		return State{}, fmt.Errorf("config: state.pending_tool_ttl=%q: %w", derefStr(l.PendingToolTTL), err)
+	}
+	maxEventPayloadBytes, err := ParseBytes(derefStr(l.MaxEventPayloadBytes))
+	if err != nil {
+		return State{}, fmt.Errorf("config: state.max_event_payload_bytes=%q: %w", derefStr(l.MaxEventPayloadBytes), err)
+	}
+	hookTimeout, err := time.ParseDuration(derefStr(l.HookTimeout))
+	if err != nil {
+		return State{}, fmt.Errorf("config: state.hook_timeout=%q: %w", derefStr(l.HookTimeout), err)
+	}
+	permissionSettle, err := time.ParseDuration(derefStr(l.PermissionSettle))
+	if err != nil {
+		return State{}, fmt.Errorf("config: state.permission_settle=%q: %w", derefStr(l.PermissionSettle), err)
+	}
+	permissionTTL, err := time.ParseDuration(derefStr(l.PermissionTTL))
+	if err != nil {
+		return State{}, fmt.Errorf("config: state.permission_ttl=%q: %w", derefStr(l.PermissionTTL), err)
+	}
+	return State{
+		StaleAfter:           staleAfter,
+		FirstHookGrace:       firstHookGrace,
+		PendingToolTTL:       pendingToolTTL,
+		MaxEventPayloadBytes: maxEventPayloadBytes,
+		PersistHookEvents:    derefStr(l.PersistHookEvents),
+		HookTimeout:          hookTimeout,
+		PermissionSettle:     permissionSettle,
+		PermissionTTL:        permissionTTL,
+	}, nil
+}
+
+// LoadState resolves [state]-scope config: defaults -> ~/.corral/config.toml
+// -> env. Entirely user-file/env only (design doc §8.7, Amendment A.3.1/
+// A.3.2) — no repo file, no request stage — so it merges directly with
+// mergeState rather than going through LoadDaemon/LoadSession's merge().
+func LoadState() (State, map[string]string, error) {
+	merged := newLayer()
+	sources := make(map[string]string)
+	mergeState(&merged.State, defaultsStateLayer(), uniformSource(sourceDefault), sources)
+
+	userPath, err := userConfigPath()
+	if err != nil {
+		return State{}, nil, err
+	}
+	userLayer, err := decodeTOMLLayerIfExists(userPath)
+	if err != nil {
+		return State{}, nil, err
+	}
+	if userLayer != nil {
+		mergeState(&merged.State, &userLayer.State, uniformSource(userPath), sources)
+	}
+
+	envLayer, envSources, err := layerFromEnv(osLookup)
+	if err != nil {
+		return State{}, nil, err
+	}
+	mergeState(&merged.State, &envLayer.State, mapSource(envSources), sources)
+
+	st, err := resolveState(&merged.State)
+	if err != nil {
+		return State{}, nil, err
+	}
+	return st, sources, nil
 }
 
 func resolveAttach(l *attachLayer) (Attach, error) {
