@@ -216,12 +216,21 @@ func (d *Daemon) startup(ctx context.Context) error {
 		return fmt.Errorf("daemon: loading default session config: %w", err)
 	}
 	d.checkpointer = checkpoint.NewResumeCheckpointer(d.store, d.clk, grace, claudeHome, envSnapshot, sessionCfg.EnvPassthrough, sessionCfg.Term, d.sockPath)
-	// permission_settle/permission_ttl come from [state] config in 6c;
-	// notifier (step 8) is nil for now — blocking is still recorded and
-	// persisted, just not delivered anywhere yet.
+	// [state] config governs the engine's permission timers and staleness
+	// grace (user/env only — no repo-file stage; LoadState has its own
+	// pipeline). Best-effort: a bad [state] value falls back to NewEngine's
+	// built-in defaults rather than failing daemon startup, same discipline
+	// as the other non-fatal probes here. notifier (step 8) is nil for now —
+	// blocking is still recorded and persisted, just not delivered yet.
+	stateCfg, _, stateErr := config.LoadState()
+	if stateErr != nil {
+		d.log.Warn("using default [state] config; load failed", "err", stateErr)
+	}
 	d.engine = state.NewEngine(d.store, d.clk, state.EngineConfig{
-		PermissionSettle: 15 * time.Second, // A.3.2 default
-		PermissionTTL:    6 * time.Hour,
+		PermissionSettle: stateCfg.PermissionSettle,
+		PermissionTTL:    stateCfg.PermissionTTL,
+		StaleAfter:       stateCfg.StaleAfter,
+		FirstHookGrace:   stateCfg.FirstHookGrace,
 	}, nil, d.log)
 
 	relayCmd, err := resolveRelayCommand()

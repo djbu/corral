@@ -740,3 +740,73 @@ func TestUserPromptSubmitSupersedesOpenPermission(t *testing.T) {
 		t.Fatalf("no permission.resolved outcome=superseded recorded; events=%v", kinds)
 	}
 }
+
+// TestState_NeverHooked_RendersUnknown covers §4.5's timer-free
+// never-hooked derivation: a live session that has produced zero hooks
+// past FirstHookGrace renders unknown (the "hooks not firing?" failure),
+// derived at read time from persisted timestamps against the injected
+// clock — no goroutine, no timer.
+func TestState_NeverHooked_RendersUnknown(t *testing.T) {
+	fc := clocktest.NewFake(fixedStart)
+	st := openRealTestStore(t, fc)
+	e := NewEngine(st, fc, EngineConfig{}, nil, nil) // FirstHookGrace defaults to 60s
+
+	const id = "sess-never-hooked"
+	createTestSession(t, st, id, session.StatusRunning)
+	startMs := fixedStart.UnixMilli()
+	if _, err := st.UpdateSession(context.Background(), id, func(s *session.Session) {
+		s.StartedAtMs = &startMs
+	}); err != nil {
+		t.Fatalf("UpdateSession(started): %v", err)
+	}
+
+	// Within the grace window: not yet unknown — renders its persisted state.
+	if got := e.State(id); got != session.AgentStarting {
+		t.Fatalf("within grace: State = %q, want %q", got, session.AgentStarting)
+	}
+
+	fc.Advance(61 * time.Second) // past the 60s grace, still zero hooks
+	if got := e.State(id); got != session.AgentUnknown {
+		t.Fatalf("after grace, no hooks: State = %q, want %q", got, session.AgentUnknown)
+	}
+
+	// Any hook history at all disqualifies unknown: the derivation keys on
+	// HookCount==0, so a single hook flips it back to the persisted state.
+	if _, err := st.UpdateSession(context.Background(), id, func(s *session.Session) {
+		s.HookCount = 1
+	}); err != nil {
+		t.Fatalf("UpdateSession(hookcount): %v", err)
+	}
+	if got := e.State(id); got == session.AgentUnknown {
+		t.Fatalf("with hook history: State = %q, want non-unknown", got)
+	}
+}
+
+// TestPermissionModeRecordedFromPayload covers A.8's "last observed, from
+// hook payloads": the mode riding on a hook payload is persisted onto the
+// session row so `corral ls --json` can surface it.
+func TestPermissionModeRecordedFromPayload(t *testing.T) {
+	fc := clocktest.NewFake(fixedStart)
+	st := openRealTestStore(t, fc)
+	e := NewEngine(st, fc, EngineConfig{}, &spyNotifier{}, nil)
+
+	stepCh := make(chan struct{}, 64)
+	e.afterStep = func() { stepCh <- struct{}{} }
+
+	const id = "sess-permmode"
+	createTestSession(t, st, id, session.StatusRunning)
+	stopEngineLoop(t, e, id)
+
+	deliver(t, e, id, stepCh, hookrelay.HookPayload{
+		Common:   hookrelay.Common{HookEventName: "PreToolUse", SessionID: id, PermissionMode: "acceptEdits"},
+		PromptID: "p1", ToolName: "Bash", ToolUseID: "tu1", ToolInput: json.RawMessage(`{"command":"echo hi"}`),
+	})
+
+	sess, err := st.GetSession(context.Background(), id)
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if sess.PermissionMode != "acceptEdits" {
+		t.Fatalf("PermissionMode = %q, want %q", sess.PermissionMode, "acceptEdits")
+	}
+}

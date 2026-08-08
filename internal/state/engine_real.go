@@ -35,6 +35,11 @@ import (
 const (
 	defaultPermissionSettle = 15 * time.Second
 	defaultPermissionTTL    = 6 * time.Hour
+	// Staleness defaults (Amendment §4.5). Applied by NewEngine when
+	// EngineConfig leaves either at zero. Both drive render-time
+	// derivation only — there is no timer or sweeper goroutine.
+	defaultStaleAfter     = 15 * time.Minute
+	defaultFirstHookGrace = 60 * time.Second
 )
 
 // ingestBufferSize is the per-session hook-event queue's capacity.
@@ -53,6 +58,14 @@ type EngineConfig struct {
 	// NOT from when it crossed PermissionSettle and became blocked — the
 	// two timers are independent, both anchored to openedAt.
 	PermissionTTL time.Duration
+	// StaleAfter and FirstHookGrace drive §4.5 render-time staleness — no
+	// timer, evaluated only inside State(). FirstHookGrace: a live session
+	// that has produced zero hooks for longer than this since it started
+	// renders AgentUnknown (the "hooks not firing?" failure). StaleAfter is
+	// consumed by the ls render path (working -> "working?"), carried here
+	// so the one [state] config block configures both.
+	StaleAfter     time.Duration
+	FirstHookGrace time.Duration
 }
 
 // Notifier is step 8's seam for delivering a blocked notification (e.g. to
@@ -92,6 +105,12 @@ func NewEngine(st *store.Store, clk clock.Clock, cfg EngineConfig, notifier Noti
 	}
 	if cfg.PermissionTTL == 0 {
 		cfg.PermissionTTL = defaultPermissionTTL
+	}
+	if cfg.StaleAfter == 0 {
+		cfg.StaleAfter = defaultStaleAfter
+	}
+	if cfg.FirstHookGrace == 0 {
+		cfg.FirstHookGrace = defaultFirstHookGrace
 	}
 	if log == nil {
 		log = slog.Default()
@@ -147,6 +166,19 @@ func (e *realEngine) State(sessionID string) session.AgentState {
 	}
 	if sess.Status == session.StatusExited || sess.Status == session.StatusFailed {
 		return statusToAgentState(sess.Status)
+	}
+	// §4.5 never-hooked: a live (starting/running) session that has produced
+	// no hook at all for longer than FirstHookGrace since it started renders
+	// unknown — the "hooks not firing?" failure (broken settings pin, relay
+	// not wired). This is the failure that matters most: without it the user
+	// stares at "starting" forever. Timer-free — derived here at read time
+	// from persisted timestamps against the injected clock. A session that
+	// has ANY hook history (HookCount > 0) can never be unknown, so blocked
+	// and idle are unaffected.
+	if sess.HookCount == 0 && sess.StartedAtMs != nil {
+		if e.clk.Now().Sub(time.UnixMilli(*sess.StartedAtMs)) > e.cfg.FirstHookGrace {
+			return session.AgentUnknown
+		}
 	}
 	return sess.AgentState
 }
@@ -579,6 +611,13 @@ func (l *sessionLoop) persistHeartbeat(ctx context.Context, ev hookrelay.HookPay
 		s.LastHookAtMs = &nowMs
 		if ev.PromptID != "" {
 			s.LastPromptID = ev.PromptID
+		}
+		// permission_mode is "last observed, from hook payloads" (A.8): it
+		// rides on nearly every payload (all but SessionStart). Record the
+		// most recent non-empty value so `corral ls --json` can surface the
+		// mode the agent is actually running under.
+		if ev.PermissionMode != "" {
+			s.PermissionMode = ev.PermissionMode
 		}
 	})
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
