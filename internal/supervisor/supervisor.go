@@ -156,6 +156,19 @@ func (r *Registry) ListLive() []*LiveSession {
 	return out
 }
 
+// LiveIDs returns the session IDs of every currently-live session. Used by
+// the idle reaper to enumerate reap candidates without copying LiveSession
+// handles out of the registry.
+func (r *Registry) LiveIDs() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ids := make([]string, 0, len(r.live))
+	for id := range r.live {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // List is an exported alias for ListLive, for callers outside the
 // daemon.LiveSessionLister seam that would otherwise have no reason to know
 // that interface's method name.
@@ -549,6 +562,38 @@ func (r *Registry) Kill(ctx context.Context, idOrName string, grace *time.Durati
 	r.appendEvent(ctx, ls.SessionID, session.EventSessionKilled, nil)
 	if err := r.engine.OnLifecycle(ctx, ls.SessionID, session.EventSessionKilled, nil); err != nil {
 		r.log.Warn("supervisor: engine.OnLifecycle killed", "session_id", ls.SessionID, "err", err)
+	}
+
+	return r.store.GetSession(ctx, ls.SessionID)
+}
+
+// CheckpointIdle checkpoints a live session that the idle reaper has judged
+// idle past state.idle_timeout (design doc m3 §3). Like Kill it persists
+// desired_state=stopped BEFORE signalling, so a crash mid-reap never leaves a
+// reaped session marked 'running' for recovery to resurrect — a reaped
+// session is stopped-but-resumable, woken only on demand (a later step).
+// idleFor is recorded on the session.idle_reaped event for observability.
+func (r *Registry) CheckpointIdle(ctx context.Context, id string, idleFor time.Duration) (*session.Session, error) {
+	ls, ok := r.Get(id)
+	if !ok {
+		return nil, fmt.Errorf("supervisor: %w: %s", ErrNotLive, id)
+	}
+
+	if _, err := r.store.UpdateSession(ctx, ls.SessionID, func(sess *session.Session) {
+		sess.DesiredState = session.DesiredStopped
+	}); err != nil {
+		return nil, fmt.Errorf("supervisor: marking %s stopped: %w", ls.SessionID, err)
+	}
+
+	if err := r.checkpointer.Checkpoint(ctx, ls, "idle_reap"); err != nil {
+		return nil, fmt.Errorf("supervisor: idle-reaping %s: %w", ls.SessionID, err)
+	}
+
+	r.appendEvent(ctx, ls.SessionID, session.EventSessionIdleReaped, map[string]any{
+		"idle_ms": idleFor.Milliseconds(),
+	})
+	if err := r.engine.OnLifecycle(ctx, ls.SessionID, session.EventSessionIdleReaped, nil); err != nil {
+		r.log.Warn("supervisor: engine.OnLifecycle idle_reaped", "session_id", ls.SessionID, "err", err)
 	}
 
 	return r.store.GetSession(ctx, ls.SessionID)

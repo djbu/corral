@@ -22,6 +22,7 @@ import (
 	"github.com/danielbecerra/corral/internal/clock"
 	"github.com/danielbecerra/corral/internal/config"
 	"github.com/danielbecerra/corral/internal/notify"
+	"github.com/danielbecerra/corral/internal/reaper"
 	"github.com/danielbecerra/corral/internal/session"
 	"github.com/danielbecerra/corral/internal/state"
 	"github.com/danielbecerra/corral/internal/store"
@@ -82,6 +83,10 @@ type Daemon struct {
 	// reply subscriber is disabled. Closed on shutdown, before the store, since
 	// an accepted reply writes session.answered to the store.
 	replySub *notify.ReplySubscriber
+	// reaper is step-13's idle reaper, or a no-op Reaper when state.
+	// idle_timeout is 0. Closed on shutdown, before the store, since a reap
+	// writes to the store (CheckpointIdle).
+	reaper *reaper.Reaper
 	// checkpointer is concretely typed (rather than the checkpoint.
 	// Checkpointer interface) so shutdown.go can call WithGrace for a
 	// per-request grace override; M1 has only this one implementation.
@@ -336,6 +341,12 @@ func (d *Daemon) startup(ctx context.Context) error {
 	if err := d.runRecovery(ctx, registry); err != nil {
 		return err
 	}
+
+	// Step 13: idle reaper, started only after recovery has finished so a
+	// resumed session's freshly-set last_activity_ms is never observed as
+	// stale by a reap running concurrently with recovery itself.
+	d.reaper = reaper.New(registry, d.store, d.clk, d.log, stateCfg.IdleTimeout)
+	d.reaper.Start()
 
 	// Step 9: acquire the socket, chmod it, write the pidfile.
 	ln, err := Listen(d.sockPath)

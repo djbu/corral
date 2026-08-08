@@ -148,7 +148,7 @@ func (e *realEngine) OnLifecycle(ctx context.Context, sessionID string, kind ses
 	switch kind {
 	case session.EventSessionSpawned:
 		e.getOrCreateLoop(sessionID)
-	case session.EventSessionExited, session.EventSessionKilled:
+	case session.EventSessionExited, session.EventSessionKilled, session.EventSessionIdleReaped:
 		e.stopLoop(sessionID)
 	}
 	return nil

@@ -21,7 +21,8 @@ const (
 	EventSessionResumed       EventKind = "session.resumed"
 	EventSessionOrphanReaped  EventKind = "session.orphan_reaped"
 	EventSessionUnresumable   EventKind = "session.unresumable"
-	EventSessionAnswered      EventKind = "session.answered" // corral answer wrote input to the PTY
+	EventSessionAnswered      EventKind = "session.answered"    // corral answer wrote input to the PTY
+	EventSessionIdleReaped    EventKind = "session.idle_reaped" // idle reaper checkpointed a session past state.idle_timeout
 
 	EventHookReceived     EventKind = "hook.received"
 	EventHookDropped      EventKind = "hook.dropped"

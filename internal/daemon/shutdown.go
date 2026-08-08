@@ -23,6 +23,15 @@ func (d *Daemon) shutdown(ctx context.Context, grace time.Duration) error {
 		d.log.Warn("recording daemon.stopping event", "err", err)
 	}
 
+	// Stop the idle reaper before checkpointing live sessions, so it can't
+	// launch a reap that races the shutdown checkpoint. Close joins the
+	// goroutine; after it returns no reap is in flight. It writes to the store
+	// (CheckpointIdle), so like the notifier/replySub it must stop before the
+	// store closes below — stopping it here (earliest) trivially satisfies that.
+	if d.reaper != nil {
+		d.reaper.Close()
+	}
+
 	// Step 1: stop accepting new connections.
 	if err := d.listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		d.log.Warn("shutdown: closing listener", "err", err)
