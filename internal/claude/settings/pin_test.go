@@ -26,15 +26,18 @@ func testSpec() session.Spec {
 	}
 }
 
+const testRelayCommand = "'/usr/local/bin/corral' hook-relay"
+
 // TestPinSettingsJSONByteExact is design doc §10.2's claude/settings row:
-// "pinned file contents byte-exact". `{"hooks": {}}` (with the space) is
-// the doc's literal, and json.Marshal would not reproduce it — this
-// asserts the actual bytes on disk, not merely JSON-equivalence.
+// "pinned file contents byte-exact" — M2 (Amendment A.2) generates the
+// settings.json bytes via BuildSettingsJSON rather than a fixed literal, so
+// Pin's own output must be byte-identical to calling BuildSettingsJSON
+// directly with the same relayCommand.
 func TestPinSettingsJSONByteExact(t *testing.T) {
 	dir := t.TempDir()
 	clk := clocktest.NewFake(time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC))
 
-	pinned, err := Pin(dir, testSpec(), clk, "0.1.0", 1)
+	pinned, err := Pin(dir, testSpec(), clk, "0.1.0", 1, testRelayCommand, nil)
 	if err != nil {
 		t.Fatalf("Pin: %v", err)
 	}
@@ -43,19 +46,35 @@ func TestPinSettingsJSONByteExact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile settings.json: %v", err)
 	}
-	if string(got) != `{"hooks": {}}` {
-		t.Fatalf("settings.json contents = %q, want %q", got, `{"hooks": {}}`)
+	want, err := BuildSettingsJSON(testRelayCommand)
+	if err != nil {
+		t.Fatalf("BuildSettingsJSON: %v", err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("settings.json contents = %q, want %q", got, want)
 	}
 }
 
 // TestPinSettingsJSONOnlyKnownKeys parses settings.json as JSON and
-// asserts it contains only documented Claude Code settings keys — in
-// M1's case, exactly "hooks" — per §10.2 and the Content doc comment's
-// rationale (an unrecognized key risks the whole file being silently
-// ignored by claude in non-interactive mode).
+// asserts it contains only documented Claude Code settings keys — exactly
+// "hooks" — per §10.2 and the package doc comment's rationale (an
+// unrecognized key risks the whole file being silently ignored by claude in
+// non-interactive mode).
 func TestPinSettingsJSONOnlyKnownKeys(t *testing.T) {
+	dir := t.TempDir()
+	clk := clocktest.NewFake(time.Now())
+
+	pinned, err := Pin(dir, testSpec(), clk, "0.1.0", 1, testRelayCommand, nil)
+	if err != nil {
+		t.Fatalf("Pin: %v", err)
+	}
+	raw, err := os.ReadFile(pinned.SettingsPath)
+	if err != nil {
+		t.Fatalf("ReadFile settings.json: %v", err)
+	}
+
 	var m map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(Content), &m); err != nil {
+	if err := json.Unmarshal(raw, &m); err != nil {
 		t.Fatalf("settings.json content does not parse as JSON: %v", err)
 	}
 	knownM1Keys := map[string]bool{"hooks": true}
@@ -72,7 +91,7 @@ func TestPinModesAndLayout(t *testing.T) {
 	dir := t.TempDir()
 	clk := clocktest.NewFake(time.Now())
 
-	pinned, err := Pin(dir, testSpec(), clk, "0.1.0", 1)
+	pinned, err := Pin(dir, testSpec(), clk, "0.1.0", 1, testRelayCommand, nil)
 	if err != nil {
 		t.Fatalf("Pin: %v", err)
 	}
@@ -118,7 +137,7 @@ func TestPinTightensPreexistingLooseModes(t *testing.T) {
 	}
 
 	clk := clocktest.NewFake(time.Now())
-	pinned, err := Pin(dir, spec, clk, "0.1.0", 1)
+	pinned, err := Pin(dir, spec, clk, "0.1.0", 1, testRelayCommand, nil)
 	if err != nil {
 		t.Fatalf("Pin: %v", err)
 	}
@@ -149,7 +168,7 @@ func TestPinMetaJSONWrittenAndProvenance(t *testing.T) {
 	clk := clocktest.NewFake(fixed)
 
 	spec := testSpec()
-	pinned, err := Pin(dir, spec, clk, "0.1.0", 1)
+	pinned, err := Pin(dir, spec, clk, "0.1.0", 1, testRelayCommand, nil)
 	if err != nil {
 		t.Fatalf("Pin: %v", err)
 	}
@@ -207,7 +226,7 @@ func TestPinSpecHashChangesWithSpec(t *testing.T) {
 	clk := clocktest.NewFake(time.Now())
 
 	specA := testSpec()
-	pinnedA, err := Pin(dir, specA, clk, "0.1.0", 1)
+	pinnedA, err := Pin(dir, specA, clk, "0.1.0", 1, testRelayCommand, nil)
 	if err != nil {
 		t.Fatalf("Pin A: %v", err)
 	}
@@ -215,7 +234,7 @@ func TestPinSpecHashChangesWithSpec(t *testing.T) {
 	specB := testSpec()
 	specB.Model = "opus"
 	dirB := t.TempDir()
-	pinnedB, err := Pin(dirB, specB, clk, "0.1.0", 1)
+	pinnedB, err := Pin(dirB, specB, clk, "0.1.0", 1, testRelayCommand, nil)
 	if err != nil {
 		t.Fatalf("Pin B: %v", err)
 	}
@@ -226,7 +245,7 @@ func TestPinSpecHashChangesWithSpec(t *testing.T) {
 
 	// Same spec, pinned twice, must hash identically (determinism).
 	dirC := t.TempDir()
-	pinnedC, err := Pin(dirC, specA, clk, "0.1.0", 1)
+	pinnedC, err := Pin(dirC, specA, clk, "0.1.0", 1, testRelayCommand, nil)
 	if err != nil {
 		t.Fatalf("Pin C: %v", err)
 	}

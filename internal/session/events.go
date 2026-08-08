@@ -21,6 +21,11 @@ const (
 	EventSessionResumed       EventKind = "session.resumed"
 	EventSessionOrphanReaped  EventKind = "session.orphan_reaped"
 	EventSessionUnresumable   EventKind = "session.unresumable"
+
+	EventHookReceived     EventKind = "hook.received"
+	EventHookDropped      EventKind = "hook.dropped"
+	EventHookUnauthorized EventKind = "hook.unauthorized"
+	EventHookUndecodable  EventKind = "hook.undecodable"
 )
 
 // Event is one row of the append-only events table. SessionID is "" for a

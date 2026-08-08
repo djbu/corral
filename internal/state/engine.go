@@ -9,19 +9,25 @@ package state
 
 import (
 	"context"
+	"errors"
 
+	"github.com/danielbecerra/corral/internal/hookrelay"
 	"github.com/danielbecerra/corral/internal/session"
 	"github.com/danielbecerra/corral/internal/store"
 )
 
-// HookEvent is a placeholder payload for M2's hook-relay entry point.
-// Nothing in M1 constructs one; it exists so the Engine interface's shape
-// is fixed now and M2 does not need to change the method signature, only
-// fill in a real definition and a real implementation of OnHookEvent.
-type HookEvent struct {
-	Name string
-	Data map[string]any
-}
+// HookEvent is M2's hook-relay entry-point payload: a type alias (not a
+// wrapper) for hookrelay.HookPayload, so the Engine interface's method
+// signature stays textually identical to M1's placeholder while callers now
+// get the real decoded payload.
+type HookEvent = hookrelay.HookPayload
+
+// ErrQueueFull is returned by OnHookEvent when the per-session ingest queue
+// is full. The caller (the hooks HTTP handler) treats this as non-fatal: it
+// records a hook.dropped event and still returns HTTP 200 to the relay —
+// corral must never perturb the agent process over a full queue. The queue
+// itself arrives in a later step.
+var ErrQueueFull = errors.New("state: hook ingest queue full")
 
 // Engine is the seam between session lifecycle and the AgentState rendered
 // by `corral ls`. M1's NoopEngine is the only implementation; M2 replaces

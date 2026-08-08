@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/danielbecerra/corral/internal/clock/clocktest"
+	"github.com/danielbecerra/corral/internal/hookrelay"
 	"github.com/danielbecerra/corral/internal/session"
 	"github.com/danielbecerra/corral/internal/store"
 )
@@ -90,7 +91,7 @@ func TestNoopEngine_LifecycleAndHookEventAreNoops(t *testing.T) {
 	st := openTestStore(t)
 	eng := New(st)
 
-	if err := eng.OnHookEvent(context.Background(), "sess-1", HookEvent{Name: "PreToolUse"}); err != nil {
+	if err := eng.OnHookEvent(context.Background(), "sess-1", HookEvent{Common: hookrelay.Common{HookEventName: "PreToolUse"}}); err != nil {
 		t.Fatalf("OnHookEvent: %v", err)
 	}
 	if err := eng.OnLifecycle(context.Background(), "sess-1", session.EventSessionSpawned, nil); err != nil {

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -217,6 +218,11 @@ func (d *Daemon) startup(ctx context.Context) error {
 	d.checkpointer = checkpoint.NewResumeCheckpointer(d.store, d.clk, grace, claudeHome, envSnapshot, sessionCfg.EnvPassthrough, sessionCfg.Term, d.sockPath)
 	d.engine = state.New(d.store)
 
+	relayCmd, err := resolveRelayCommand()
+	if err != nil {
+		return fmt.Errorf("daemon: resolving relay command: %w", err)
+	}
+
 	registry := supervisor.New(d.store, d.engine, checkpointerAdapter{d.checkpointer}, d.clk, supervisor.Config{
 		StateDir:          d.cfg.StateDir,
 		SockPath:          d.sockPath,
@@ -230,6 +236,8 @@ func (d *Daemon) startup(ctx context.Context) error {
 		RecoveryGrace:     grace,
 		PingInterval:      attachCfg.PingInterval,
 		PingTimeout:       attachCfg.PingTimeout,
+		RelayCommand:      relayCmd,
+		ClaudeHome:        claudeHome,
 	}, d.log)
 	d.supervisor = registry
 
@@ -270,6 +278,11 @@ func (d *Daemon) startup(ctx context.Context) error {
 		Store:    d.store,
 		Engine:   d.engine,
 		Registry: registry,
+	})
+	srv.RegisterHooks(api.HooksDeps{
+		Store:   d.store,
+		Engine:  d.engine,
+		Secrets: registry,
 	})
 	srv.RegisterAttach(registry, d.log)
 	d.srv = &http.Server{Handler: srv.Handler()}
@@ -419,6 +432,27 @@ func mustHomeDir() string {
 		return ""
 	}
 	return home
+}
+
+// resolveRelayCommand returns the shell command prefix the pinned hooks{}
+// block invokes: the absolute path to the running corral binary followed by
+// "hook-relay". Resolved once at startup via os.Executable + EvalSymlinks so
+// the child never PATH-resolves a security-relevant helper (Amendment A.2).
+func resolveRelayCommand() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	return shellQuote(exe) + " hook-relay", nil
+}
+
+// shellQuote single-quotes s for safe embedding in the shell command string
+// settings.json's hooks{} block runs, escaping any embedded single quotes.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func parseLevel(s string) slog.Level {

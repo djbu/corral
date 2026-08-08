@@ -16,23 +16,14 @@ import (
 	"github.com/danielbecerra/corral/internal/session"
 )
 
-// Content is the exact, byte-literal content written to settings.json.
-// M1's whole content is fixed (design doc §7.4: "M1 content is exactly
-// {"hooks": {}}") — this is a Go string constant rather than something
-// produced by json.Marshal specifically so the bytes on disk are exactly
-// these bytes, not merely JSON-equivalent to them (encoding/json would
-// drop the space after the colon and after "hooks":, producing
-// {"hooks":{}} instead — both parse identically, but §10.2 asks for
-// byte-exact contents, and matching the design doc's literal exactly
-// means a future diff against the doc's own text is trivially checkable).
-//
 // Why this file may contain *only* documented Claude Code settings keys,
 // never a corral-specific one: claude silently ignores an entire settings
 // file that fails validation in non-interactive mode (per --help; spike
 // finding #3) — a "$corral" key here would risk silently disabling this
 // whole pin, the exact failure mode finding #3 says must be eliminated.
-// Provenance therefore lives in the sibling meta.json instead.
-const Content = `{"hooks": {}}`
+// Provenance therefore lives in the sibling meta.json instead. M2 (design
+// doc's Amendment A.2) replaces M1's fixed `{"hooks": {}}` with
+// BuildSettingsJSON's 15-event relay registration (hooks.go).
 
 // dirMode/fileMode are §7.4's exact required modes: the per-session
 // directory is 0700, every file inside it (settings.json, meta.json,
@@ -52,6 +43,12 @@ type Meta struct {
 	Name          string `json:"name"`
 	CreatedAt     string `json:"created_at"` // RFC3339Nano, from the injected Clock — never time.Now().
 	SpecHash      string `json:"spec_hash"`
+	// ForeignHooks lists the hook event names found under
+	// <claudeHome>/settings.json's own "hooks" object at spawn time — hooks
+	// a user configured outside corral (Amendment A.2's foreign-hook
+	// resolution). nil/omitted when none were found or the file could not
+	// be read/parsed; never fails Pin.
+	ForeignHooks []string `json:"foreign_hooks,omitempty"`
 }
 
 // Pinned is the result of a successful Pin call: the paths of the
@@ -80,7 +77,7 @@ type Pinned struct {
 // it has a *screen.Screen for this session) calls
 // screen.OpenOutputLog(pinned.OutputLogPath, ...) and Screen.SetOutputLog
 // itself.
-func Pin(stateDir string, spec session.Spec, clk clock.Clock, corralVersion string, apiVersion int) (*Pinned, error) {
+func Pin(stateDir string, spec session.Spec, clk clock.Clock, corralVersion string, apiVersion int, relayCommand string, foreignHooks []string) (*Pinned, error) {
 	if spec.ID == "" {
 		return nil, fmt.Errorf("settings: Pin: spec.ID is empty")
 	}
@@ -97,7 +94,11 @@ func Pin(stateDir string, spec session.Spec, clk clock.Clock, corralVersion stri
 	}
 
 	settingsPath := filepath.Join(dir, "settings.json")
-	if err := writeFile(settingsPath, []byte(Content)); err != nil {
+	settingsBytes, err := BuildSettingsJSON(relayCommand)
+	if err != nil {
+		return nil, fmt.Errorf("settings: building settings.json: %w", err)
+	}
+	if err := writeFile(settingsPath, settingsBytes); err != nil {
 		return nil, err
 	}
 
@@ -108,6 +109,7 @@ func Pin(stateDir string, spec session.Spec, clk clock.Clock, corralVersion stri
 		Name:          spec.Name,
 		CreatedAt:     clk.Now().Format("2006-01-02T15:04:05.000000000Z07:00"),
 		SpecHash:      specHash(spec),
+		ForeignHooks:  foreignHooks,
 	}
 	metaJSON, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {

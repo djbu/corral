@@ -25,6 +25,7 @@ const (
 	CodeUnsupportedMode    Code = "unsupported_mode"
 	CodeDaemonShuttingDown Code = "daemon_shutting_down"
 	CodeInternal           Code = "internal"
+	CodeUnauthorized       Code = "unauthorized"
 )
 
 // errorBody is the "error" object inside the envelope.

@@ -35,4 +35,12 @@ type LiveSession struct {
 	// clearAttachmentIfCurrent, which are the only code that reads or
 	// writes this field.
 	Attachment *Attachment
+
+	// Secret is this session's per-session hook-auth secret (Amendment:
+	// CORRAL_SESSION_SECRET). In-memory ONLY — never persisted, never
+	// logged, never returned by any API. The hooks HTTP handler compares an
+	// inbound Corral-Session-Secret header against this value to authorize
+	// a hook payload as genuinely coming from this session's own claude
+	// child (via the relay).
+	Secret string
 }

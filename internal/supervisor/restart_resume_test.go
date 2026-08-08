@@ -76,7 +76,7 @@ func (c *restartResumeCheckpointer) Restore(ctx context.Context, rec session.Ses
 		Cols:           uint16(rec.Cols),
 		ResumeFrom:     rec.ClaudeSessionID,
 	}
-	spec.Env = BuildEnv(spec, c.envSnapshot, c.envPassthrough, "xterm-256color", "/tmp/corral-test.sock")
+	spec.Env = BuildEnv(spec, c.envSnapshot, c.envPassthrough, "xterm-256color", "/tmp/corral-test.sock", "")
 	return spec, nil
 }
 
@@ -269,7 +269,7 @@ func TestGracefulRestartResumes(t *testing.T) {
 	for k := range snapshot {
 		allowed[k] = true
 	}
-	for _, extra := range []string{"TERM", "COLORTERM", "PWD", "CORRAL_SESSION_ID", "CORRAL_SOCK"} {
+	for _, extra := range []string{"TERM", "COLORTERM", "PWD", "CORRAL_SESSION_ID", "CORRAL_SOCK", "CORRAL_SESSION_SECRET"} {
 		allowed[extra] = true
 	}
 	for _, kv := range inv.Environ {

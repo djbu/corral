@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 	"syscall"
@@ -65,6 +66,18 @@ type Config struct {
 	// rather than a busy-loop or a disabled ticker.
 	PingInterval time.Duration
 	PingTimeout  time.Duration
+
+	// RelayCommand is the shell-safe command prefix (absolute corral binary
+	// path + " hook-relay") the pinned settings.json's hooks{} block
+	// invokes for every registered event (Amendment A.2). Resolved once at
+	// daemon startup (daemon.go's resolveRelayCommand) — never re-resolved
+	// per spawn.
+	RelayCommand string
+	// ClaudeHome is ~/.claude (or a fake HOME in tests) — Spawn reads
+	// <ClaudeHome>/settings.json best-effort to detect and log any
+	// pre-existing ("foreign") hooks a user configured outside corral.
+	// Read-only: corral must never write to ClaudeHome.
+	ClaudeHome string
 }
 
 // Registry is the concrete, in-process live-session tracker: it implements
@@ -152,6 +165,18 @@ func (r *Registry) deregister(id, name string) {
 	delete(r.names, name)
 }
 
+// SecretFor returns the in-memory hook-auth secret for a live session.
+// ok is false if no live session with that id exists.
+func (r *Registry) SecretFor(sessionID string) (secret string, ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ls, ok := r.live[sessionID]
+	if !ok {
+		return "", false
+	}
+	return ls.Secret, true
+}
+
 // normalizeSize mirrors Spawn's own default-40x120-when-either-is-zero rule
 // (design doc §7.1) so the Screen this package creates before calling Spawn
 // is sized identically to the PTY Spawn actually starts.
@@ -166,6 +191,37 @@ func envKeyNames(env map[string]string) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// readForeignHookEvents best-effort reads <claudeHome>/settings.json and
+// returns the sorted event names under its top-level "hooks" object — hooks
+// a user configured outside corral (Amendment: corral's own pinned
+// settings.json lives per-session under stateDir, never under claudeHome).
+// Read-only, and never fails Spawn: a missing or unparseable file simply
+// yields no names.
+func readForeignHookEvents(claudeHome string) []string {
+	if claudeHome == "" {
+		return nil
+	}
+	b, err := os.ReadFile(filepath.Join(claudeHome, "settings.json"))
+	if err != nil {
+		return nil
+	}
+	var parsed struct {
+		Hooks map[string]json.RawMessage `json:"hooks"`
+	}
+	if err := json.Unmarshal(b, &parsed); err != nil {
+		return nil
+	}
+	if len(parsed.Hooks) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(parsed.Hooks))
+	for k := range parsed.Hooks {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func normalizeSize(rows, cols uint16) (uint16, uint16) {
@@ -190,7 +246,17 @@ func (r *Registry) Spawn(ctx context.Context, spec session.Spec) (*session.Sessi
 	rows, cols := normalizeSize(spec.Rows, spec.Cols)
 	spec.Rows, spec.Cols = rows, cols
 
-	pinned, err := settings.Pin(r.cfg.StateDir, spec, r.clock, r.cfg.CorralVersion, r.cfg.APIVersion)
+	secret, err := newSessionSecret()
+	if err != nil {
+		return nil, fmt.Errorf("supervisor: generating session secret for %s: %w", spec.ID, err)
+	}
+
+	foreignHooks := readForeignHookEvents(r.cfg.ClaudeHome)
+	if len(foreignHooks) > 0 {
+		r.log.Info("supervisor: foreign hooks present in supervised session", "session_id", spec.ID, "events", foreignHooks)
+	}
+
+	pinned, err := settings.Pin(r.cfg.StateDir, spec, r.clock, r.cfg.CorralVersion, r.cfg.APIVersion, r.cfg.RelayCommand, foreignHooks)
 	if err != nil {
 		return nil, fmt.Errorf("supervisor: pinning settings for %s: %w", spec.ID, err)
 	}
@@ -198,7 +264,7 @@ func (r *Registry) Spawn(ctx context.Context, spec session.Spec) (*session.Sessi
 	if spec.SettingSources == "" {
 		spec.SettingSources = r.cfg.SettingSources
 	}
-	spec.Env = BuildEnv(spec, r.cfg.EnvSnapshot, r.cfg.EnvPassthrough, r.cfg.Term, r.cfg.SockPath)
+	spec.Env = BuildEnv(spec, r.cfg.EnvSnapshot, r.cfg.EnvPassthrough, r.cfg.Term, r.cfg.SockPath, secret)
 
 	scr := screen.New(int(rows), int(cols), r.log)
 	if ol, err := screen.OpenOutputLog(pinned.OutputLogPath, r.cfg.OutputLogMaxBytes, r.log); err != nil {
@@ -225,6 +291,7 @@ func (r *Registry) Spawn(ctx context.Context, spec session.Spec) (*session.Sessi
 		PTYMaster: master,
 		Cmd:       cmd,
 		Screen:    scr,
+		Secret:    secret,
 	}
 	r.register(ls, spec.Name)
 

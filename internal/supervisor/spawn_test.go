@@ -128,16 +128,21 @@ func TestBuildEnvExactKeySet(t *testing.T) {
 		"CLAUDE_CODE_CHILD_SESSION": "leaked-value",
 		"CLAUDE_API_KEY":            "should-not-leak",
 		"EDITOR":                    "vim",
-		"CORRAL_SESSION_SECRET":     "reserved-for-m2-not-set-in-m1",
+		// A snapshot entry under this name must never be what ends up in
+		// the child's CORRAL_SESSION_SECRET — envWhitelist deliberately
+		// excludes it (spawn.go's doc comment), so BuildEnv can only ever
+		// set it from its own sessionSecret parameter below.
+		"CORRAL_SESSION_SECRET": "must-not-be-inherited-from-snapshot",
 	}
 
-	env := BuildEnv(spec, snapshot, nil, "", "/home/ci/.corral/corral.sock")
+	env := BuildEnv(spec, snapshot, nil, "", "/home/ci/.corral/corral.sock", "the-real-secret")
 
 	wantKeys := []string{
 		"HOME", "USER", "LOGNAME", "SHELL", "PATH", "TMPDIR",
 		"LANG", "LC_ALL", "LC_CTYPE", "TZ", "SSH_AUTH_SOCK",
 		"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
 		"TERM", "COLORTERM", "PWD", "CORRAL_SESSION_ID", "CORRAL_SOCK",
+		"CORRAL_SESSION_SECRET",
 	}
 	assertExactKeySet(t, env, wantKeys)
 
@@ -146,8 +151,8 @@ func TestBuildEnvExactKeySet(t *testing.T) {
 			t.Errorf("env contains a CLAUDE_* key %q, which must never be present", k)
 		}
 	}
-	if env["CORRAL_SESSION_SECRET"] != "" {
-		t.Error("CORRAL_SESSION_SECRET must never be set in M1")
+	if env["CORRAL_SESSION_SECRET"] != "the-real-secret" {
+		t.Errorf("CORRAL_SESSION_SECRET = %q, want the-real-secret (the sessionSecret argument, never the snapshot value)", env["CORRAL_SESSION_SECRET"])
 	}
 	if env["TERM"] != "xterm-256color" {
 		t.Errorf("TERM = %q, want default xterm-256color when term arg is empty", env["TERM"])
@@ -171,7 +176,7 @@ func TestBuildEnvExactKeySet(t *testing.T) {
 // must never invent a value.
 func TestBuildEnvMissingSnapshotKeysAreOmitted(t *testing.T) {
 	spec := baseSpec()
-	env := BuildEnv(spec, map[string]string{"HOME": "/home/ci"}, nil, "", "/sock")
+	env := BuildEnv(spec, map[string]string{"HOME": "/home/ci"}, nil, "", "/sock", "s")
 
 	if _, ok := env["ANTHROPIC_API_KEY"]; ok {
 		t.Error("ANTHROPIC_API_KEY should be absent, not present with an empty/invented value")
@@ -191,7 +196,7 @@ func TestBuildEnvPassthroughExtendsWhitelist(t *testing.T) {
 		"MY_EXTRA":    "extra-value",
 		"NOT_ALLOWED": "must-not-appear",
 	}
-	env := BuildEnv(spec, snapshot, []string{"MY_EXTRA"}, "", "/sock")
+	env := BuildEnv(spec, snapshot, []string{"MY_EXTRA"}, "", "/sock", "s")
 
 	if env["MY_EXTRA"] != "extra-value" {
 		t.Errorf("MY_EXTRA = %q, want extra-value (should be copied via passthrough)", env["MY_EXTRA"])
@@ -205,9 +210,19 @@ func TestBuildEnvPassthroughExtendsWhitelist(t *testing.T) {
 // xterm-256color default.
 func TestBuildEnvCustomTerm(t *testing.T) {
 	spec := baseSpec()
-	env := BuildEnv(spec, nil, nil, "screen-256color", "/sock")
+	env := BuildEnv(spec, nil, nil, "screen-256color", "/sock", "s")
 	if env["TERM"] != "screen-256color" {
 		t.Errorf("TERM = %q, want screen-256color", env["TERM"])
+	}
+}
+
+// TestBuildEnvSessionSecret checks the sessionSecret argument is what ends
+// up in CORRAL_SESSION_SECRET (step 5.7).
+func TestBuildEnvSessionSecret(t *testing.T) {
+	spec := baseSpec()
+	env := BuildEnv(spec, map[string]string{"PATH": "/usr/bin"}, nil, "", "/sock", "mysecret")
+	if env["CORRAL_SESSION_SECRET"] != "mysecret" {
+		t.Errorf("CORRAL_SESSION_SECRET = %q, want mysecret", env["CORRAL_SESSION_SECRET"])
 	}
 }
 

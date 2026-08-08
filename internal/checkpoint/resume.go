@@ -149,7 +149,12 @@ func (c *ResumeCheckpointer) Restore(ctx context.Context, rec session.Session) (
 		Cols:           uint16(rec.Cols),
 		ResumeFrom:     rec.ClaudeSessionID,
 	}
-	spec.Env = supervisor.BuildEnv(spec, c.EnvSnapshot, c.EnvPassthrough, c.Term, c.SockPath)
+	// The secret argument here is a placeholder: Registry.Spawn always
+	// regenerates a fresh secret and re-calls BuildEnv itself before
+	// actually starting the process (see supervisor.go's Spawn), so
+	// whatever Restore puts in spec.Env.CORRAL_SESSION_SECRET is discarded
+	// before it is ever used.
+	spec.Env = supervisor.BuildEnv(spec, c.EnvSnapshot, c.EnvPassthrough, c.Term, c.SockPath, "")
 	return spec, nil
 }
 
