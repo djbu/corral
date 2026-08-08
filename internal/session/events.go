@@ -35,6 +35,15 @@ const (
 	EventSubagentStarted     EventKind = "subagent.started"
 	EventSubagentStopped     EventKind = "subagent.stopped"
 	EventHookUnknownEvent    EventKind = "hook.unknown_event"
+
+	// New in M2 step 8 (design doc §8.4) — the notifier's delivery outcomes.
+	// A notification's fate is always an event, never a return value: the
+	// engine's Notifier.NotifyBlocked returns nil by construction, so these
+	// are the only durable record that a block was (or was not) delivered.
+	EventNotifySent       EventKind = "notify.sent"       // delivered; carries backend + attempts
+	EventNotifyFailed     EventKind = "notify.failed"     // retries exhausted; carries backend + last error
+	EventNotifyDropped    EventKind = "notify.dropped"    // queue full; never blocked the state machine
+	EventNotifySuppressed EventKind = "notify.suppressed" // debounced duplicate within notify.debounce
 )
 
 // Event is one row of the append-only events table. SessionID is "" for a

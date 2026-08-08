@@ -57,6 +57,36 @@ func defaultsStateLayer() *stateLayer {
 	}
 }
 
+// defaultsNotifyLayer holds the [notify] defaults (design doc §8.7).
+// Unlike defaultsLayer's Daemon/Session/Attach blocks, this is only ever
+// merged by LoadNotify, never by LoadDaemon/LoadSession's merge() call.
+func defaultsNotifyLayer() *notifyLayer {
+	return &notifyLayer{
+		Enabled:  boolPtr(false),
+		On:       strsPtr([]string{"blocked"}),
+		Debounce: strPtr("30s"),
+		Timeout:  strPtr("10s"),
+		Retries:  intPtr(3),
+		Ntfy: notifyNtfyLayer{
+			Enabled:  boolPtr(false),
+			Server:   strPtr("https://ntfy.sh"),
+			Topic:    strPtr(""),
+			Token:    strPtr(""),
+			Priority: strPtr("default"),
+			Reply: notifyNtfyReplyLayer{
+				Enabled: boolPtr(false),
+				Topic:   strPtr(""),
+				Token:   strPtr(""),
+			},
+		},
+		Webhook: notifyWebhookLayer{
+			Enabled: boolPtr(false),
+			URL:     strPtr(""),
+			Headers: map[string]string{},
+		},
+	}
+}
+
 // userConfigPath returns ~/.corral/config.toml.
 func userConfigPath() (string, error) {
 	home, err := os.UserHomeDir()
@@ -319,6 +349,87 @@ func LoadState() (State, map[string]string, error) {
 	return st, sources, nil
 }
 
+// resolveNotify parses a fully-merged notifyLayer into Notify (design doc
+// §8.7). Debounce/Timeout use time.ParseDuration; Retries is already *int
+// (parsed at env-decode time in env.go, or decoded directly by TOML — see
+// notifyLayer's doc comment) so it's just dereferenced here; On, and all
+// string/bool fields and the Headers map, are carried through as-is (no
+// cross-field validation here — see the design doc's later reply-subscriber
+// step for that).
+func resolveNotify(l *notifyLayer) (Notify, error) {
+	debounce, err := time.ParseDuration(derefStr(l.Debounce))
+	if err != nil {
+		return Notify{}, fmt.Errorf("config: notify.debounce=%q: %w", derefStr(l.Debounce), err)
+	}
+	timeout, err := time.ParseDuration(derefStr(l.Timeout))
+	if err != nil {
+		return Notify{}, fmt.Errorf("config: notify.timeout=%q: %w", derefStr(l.Timeout), err)
+	}
+	retries := derefInt(l.Retries)
+	on := []string{"blocked"}
+	if l.On != nil {
+		on = *l.On
+	}
+	return Notify{
+		Enabled:  derefBool(l.Enabled),
+		On:       on,
+		Debounce: debounce,
+		Timeout:  timeout,
+		Retries:  retries,
+		Ntfy: NotifyNtfy{
+			Enabled:  derefBool(l.Ntfy.Enabled),
+			Server:   derefStr(l.Ntfy.Server),
+			Topic:    derefStr(l.Ntfy.Topic),
+			Token:    derefStr(l.Ntfy.Token),
+			Priority: derefStr(l.Ntfy.Priority),
+			Reply: NotifyNtfyReply{
+				Enabled: derefBool(l.Ntfy.Reply.Enabled),
+				Topic:   derefStr(l.Ntfy.Reply.Topic),
+				Token:   derefStr(l.Ntfy.Reply.Token),
+			},
+		},
+		Webhook: NotifyWebhook{
+			Enabled: derefBool(l.Webhook.Enabled),
+			URL:     derefStr(l.Webhook.URL),
+			Headers: l.Webhook.Headers,
+		},
+	}, nil
+}
+
+// LoadNotify resolves [notify]-scope config: defaults ->
+// ~/.corral/config.toml -> env. Entirely user-file/env only (design doc
+// §8.7) — no repo file, no request stage — so it merges directly with
+// mergeNotify rather than going through LoadDaemon/LoadSession's merge().
+func LoadNotify() (Notify, map[string]string, error) {
+	merged := newLayer()
+	sources := make(map[string]string)
+	mergeNotify(&merged.Notify, defaultsNotifyLayer(), uniformSource(sourceDefault), sources)
+
+	userPath, err := userConfigPath()
+	if err != nil {
+		return Notify{}, nil, err
+	}
+	userLayer, err := decodeTOMLLayerIfExists(userPath)
+	if err != nil {
+		return Notify{}, nil, err
+	}
+	if userLayer != nil {
+		mergeNotify(&merged.Notify, &userLayer.Notify, uniformSource(userPath), sources)
+	}
+
+	envLayer, envSources, err := layerFromEnv(osLookup)
+	if err != nil {
+		return Notify{}, nil, err
+	}
+	mergeNotify(&merged.Notify, &envLayer.Notify, mapSource(envSources), sources)
+
+	n, err := resolveNotify(&merged.Notify)
+	if err != nil {
+		return Notify{}, nil, err
+	}
+	return n, sources, nil
+}
+
 func resolveAttach(l *attachLayer) (Attach, error) {
 	interval, err := time.ParseDuration(derefStr(l.PingInterval))
 	if err != nil {
@@ -346,6 +457,13 @@ func derefStr(p *string) string {
 func derefInt(p *int) int {
 	if p == nil {
 		return 0
+	}
+	return *p
+}
+
+func derefBool(p *bool) bool {
+	if p == nil {
+		return false
 	}
 	return *p
 }

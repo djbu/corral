@@ -59,6 +59,43 @@ type Attach struct {
 	PingTimeout  time.Duration
 }
 
+// Notify is the resolved [notify] configuration (design doc §8.7). Entirely
+// user-file/env only, never repo-settable; resolved by its own LoadNotify
+// pipeline, not LoadDaemon or LoadSession.
+type Notify struct {
+	Enabled  bool
+	On       []string // subset of ["blocked","exited"]
+	Debounce time.Duration
+	Timeout  time.Duration
+	Retries  int
+	Ntfy     NotifyNtfy
+	Webhook  NotifyWebhook
+}
+
+// NotifyNtfy is the resolved [notify.ntfy] configuration.
+type NotifyNtfy struct {
+	Enabled  bool
+	Server   string
+	Topic    string
+	Token    string // secret
+	Priority string
+	Reply    NotifyNtfyReply
+}
+
+// NotifyNtfyReply is the resolved [notify.ntfy.reply] configuration.
+type NotifyNtfyReply struct {
+	Enabled bool
+	Topic   string
+	Token   string // secret
+}
+
+// NotifyWebhook is the resolved [notify.webhook] configuration.
+type NotifyWebhook struct {
+	Enabled bool
+	URL     string
+	Headers map[string]string // secret-class
+}
+
 // Rejection records one key found in a repo .corral.toml that was not
 // applied because the key is not on the repo-file allowlist (§8.2). File is
 // the absolute path of the repo file; Key is "section.key".

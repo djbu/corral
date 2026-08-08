@@ -11,6 +11,7 @@ type layer struct {
 	Session sessionLayer `toml:"session"`
 	Attach  attachLayer  `toml:"attach"`
 	State   stateLayer   `toml:"state"`
+	Notify  notifyLayer  `toml:"notify"`
 }
 
 type daemonLayer struct {
@@ -59,6 +60,47 @@ type stateLayer struct {
 	PermissionTTL        *string `toml:"permission_ttl"`
 }
 
+// notifyLayer is [notify]'s section (design doc §8.7): entirely
+// user-file/env only, never repo-settable — see repo_allowlist.go. It is
+// resolved by its own LoadNotify() pipeline (defaults -> user file -> env,
+// no repo file, no request), not by LoadDaemon or LoadSession, so it
+// deliberately is not touched by merge() below; see mergeNotify. Debounce
+// and Timeout are kept as strings (like the other duration fields) so
+// parsing happens once, after the final merge, in load.go. Retries is
+// *int, like session.scrollback_lines, since the design doc's defaults
+// block writes it unquoted (retries=3) — BurntSushi/toml is strictly typed
+// and will not decode an unquoted TOML integer into a *string field.
+type notifyLayer struct {
+	Enabled  *bool              `toml:"enabled"`
+	On       *[]string          `toml:"on"`
+	Debounce *string            `toml:"debounce"`
+	Timeout  *string            `toml:"timeout"`
+	Retries  *int               `toml:"retries"`
+	Ntfy     notifyNtfyLayer    `toml:"ntfy"`
+	Webhook  notifyWebhookLayer `toml:"webhook"`
+}
+
+type notifyNtfyLayer struct {
+	Enabled  *bool                `toml:"enabled"`
+	Server   *string              `toml:"server"`
+	Topic    *string              `toml:"topic"`
+	Token    *string              `toml:"token"`
+	Priority *string              `toml:"priority"`
+	Reply    notifyNtfyReplyLayer `toml:"reply"`
+}
+
+type notifyNtfyReplyLayer struct {
+	Enabled *bool   `toml:"enabled"`
+	Topic   *string `toml:"topic"`
+	Token   *string `toml:"token"`
+}
+
+type notifyWebhookLayer struct {
+	Enabled *bool             `toml:"enabled"`
+	URL     *string           `toml:"url"`
+	Headers map[string]string `toml:"headers,omitempty"`
+}
+
 // newLayer returns an all-nil layer, ready to be merged into.
 func newLayer() *layer {
 	return &layer{}
@@ -66,6 +108,7 @@ func newLayer() *layer {
 
 func strPtr(s string) *string      { return &s }
 func intPtr(n int) *int            { return &n }
+func boolPtr(b bool) *bool         { return &b }
 func strsPtr(s []string) *[]string { return &s }
 
 // sourceFunc returns the source label to record for a given "section.key"
@@ -216,5 +259,90 @@ func mergeState(dst, src *stateLayer, srcSource sourceFunc, sources map[string]s
 	if src.PermissionTTL != nil {
 		dst.PermissionTTL = src.PermissionTTL
 		sources["state.permission_ttl"] = srcSource("state.permission_ttl")
+	}
+}
+
+// mergeNotify is intentionally not called from merge() above: [notify] has
+// its own pipeline (LoadNotify, load.go) with no repo-file stage and no
+// request stage, so it is merged by LoadNotify directly rather than folded
+// into the daemon/session/attach merge every LoadDaemon/LoadSession call
+// would otherwise perform (which would pollute their Sources maps with
+// "notify.*" keys neither call site returns).
+func mergeNotify(dst, src *notifyLayer, srcSource sourceFunc, sources map[string]string) {
+	if src.Enabled != nil {
+		dst.Enabled = src.Enabled
+		sources["notify.enabled"] = srcSource("notify.enabled")
+	}
+	if src.On != nil {
+		dst.On = src.On
+		sources["notify.on"] = srcSource("notify.on")
+	}
+	if src.Debounce != nil {
+		dst.Debounce = src.Debounce
+		sources["notify.debounce"] = srcSource("notify.debounce")
+	}
+	if src.Timeout != nil {
+		dst.Timeout = src.Timeout
+		sources["notify.timeout"] = srcSource("notify.timeout")
+	}
+	if src.Retries != nil {
+		dst.Retries = src.Retries
+		sources["notify.retries"] = srcSource("notify.retries")
+	}
+	mergeNotifyNtfy(&dst.Ntfy, &src.Ntfy, srcSource, sources)
+	mergeNotifyWebhook(&dst.Webhook, &src.Webhook, srcSource, sources)
+}
+
+func mergeNotifyNtfy(dst, src *notifyNtfyLayer, srcSource sourceFunc, sources map[string]string) {
+	if src.Enabled != nil {
+		dst.Enabled = src.Enabled
+		sources["notify.ntfy.enabled"] = srcSource("notify.ntfy.enabled")
+	}
+	if src.Server != nil {
+		dst.Server = src.Server
+		sources["notify.ntfy.server"] = srcSource("notify.ntfy.server")
+	}
+	if src.Topic != nil {
+		dst.Topic = src.Topic
+		sources["notify.ntfy.topic"] = srcSource("notify.ntfy.topic")
+	}
+	if src.Token != nil {
+		dst.Token = src.Token
+		sources["notify.ntfy.token"] = srcSource("notify.ntfy.token")
+	}
+	if src.Priority != nil {
+		dst.Priority = src.Priority
+		sources["notify.ntfy.priority"] = srcSource("notify.ntfy.priority")
+	}
+	mergeNotifyNtfyReply(&dst.Reply, &src.Reply, srcSource, sources)
+}
+
+func mergeNotifyNtfyReply(dst, src *notifyNtfyReplyLayer, srcSource sourceFunc, sources map[string]string) {
+	if src.Enabled != nil {
+		dst.Enabled = src.Enabled
+		sources["notify.ntfy.reply.enabled"] = srcSource("notify.ntfy.reply.enabled")
+	}
+	if src.Topic != nil {
+		dst.Topic = src.Topic
+		sources["notify.ntfy.reply.topic"] = srcSource("notify.ntfy.reply.topic")
+	}
+	if src.Token != nil {
+		dst.Token = src.Token
+		sources["notify.ntfy.reply.token"] = srcSource("notify.ntfy.reply.token")
+	}
+}
+
+func mergeNotifyWebhook(dst, src *notifyWebhookLayer, srcSource sourceFunc, sources map[string]string) {
+	if src.Enabled != nil {
+		dst.Enabled = src.Enabled
+		sources["notify.webhook.enabled"] = srcSource("notify.webhook.enabled")
+	}
+	if src.URL != nil {
+		dst.URL = src.URL
+		sources["notify.webhook.url"] = srcSource("notify.webhook.url")
+	}
+	if src.Headers != nil {
+		dst.Headers = src.Headers
+		sources["notify.webhook.headers"] = srcSource("notify.webhook.headers")
 	}
 }

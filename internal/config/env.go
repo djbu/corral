@@ -132,6 +132,87 @@ var envSpecs = []envSpec{
 		l.State.PermissionTTL = strPtr(v)
 		return nil
 	}},
+
+	{"notify.enabled", "CORRAL_NOTIFY_ENABLED", func(l *layer, v string) error {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("config: CORRAL_NOTIFY_ENABLED=%q: %w", v, err)
+		}
+		l.Notify.Enabled = boolPtr(b)
+		return nil
+	}},
+	{"notify.on", "CORRAL_NOTIFY_ON", func(l *layer, v string) error {
+		l.Notify.On = strsPtr(splitCommaList(v))
+		return nil
+	}},
+	{"notify.debounce", "CORRAL_NOTIFY_DEBOUNCE", func(l *layer, v string) error {
+		l.Notify.Debounce = strPtr(v)
+		return nil
+	}},
+	{"notify.timeout", "CORRAL_NOTIFY_TIMEOUT", func(l *layer, v string) error {
+		l.Notify.Timeout = strPtr(v)
+		return nil
+	}},
+	{"notify.retries", "CORRAL_NOTIFY_RETRIES", func(l *layer, v string) error {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("config: CORRAL_NOTIFY_RETRIES=%q: %w", v, err)
+		}
+		l.Notify.Retries = intPtr(n)
+		return nil
+	}},
+	{"notify.ntfy.enabled", "CORRAL_NOTIFY_NTFY_ENABLED", func(l *layer, v string) error {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("config: CORRAL_NOTIFY_NTFY_ENABLED=%q: %w", v, err)
+		}
+		l.Notify.Ntfy.Enabled = boolPtr(b)
+		return nil
+	}},
+	{"notify.ntfy.server", "CORRAL_NOTIFY_NTFY_SERVER", func(l *layer, v string) error {
+		l.Notify.Ntfy.Server = strPtr(v)
+		return nil
+	}},
+	{"notify.ntfy.topic", "CORRAL_NOTIFY_NTFY_TOPIC", func(l *layer, v string) error {
+		l.Notify.Ntfy.Topic = strPtr(v)
+		return nil
+	}},
+	{"notify.ntfy.token", "CORRAL_NOTIFY_NTFY_TOKEN", func(l *layer, v string) error {
+		l.Notify.Ntfy.Token = strPtr(v)
+		return nil
+	}},
+	{"notify.ntfy.priority", "CORRAL_NOTIFY_NTFY_PRIORITY", func(l *layer, v string) error {
+		l.Notify.Ntfy.Priority = strPtr(v)
+		return nil
+	}},
+	{"notify.ntfy.reply.enabled", "CORRAL_NOTIFY_NTFY_REPLY_ENABLED", func(l *layer, v string) error {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("config: CORRAL_NOTIFY_NTFY_REPLY_ENABLED=%q: %w", v, err)
+		}
+		l.Notify.Ntfy.Reply.Enabled = boolPtr(b)
+		return nil
+	}},
+	{"notify.ntfy.reply.topic", "CORRAL_NOTIFY_NTFY_REPLY_TOPIC", func(l *layer, v string) error {
+		l.Notify.Ntfy.Reply.Topic = strPtr(v)
+		return nil
+	}},
+	{"notify.ntfy.reply.token", "CORRAL_NOTIFY_NTFY_REPLY_TOKEN", func(l *layer, v string) error {
+		l.Notify.Ntfy.Reply.Token = strPtr(v)
+		return nil
+	}},
+	{"notify.webhook.enabled", "CORRAL_NOTIFY_WEBHOOK_ENABLED", func(l *layer, v string) error {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("config: CORRAL_NOTIFY_WEBHOOK_ENABLED=%q: %w", v, err)
+		}
+		l.Notify.Webhook.Enabled = boolPtr(b)
+		return nil
+	}},
+	{"notify.webhook.url", "CORRAL_NOTIFY_WEBHOOK_URL", func(l *layer, v string) error {
+		l.Notify.Webhook.URL = strPtr(v)
+		return nil
+	}},
 }
 
 func splitCommaList(v string) []string {

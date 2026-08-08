@@ -21,6 +21,7 @@ import (
 	"github.com/danielbecerra/corral/internal/claude/automode"
 	"github.com/danielbecerra/corral/internal/clock"
 	"github.com/danielbecerra/corral/internal/config"
+	"github.com/danielbecerra/corral/internal/notify"
 	"github.com/danielbecerra/corral/internal/session"
 	"github.com/danielbecerra/corral/internal/state"
 	"github.com/danielbecerra/corral/internal/store"
@@ -66,6 +67,12 @@ type Daemon struct {
 
 	store  *store.Store
 	engine state.Engine
+	// notifier is the step-8 blocked-notification Dispatcher, or nil when
+	// [notify] is disabled or configures no backend. When nil it is NOT passed
+	// to NewEngine (a nil *Dispatcher wrapped in a state.Notifier interface
+	// would be non-nil to the engine's nil check and panic on the first block);
+	// blocking is still recorded, just not delivered. Closed on shutdown.
+	notifier *notify.Dispatcher
 	// checkpointer is concretely typed (rather than the checkpoint.
 	// Checkpointer interface) so shutdown.go can call WithGrace for a
 	// per-request grace override; M1 has only this one implementation.
@@ -222,18 +229,44 @@ func (d *Daemon) startup(ctx context.Context) error {
 	// grace (user/env only — no repo-file stage; LoadState has its own
 	// pipeline). Best-effort: a bad [state] value falls back to NewEngine's
 	// built-in defaults rather than failing daemon startup, same discipline
-	// as the other non-fatal probes here. notifier (step 8) is nil for now —
-	// blocking is still recorded and persisted, just not delivered yet.
+	// as the other non-fatal probes here.
 	stateCfg, _, stateErr := config.LoadState()
 	if stateErr != nil {
 		d.log.Warn("using default [state] config; load failed", "err", stateErr)
 	}
+
+	// [notify] (step 8): build the blocked-notification Dispatcher from the
+	// resolved config and hand it to the engine as its Notifier seam. Same
+	// best-effort discipline — a load failure falls back to notify-disabled,
+	// never fails startup. notifier is the state.Notifier interface value
+	// passed to NewEngine; it MUST stay a true nil interface when no dispatcher
+	// is built (see the d.notifier field doc for the nil-interface trap).
+	var notifier state.Notifier
+	notifyCfg, _, notifyErr := config.LoadNotify()
+	if notifyErr != nil {
+		d.log.Warn("using default [notify] config; load failed", "err", notifyErr)
+	}
+	if backends := buildNotifyBackends(notifyCfg); notifyCfg.Enabled && len(backends) > 0 {
+		d.notifier = notify.New(backends, notify.Options{
+			On:       notifyCfg.On,
+			Debounce: notifyCfg.Debounce,
+			Timeout:  notifyCfg.Timeout,
+			Retries:  notifyCfg.Retries,
+		}, d.clk, d.store, d.log)
+		d.notifier.Start()
+		notifier = d.notifier
+		d.log.Info("notifier started", "backends", backendNames(backends), "on", notifyCfg.On)
+	} else {
+		d.log.Debug("notifier disabled; blocks recorded but not delivered",
+			"enabled", notifyCfg.Enabled, "backends", len(backends))
+	}
+
 	d.engine = state.NewEngine(d.store, d.clk, state.EngineConfig{
 		PermissionSettle: stateCfg.PermissionSettle,
 		PermissionTTL:    stateCfg.PermissionTTL,
 		StaleAfter:       stateCfg.StaleAfter,
 		FirstHookGrace:   stateCfg.FirstHookGrace,
-	}, nil, d.log)
+	}, notifier, d.log)
 
 	relayCmd, err := resolveRelayCommand()
 	if err != nil {
@@ -511,4 +544,37 @@ func (d *Daemon) requestShutdown(grace time.Duration) {
 	default:
 		// Already a shutdown pending; drop, the loop is already draining.
 	}
+}
+
+// buildNotifyBackends turns the resolved [notify] config into the concrete
+// backends the Dispatcher fans out to. All backends share one http.Client
+// whose Timeout is notify.timeout and whose Transport pins Proxy: nil (see
+// notify.NewHTTPClient — no ambient HTTP_PROXY egress). A backend is included
+// only when its own Enabled flag is set; the reply subscriber (§8.6) is a
+// separate step-11 concern and is not a delivery backend.
+func buildNotifyBackends(cfg config.Notify) []notify.Backend {
+	if !cfg.Enabled {
+		return nil
+	}
+	client := notify.NewHTTPClient(cfg.Timeout)
+	var backends []notify.Backend
+	if cfg.Ntfy.Enabled {
+		backends = append(backends, notify.NewNtfyBackend(
+			cfg.Ntfy.Server, cfg.Ntfy.Topic, cfg.Ntfy.Token, cfg.Ntfy.Priority, client))
+	}
+	if cfg.Webhook.Enabled {
+		backends = append(backends, notify.NewWebhookBackend(
+			cfg.Webhook.URL, cfg.Webhook.Headers, client))
+	}
+	return backends
+}
+
+// backendNames lists backend names for a startup log line. It never logs a
+// URL, topic, token, or header — only the backend kind ("ntfy"/"webhook").
+func backendNames(backends []notify.Backend) []string {
+	names := make([]string, 0, len(backends))
+	for _, b := range backends {
+		names = append(names, b.Name())
+	}
+	return names
 }

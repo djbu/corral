@@ -109,5 +109,64 @@ func filterRepoLayer(file string, l *layer) (*layer, []Rejection) {
 		reject("state.permission_ttl")
 	}
 
+	// [notify] — nothing is repo-settable (design doc §8.7): a repo's
+	// .corral.toml is attacker-controlled, and a cloned repo setting
+	// notify.webhook.url or notify.ntfy.token could exfiltrate blocked/
+	// exited reasons to an attacker-controlled endpoint; a cloned repo
+	// setting notify.ntfy.reply.topic/token could grant PTY keystroke
+	// access via the reply channel. Entirely user-file/env only, resolved
+	// by its own LoadNotify pipeline which never consults a repo file at
+	// all. These checks exist so a repo file that sets [notify] keys
+	// anyway is still reported as a Rejection rather than silently
+	// ignored.
+	if l.Notify.Enabled != nil {
+		reject("notify.enabled")
+	}
+	if l.Notify.On != nil {
+		reject("notify.on")
+	}
+	if l.Notify.Debounce != nil {
+		reject("notify.debounce")
+	}
+	if l.Notify.Timeout != nil {
+		reject("notify.timeout")
+	}
+	if l.Notify.Retries != nil {
+		reject("notify.retries")
+	}
+	if l.Notify.Ntfy.Enabled != nil {
+		reject("notify.ntfy.enabled")
+	}
+	if l.Notify.Ntfy.Server != nil {
+		reject("notify.ntfy.server")
+	}
+	if l.Notify.Ntfy.Topic != nil {
+		reject("notify.ntfy.topic")
+	}
+	if l.Notify.Ntfy.Token != nil {
+		reject("notify.ntfy.token")
+	}
+	if l.Notify.Ntfy.Priority != nil {
+		reject("notify.ntfy.priority")
+	}
+	if l.Notify.Ntfy.Reply.Enabled != nil {
+		reject("notify.ntfy.reply.enabled")
+	}
+	if l.Notify.Ntfy.Reply.Topic != nil {
+		reject("notify.ntfy.reply.topic")
+	}
+	if l.Notify.Ntfy.Reply.Token != nil {
+		reject("notify.ntfy.reply.token")
+	}
+	if l.Notify.Webhook.Enabled != nil {
+		reject("notify.webhook.enabled")
+	}
+	if l.Notify.Webhook.URL != nil {
+		reject("notify.webhook.url")
+	}
+	if len(l.Notify.Webhook.Headers) > 0 {
+		reject("notify.webhook.headers")
+	}
+
 	return out, rej
 }

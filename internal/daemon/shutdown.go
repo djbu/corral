@@ -46,6 +46,14 @@ func (d *Daemon) shutdown(ctx context.Context, grace time.Duration) error {
 	// logs.
 	// TODO(step9/step10): no such goroutines exist yet in step 8.
 
+	// Step 4b: stop the notifier. Close cancels any in-flight backend Send and
+	// drops queued-but-undelivered jobs, so it returns promptly even against a
+	// black-holed host. It must run before store.Close below — the Dispatcher's
+	// final notify.* event writes go to the store on context.Background().
+	if d.notifier != nil {
+		d.notifier.Close()
+	}
+
 	// Step 5: wal_checkpoint(TRUNCATE), then close the DB.
 	if err := d.store.WalCheckpointTruncate(ctx); err != nil {
 		d.log.Warn("shutdown: wal checkpoint", "err", err)
