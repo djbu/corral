@@ -26,6 +26,15 @@ const (
 	EventHookDropped      EventKind = "hook.dropped"
 	EventHookUnauthorized EventKind = "hook.unauthorized"
 	EventHookUndecodable  EventKind = "hook.undecodable"
+
+	// New in M2 step 6b (design doc §2, Amendment A.3) — the hook-driven
+	// Engine's own event vocabulary.
+	EventPermissionRequested EventKind = "permission.requested"
+	EventPermissionBlocked   EventKind = "permission.blocked"
+	EventPermissionResolved  EventKind = "permission.resolved"
+	EventSubagentStarted     EventKind = "subagent.started"
+	EventSubagentStopped     EventKind = "subagent.stopped"
+	EventHookUnknownEvent    EventKind = "hook.unknown_event"
 )
 
 // Event is one row of the append-only events table. SessionID is "" for a

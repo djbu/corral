@@ -64,7 +64,7 @@ type Daemon struct {
 	lvl *slog.LevelVar
 
 	store  *store.Store
-	engine *state.NoopEngine
+	engine state.Engine
 	// checkpointer is concretely typed (rather than the checkpoint.
 	// Checkpointer interface) so shutdown.go can call WithGrace for a
 	// per-request grace override; M1 has only this one implementation.
@@ -216,7 +216,13 @@ func (d *Daemon) startup(ctx context.Context) error {
 		return fmt.Errorf("daemon: loading default session config: %w", err)
 	}
 	d.checkpointer = checkpoint.NewResumeCheckpointer(d.store, d.clk, grace, claudeHome, envSnapshot, sessionCfg.EnvPassthrough, sessionCfg.Term, d.sockPath)
-	d.engine = state.New(d.store)
+	// permission_settle/permission_ttl come from [state] config in 6c;
+	// notifier (step 8) is nil for now — blocking is still recorded and
+	// persisted, just not delivered anywhere yet.
+	d.engine = state.NewEngine(d.store, d.clk, state.EngineConfig{
+		PermissionSettle: 15 * time.Second, // A.3.2 default
+		PermissionTTL:    6 * time.Hour,
+	}, nil, d.log)
 
 	relayCmd, err := resolveRelayCommand()
 	if err != nil {
