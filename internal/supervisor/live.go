@@ -1,12 +1,15 @@
 package supervisor
 
+import (
+	"os"
+	"os/exec"
+
+	"github.com/danielbecerra/corral/internal/screen"
+)
+
 // LiveSession is the supervisor's live handle to a spawned session process
-// (design doc §1: "liveseession.go → live.go"). Step 8 defines only the
-// fields checkpoint.Checkpointer needs to stop a session's process group;
-// step 9 (TODO(step9)) adds the PTY master *os.File, the *exec.Cmd, the
-// *screen.Screen, and the single-attachment slot, and wires Spawn to
-// register/deregister instances of this type in a registry owned by this
-// package.
+// (design doc §1). checkpoint.Checkpointer only ever reads SessionID/PGID;
+// everything else here is this package's own bookkeeping.
 type LiveSession struct {
 	// SessionID is the corral session ID (session.Session.ID).
 	SessionID string
@@ -14,4 +17,20 @@ type LiveSession struct {
 	// starts the child as its own session/group leader (see spawn.go's
 	// Info.PGID doc comment).
 	PGID int
+
+	// PTYMaster is the PTY master fd for the child. Owned by the reader
+	// goroutine (Feed) and the reply-pump goroutine (writes); closed once
+	// by cmd.Wait()'s reaper after both have observed EOF/error.
+	PTYMaster *os.File
+	// Cmd is the running child process handle (os/exec, via pty.StartWithSize).
+	Cmd *exec.Cmd
+	// Screen is the headless terminal emulator this session's PTY output
+	// feeds. Attach (step 10) subscribes to it for live streaming + reads
+	// DebugGrid()/a snapshot for repaint-on-attach.
+	Screen *screen.Screen
+
+	// Attachment is a placeholder slot for step 10's single-attachment
+	// protocol. M1 (step 9) never assigns it; it exists so step 10 doesn't
+	// need to touch this struct's shape again.
+	Attachment any
 }

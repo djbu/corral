@@ -32,6 +32,9 @@ var commands = map[string]cmdFunc{
 	"config":     cmdConfig,
 	"daemon":     cmdDaemon,
 	"daemon-run": cmdDaemonRun,
+	"ls":         cmdLs,
+	"new":        cmdNew,
+	"kill":       cmdKill,
 }
 
 // hiddenCommands are dispatchable but never listed by printCommands.

@@ -23,6 +23,7 @@ import (
 	"github.com/danielbecerra/corral/internal/state"
 	"github.com/danielbecerra/corral/internal/store"
 	"github.com/danielbecerra/corral/internal/supervisor"
+	"github.com/danielbecerra/corral/internal/version"
 )
 
 // envSnapshotWhitelist mirrors supervisor's own whitelist (design doc §7.2)
@@ -202,23 +203,39 @@ func (d *Daemon) startup(ctx context.Context) error {
 	// to log something useful; it is never fatal.
 	d.probeClaudeBin(ctx)
 
-	// Step 8: recovery, before the socket is up so no client observes a
-	// half-recovered world.
-	//
-	// TODO(step9): call recovery here — reap orphaned children whose
-	// desired_state is 'running' and either resume them via
-	// checkpointer.Restore or mark them unresumable (design doc §3.5).
-	// Nothing can be orphaned yet because nothing spawns a session before
-	// step 9 exists, so this is a genuine no-op today, not a stub
-	// papering over missing behavior.
-	if err := d.runRecovery(ctx); err != nil {
-		return err
-	}
-
+	// The checkpointer, engine, and live-session registry all have to
+	// exist before recovery runs (recovery resumes sessions through them),
+	// so step 9 moves their construction ahead of step 8's recovery call
+	// (design doc §3.2 numbers these 7 and 8 in the other order, but
+	// recovery cannot do anything real without them).
 	grace := d.cfg.ShutdownGrace
 	claudeHome := filepath.Join(mustHomeDir(), ".claude")
-	d.checkpointer = checkpoint.NewResumeCheckpointer(d.store, d.clk, grace, claudeHome, envSnapshot, nil, "xterm-256color", d.sockPath)
+	sessionCfg, _, _, _, err := config.LoadSession(daemonCwd(), nil)
+	if err != nil {
+		return fmt.Errorf("daemon: loading default session config: %w", err)
+	}
+	d.checkpointer = checkpoint.NewResumeCheckpointer(d.store, d.clk, grace, claudeHome, envSnapshot, sessionCfg.EnvPassthrough, sessionCfg.Term, d.sockPath)
 	d.engine = state.New(d.store)
+
+	registry := supervisor.New(d.store, d.engine, checkpointerAdapter{d.checkpointer}, d.clk, supervisor.Config{
+		StateDir:          d.cfg.StateDir,
+		SockPath:          d.sockPath,
+		SettingSources:    sessionCfg.SettingSources,
+		EnvPassthrough:    sessionCfg.EnvPassthrough,
+		Term:              sessionCfg.Term,
+		OutputLogMaxBytes: sessionCfg.OutputLogMaxBytes,
+		EnvSnapshot:       envSnapshot,
+		CorralVersion:     version.Version,
+		APIVersion:        version.APIVersion,
+		RecoveryGrace:     grace,
+	}, d.log)
+	d.supervisor = registry
+
+	// Step 8: recovery, before the socket is up so no client observes a
+	// half-recovered world (design doc §3.5).
+	if err := d.runRecovery(ctx, registry); err != nil {
+		return err
+	}
 
 	// Step 9: acquire the socket, chmod it, write the pidfile.
 	ln, err := Listen(d.sockPath)
@@ -247,6 +264,11 @@ func (d *Daemon) startup(ctx context.Context) error {
 			d.requestShutdown(g)
 		},
 	})
+	srv.RegisterSessions(api.SessionsDeps{
+		Store:    d.store,
+		Engine:   d.engine,
+		Registry: registry,
+	})
 	d.srv = &http.Server{Handler: srv.Handler()}
 	go func() {
 		if err := d.srv.Serve(ln); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
@@ -262,9 +284,53 @@ func (d *Daemon) startup(ctx context.Context) error {
 	return nil
 }
 
-// runRecovery is step 9's seam (see startup's TODO comment above).
-func (d *Daemon) runRecovery(ctx context.Context) error {
-	return nil
+// runRecovery runs design doc §3.5's startup recovery against reg.
+func (d *Daemon) runRecovery(ctx context.Context, reg *supervisor.Registry) error {
+	return reg.Recover(ctx)
+}
+
+// daemonCwd returns the daemon process's own working directory, used only
+// to resolve config.LoadSession's repo-scoped layer for the daemon-wide
+// session defaults (env_passthrough, term, etc.) that the checkpointer and
+// the live-session registry are frozen with at startup. "" (LoadSession
+// then skips the repo-file lookup) if Getwd fails for any reason.
+func daemonCwd() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return wd
+}
+
+// checkpointerAdapter adapts *checkpoint.ResumeCheckpointer to
+// supervisor.Checkpointer, dropping the Token that supervisor never needs.
+// It exists only here (not in internal/supervisor) because
+// internal/checkpoint already imports internal/supervisor for
+// *supervisor.LiveSession — supervisor importing checkpoint back would be
+// a cycle; daemon imports both, so the adapter lives here.
+type checkpointerAdapter struct {
+	c *checkpoint.ResumeCheckpointer
+}
+
+func (a checkpointerAdapter) Checkpoint(ctx context.Context, s *supervisor.LiveSession, reason string) error {
+	_, err := a.c.Checkpoint(ctx, s, reason)
+	return err
+}
+
+func (a checkpointerAdapter) Restore(ctx context.Context, rec session.Session) (session.Spec, error) {
+	return a.c.Restore(ctx, rec)
+}
+
+func (a checkpointerAdapter) Resumable(rec session.Session) (bool, string) {
+	return a.c.Resumable(rec)
+}
+
+// WithGrace lets supervisor.Registry.Kill honor a per-call grace override
+// (design doc §9.2's DELETE /v1/sessions/{idOrName}?grace=...) without
+// supervisor needing to know checkpointerAdapter's concrete type — Kill
+// detects this method via an interface type-assertion.
+func (a checkpointerAdapter) WithGrace(grace time.Duration) supervisor.Checkpointer {
+	return checkpointerAdapter{c: a.c.WithGrace(grace)}
 }
 
 func (d *Daemon) initLogging() error {

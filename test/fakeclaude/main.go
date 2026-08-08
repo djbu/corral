@@ -74,6 +74,19 @@ func parseArgs(argv []string) fakeSpec {
 }
 
 func main() {
+	// Install the SIGTERM handler before anything else — parseArgs,
+	// recordInvocation's disk I/O, disableEcho, and writeStartup's PTY
+	// write all take real (if normally small) wall-clock time, and
+	// corral's Kill can send SIGTERM the instant Spawn returns. Under
+	// load, that window is enough for the OS's default (terminate)
+	// disposition to kill this process before signal.Notify below ever
+	// runs, defeating CORRAL_FAKE_IGNORE_SIGTERM regardless of its value
+	// (design doc §10.1 item 5; this exact race caused a flaky
+	// TestGraceEscalation).
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM)
+	ignoreSIGTERM := os.Getenv("CORRAL_FAKE_IGNORE_SIGTERM") == "1"
+
 	spec := parseArgs(os.Args[1:])
 
 	sessionID := spec.SessionID
@@ -135,11 +148,8 @@ func main() {
 		fatalf("flush: %v", err)
 	}
 
-	// --- Signal/exit knobs (design doc §10.1 item 5) -----------------------
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGTERM)
-	ignoreSIGTERM := os.Getenv("CORRAL_FAKE_IGNORE_SIGTERM") == "1"
+	// --- Exit knobs (design doc §10.1 item 5; sigCh/ignoreSIGTERM are set
+	// up at the very top of main, above) ------------------------------------
 
 	exitCh := make(chan int, 1)
 	if d := os.Getenv("CORRAL_FAKE_EXIT_AFTER"); d != "" {
