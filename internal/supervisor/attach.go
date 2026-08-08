@@ -17,8 +17,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/creack/pty"
-
 	"github.com/danielbecerra/corral/internal/proto"
 	"github.com/danielbecerra/corral/internal/screen"
 	"github.com/danielbecerra/corral/internal/session"
@@ -165,7 +163,7 @@ func (r *Registry) applyResize(ctx context.Context, ls *LiveSession, rows, cols 
 		return
 	}
 	ls.Screen.Resize(int(rows), int(cols))
-	if err := pty.Setsize(ls.PTYMaster, &pty.Winsize{Rows: rows, Cols: cols}); err != nil {
+	if err := setPTYSize(ls.PTYMaster, rows, cols); err != nil {
 		r.log.Warn("supervisor: attach: resizing PTY", "session_id", ls.SessionID, "err", err)
 	}
 	if _, err := r.store.UpdateSession(ctx, ls.SessionID, func(sess *session.Session) {
