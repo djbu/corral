@@ -1,0 +1,27 @@
+{
+  "session_id": "4ab7095e-44cd-45ea-b850-3ba9e8db2b0f",
+  "transcript_path": "/Users/danielbecerra/.claude/projects/-Users-danielbecerra-code-research-corral-spike-hooks-sandbox-tui2/4ab7095e-44cd-45ea-b850-3ba9e8db2b0f.jsonl",
+  "cwd": "/Users/danielbecerra/code/research/corral/spike/hooks/sandbox/tui2",
+  "prompt_id": "94be636c-8ed0-457c-9255-8e49c58bd8fa",
+  "permission_mode": "default",
+  "hook_event_name": "PermissionRequest",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "touch corral-spike-marker-tui.txt",
+    "description": "Create marker file"
+  },
+  "permission_suggestions": [
+    {
+      "type": "addDirectories",
+      "directories": [
+        "/Users/danielbecerra/code/research/corral/spike/hooks/sandbox/tui2"
+      ],
+      "destination": "session"
+    },
+    {
+      "type": "setMode",
+      "mode": "acceptEdits",
+      "destination": "session"
+    }
+  ]
+}

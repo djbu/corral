@@ -1,0 +1,9 @@
+{
+  "session_id": "3ef29769-d783-476e-8a39-5a461698d6c7",
+  "transcript_path": "/Users/danielbecerra/.claude/projects/-Users-danielbecerra-code-research-corral-spike-hooks-sandbox/3ef29769-d783-476e-8a39-5a461698d6c7.jsonl",
+  "cwd": "/Users/danielbecerra/code/research/corral/spike/hooks/sandbox",
+  "prompt_id": "6fe5829b-9f49-4dca-9eea-2cd8776fc934",
+  "agent_id": "a6e8ae4378e325857",
+  "agent_type": "general-purpose",
+  "hook_event_name": "SubagentStart"
+}

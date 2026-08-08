@@ -1,0 +1,12 @@
+{
+  "session_id": "8d4d1c9f-ea98-4071-aaec-7e7704caa500",
+  "transcript_path": "/Users/danielbecerra/.claude/projects/-Users-danielbecerra-code-research-corral-spike-hooks-sandbox/8d4d1c9f-ea98-4071-aaec-7e7704caa500.jsonl",
+  "cwd": "/Users/danielbecerra/code/research/corral/spike/hooks/sandbox",
+  "prompt_id": "e48def9c-5e9c-4229-97d7-febdd35a4b42",
+  "permission_mode": "bypassPermissions",
+  "hook_event_name": "Stop",
+  "stop_hook_active": false,
+  "last_assistant_message": "DONE",
+  "background_tasks": [],
+  "session_crons": []
+}

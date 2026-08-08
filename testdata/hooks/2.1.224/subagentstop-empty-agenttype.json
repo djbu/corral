@@ -1,0 +1,15 @@
+{
+  "session_id": "4ab7095e-44cd-45ea-b850-3ba9e8db2b0f",
+  "transcript_path": "/Users/danielbecerra/.claude/projects/-Users-danielbecerra-code-research-corral-spike-hooks-sandbox-tui2/4ab7095e-44cd-45ea-b850-3ba9e8db2b0f.jsonl",
+  "cwd": "/Users/danielbecerra/code/research/corral/spike/hooks/sandbox/tui2",
+  "prompt_id": "94be636c-8ed0-457c-9255-8e49c58bd8fa",
+  "permission_mode": "default",
+  "agent_id": "a0b2232d48f38e959",
+  "agent_type": "",
+  "hook_event_name": "SubagentStop",
+  "stop_hook_active": false,
+  "agent_transcript_path": "/Users/danielbecerra/.claude/projects/-Users-danielbecerra-code-research-corral-spike-hooks-sandbox-tui2/4ab7095e-44cd-45ea-b850-3ba9e8db2b0f/subagents/agent-a0b2232d48f38e959.jsonl",
+  "last_assistant_message": "[Nothing obvious from here]",
+  "background_tasks": [],
+  "session_crons": []
+}
