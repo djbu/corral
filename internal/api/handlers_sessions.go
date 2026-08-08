@@ -40,6 +40,7 @@ func (s *Server) RegisterSessions(deps SessionsDeps) {
 	s.Handle("GET /v1/sessions/{idOrName}/events", deps.handleEvents)
 	s.Handle("DELETE /v1/sessions/{idOrName}", deps.handleDelete)
 	s.Handle("POST /v1/sessions/{idOrName}/answer", deps.handleAnswer)
+	s.Handle("POST /v1/sessions/{idOrName}/wake", deps.handleWake)
 }
 
 // sessionResponse is design doc §9.2's exact <Session> JSON shape.
@@ -389,6 +390,36 @@ func (d SessionsDeps) handleDelete(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
+		return
+	}
+
+	d.writeSession(w, http.StatusOK, updated)
+}
+
+// handleWake brings a reaped/stopped-but-resumable session back to life
+// (design doc's deferred "woken only on demand" half of idle-reap). Unlike
+// handleDelete/handleAnswer it does not call resolveSession first —
+// Registry.Wake already resolves idOrName itself (live registry, then
+// store by id, then by name), since an already-live session's no-op path
+// never even reaches the store.
+func (d SessionsDeps) handleWake(w http.ResponseWriter, r *http.Request) {
+	idOrName := r.PathValue("idOrName")
+
+	updated, err := d.Registry.Wake(r.Context(), idOrName)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, CodeSessionNotFound, fmt.Sprintf("no session %q", idOrName), nil)
+			return
+		}
+		if errors.Is(err, supervisor.ErrNotResumable) {
+			writeError(w, http.StatusConflict, CodeSessionNotResumable, err.Error(), nil)
+			return
+		}
+		if errors.Is(err, supervisor.ErrNameTaken) {
+			writeError(w, http.StatusConflict, CodeSessionNameTaken, err.Error(), nil)
+			return
+		}
 		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
 		return
 	}

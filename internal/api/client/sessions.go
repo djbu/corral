@@ -168,3 +168,18 @@ func (c *Client) KillSession(ctx context.Context, idOrName string, grace time.Du
 	}
 	return v, nil
 }
+
+// WakeSession calls POST /v1/sessions/{idOrName}/wake, bringing a
+// reaped/stopped-but-resumable session back to life (design doc's deferred
+// "woken only on demand" half of idle-reap).
+func (c *Client) WakeSession(ctx context.Context, idOrName string) (SessionInfo, error) {
+	resp, err := c.do(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(idOrName)+"/wake", nil)
+	if err != nil {
+		return SessionInfo{}, err
+	}
+	var v SessionInfo
+	if err := decode(resp, &v); err != nil {
+		return SessionInfo{}, err
+	}
+	return v, nil
+}

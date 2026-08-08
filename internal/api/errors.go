@@ -16,17 +16,18 @@ import (
 type Code string
 
 const (
-	CodeBadRequest         Code = "bad_request"
-	CodeVersionMismatch    Code = "version_mismatch"
-	CodeSessionNotFound    Code = "session_not_found"
-	CodeSessionNameTaken   Code = "session_name_taken"
-	CodeAlreadyAttached    Code = "already_attached"
-	CodeClientTooSlow      Code = "client_too_slow"
-	CodeUnsupportedMode    Code = "unsupported_mode"
-	CodeDaemonShuttingDown Code = "daemon_shutting_down"
-	CodeInternal           Code = "internal"
-	CodeUnauthorized       Code = "unauthorized"
-	CodeSessionNotLive     Code = "session_not_live"
+	CodeBadRequest          Code = "bad_request"
+	CodeVersionMismatch     Code = "version_mismatch"
+	CodeSessionNotFound     Code = "session_not_found"
+	CodeSessionNameTaken    Code = "session_name_taken"
+	CodeAlreadyAttached     Code = "already_attached"
+	CodeClientTooSlow       Code = "client_too_slow"
+	CodeUnsupportedMode     Code = "unsupported_mode"
+	CodeDaemonShuttingDown  Code = "daemon_shutting_down"
+	CodeInternal            Code = "internal"
+	CodeUnauthorized        Code = "unauthorized"
+	CodeSessionNotLive      Code = "session_not_live"
+	CodeSessionNotResumable Code = "session_not_resumable"
 )
 
 // errorBody is the "error" object inside the envelope.

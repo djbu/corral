@@ -34,6 +34,7 @@ var commands = map[string]cmdFunc{
 	"ls":         cmdLs,
 	"new":        cmdNew,
 	"kill":       cmdKill,
+	"wake":       cmdWake,
 	"answer":     cmdAnswer,
 	"attach":     cmdAttach,
 	"hook-relay": cmdHookRelay,

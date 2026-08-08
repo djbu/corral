@@ -7,6 +7,7 @@ package supervisor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -623,3 +624,14 @@ func (r *Registry) WriteInput(ctx context.Context, idOrName string, b []byte) er
 // ErrNotLive is returned by Kill when idOrName does not name a session this
 // registry currently tracks as live.
 var ErrNotLive = fmt.Errorf("supervisor: session is not live")
+
+// ErrNotResumable is returned by Wake when the checkpointer reports the
+// target session cannot be resumed (design doc: no claude_session_id, or no
+// on-disk transcript for it).
+var ErrNotResumable = errors.New("supervisor: session not resumable")
+
+// ErrNameTaken is returned by Wake when the target's name is currently held by
+// a different, non-terminal session. Waking would flip the target back into
+// the sessions_name_active partial index and collide — a client-resolvable
+// condition (rename or kill the other session), not a server fault.
+var ErrNameTaken = errors.New("supervisor: session name held by an active session")

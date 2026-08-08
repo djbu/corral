@@ -584,3 +584,30 @@ func TestHandleSessionEvents_UnknownSession(t *testing.T) {
 		t.Fatalf("status = %d, want 404, body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+// --- 5. POST /v1/sessions/{idOrName}/wake -------------------------------
+
+// TestHandleWakeSession_Unknown proves the wake route is actually
+// registered and routable: a typo'd pattern string in RegisterSessions
+// would 404 for a reason unrelated to "session_not_found" (net/http's own
+// no-matching-pattern 404, with no JSON body), which this test would catch
+// via the envelope decode failing. Safe with the nil checkpointer
+// newSessionsTestDeps builds: Registry.Wake resolves idOrName through
+// r.Get then store.GetSession/GetSessionByName, both of which return
+// store.ErrNotFound for an unknown idOrName before Wake ever calls
+// r.checkpointer.Resumable.
+func TestHandleWakeSession_Unknown(t *testing.T) {
+	deps := newSessionsTestDeps(t)
+	srv := newSessionsTestServer(t, deps)
+
+	rec := doVersioned(t, srv.Handler(), http.MethodPost, "/v1/sessions/no-such-session/wake", nil)
+	assertAPIVersionHeader(t, rec)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusNotFound, rec.Body.String())
+	}
+	env := decodeErrorEnvelope(t, rec.Body.Bytes())
+	if env.Error.Code != CodeSessionNotFound {
+		t.Fatalf("error.code = %q, want %q", env.Error.Code, CodeSessionNotFound)
+	}
+}

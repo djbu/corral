@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"syscall"
 	"time"
 
@@ -92,19 +93,28 @@ func (r *Registry) recoverOne(ctx context.Context, pc procChecker, grace time.Du
 		return
 	}
 
-	if _, err := r.Spawn(ctx, spec); err != nil {
-		r.log.Error("supervisor: recovery: Spawn", "session_id", rec.ID, "err", err)
+	count, err := r.resumeSpawn(ctx, spec, rec.ID)
+	if err != nil {
+		r.log.Error("supervisor: recovery: resume spawn", "session_id", rec.ID, "err", err)
 		return
 	}
+	r.appendEvent(ctx, rec.ID, session.EventSessionResumed, map[string]any{"resume_count": count})
+}
 
-	updated, err := r.store.UpdateSession(ctx, rec.ID, func(sess *session.Session) {
+// resumeSpawn runs the shared tail of resuming an already-Restore'd session:
+// spawn the process, bump resume_count. It does NOT emit session.resumed —
+// each caller (recoverOne, Wake) owns that event so their payloads can differ.
+func (r *Registry) resumeSpawn(ctx context.Context, spec session.Spec, id string) (int, error) {
+	if _, err := r.Spawn(ctx, spec); err != nil {
+		return 0, fmt.Errorf("supervisor: resume spawn %s: %w", id, err)
+	}
+	updated, err := r.store.UpdateSession(ctx, id, func(sess *session.Session) {
 		sess.ResumeCount++
 	})
 	if err != nil {
-		r.log.Error("supervisor: recovery: recording resume_count", "session_id", rec.ID, "err", err)
-		return
+		return 0, fmt.Errorf("supervisor: recording resume_count %s: %w", id, err)
 	}
-	r.appendEvent(ctx, rec.ID, session.EventSessionResumed, map[string]any{"resume_count": updated.ResumeCount})
+	return updated.ResumeCount, nil
 }
 
 // reapOrphan sends SIGTERM to rec's process group, waits up to grace, then
