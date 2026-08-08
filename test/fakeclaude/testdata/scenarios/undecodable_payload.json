@@ -1,0 +1,8 @@
+{
+  "name": "undecodable_payload",
+  "steps": [
+    {"op": "fire_hook", "event": "SessionStart", "raw": "this is not valid json {{{"},
+    {"op": "emit_tui", "text": "> fired garbage stdin"},
+    {"op": "exit", "code": 0}
+  ]
+}

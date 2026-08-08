@@ -107,7 +107,7 @@ func main() {
 
 	fakeHome := os.Getenv("CORRAL_FAKE_HOME")
 	fakeState := os.Getenv("CORRAL_FAKE_STATE")
-	_ = os.Getenv("CORRAL_FAKE_SCENARIO") // reserved for M2; ignored per design doc §10.1.
+	scenarioPath := os.Getenv("CORRAL_FAKE_SCENARIO") // M2 scenario engine (scenario.go); empty = M1 interactive behavior.
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -181,6 +181,27 @@ func main() {
 				fatalf("flush burst: %v", err)
 			}
 		}
+	}
+
+	// --- M2 scenario engine (design doc §9) --------------------------------
+	//
+	// When CORRAL_FAKE_SCENARIO is set, the scenario drives the session: it
+	// owns stdin (its own wait_stdin reader) and terminates via an `exit`
+	// step, so it runs *instead of* the M1 interactive select loop below —
+	// which keeps every M1 test (spawned with no scenario) behaving exactly
+	// as before. It runs after writeStartup/resume/burst so a scenario still
+	// starts from the same on-screen state real supervision would see.
+	if scenarioPath != "" {
+		code := runScenario(scenarioPath, &scenarioRunner{
+			out:          out,
+			stdin:        os.Stdin,
+			settingsPath: spec.Settings,
+			sessionID:    sessionID,
+			cwd:          cwd,
+			fakeHome:     fakeHome,
+			fakeState:    fakeState,
+		})
+		exitGracefully(out, code)
 	}
 
 	// --- Exit knobs (design doc §10.1 item 5; sigCh/ignoreSIGTERM are set

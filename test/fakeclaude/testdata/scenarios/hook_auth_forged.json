@@ -1,0 +1,8 @@
+{
+  "name": "hook_auth_forged",
+  "steps": [
+    {"op": "fire_hook", "event": "SessionStart", "payload": {"source": "startup"}, "env": {"CORRAL_SESSION_SECRET": "wrong-secret-forged"}},
+    {"op": "emit_tui", "text": "> fired with a stomped secret"},
+    {"op": "exit", "code": 0}
+  ]
+}

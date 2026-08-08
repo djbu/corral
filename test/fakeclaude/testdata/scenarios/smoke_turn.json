@@ -1,0 +1,13 @@
+{
+  "name": "smoke_turn",
+  "steps": [
+    {"op": "fire_hook", "event": "SessionStart", "payload": {"source": "startup"}},
+    {"op": "emit_tui", "text": "> ready"},
+    {"op": "wait_stdin", "match": "^.+\r?\n$", "capture": "prompt", "timeout": "10s"},
+    {"op": "fire_hook", "event": "UserPromptSubmit", "payload": {"prompt_id": "p1", "prompt": "{{prompt}}"}},
+    {"op": "fire_hook", "event": "PreToolUse", "payload": {"prompt_id": "p1", "tool_name": "Bash", "tool_use_id": "toolu_01", "tool_input": {"command": "npm test"}}},
+    {"op": "fire_hook", "event": "PostToolUse", "payload": {"prompt_id": "p1", "tool_name": "Bash", "tool_use_id": "toolu_01", "tool_response": {"stdout": "ok"}}},
+    {"op": "fire_hook", "event": "Stop", "payload": {"prompt_id": "p1", "stop_hook_active": false}},
+    {"op": "exit", "code": 0}
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "name": "no_hooks_at_all",
+  "steps": [
+    {"op": "emit_tui", "text": "> alive but firing no hooks"},
+    {"op": "wait_stdin", "match": "^__never_sent__$", "optional": true, "timeout": "60s"},
+    {"op": "exit", "code": 0}
+  ]
+}
