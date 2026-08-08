@@ -199,17 +199,31 @@ func (d *Daemon) startup(ctx context.Context) error {
 	}
 	d.log.Info("store opened", "schema_version", schemaVersion)
 
+	// The daemon-default session config must load before the env snapshot is
+	// frozen: session.env_passthrough names the extra env vars to forward to
+	// sessions (design doc §7.2 / m1.md — "added to the whitelist"), and
+	// captureEnvSnapshot has to capture those names into the frozen snapshot,
+	// or supervisor.BuildEnv's passthrough filter finds nothing to copy and
+	// the option silently forwards nothing. attachCfg is consumed later, at
+	// registry construction.
+	grace := d.cfg.ShutdownGrace
+	claudeHome := filepath.Join(mustHomeDir(), ".claude")
+	sessionCfg, attachCfg, _, _, err := config.LoadSession(daemonCwd(), nil)
+	if err != nil {
+		return fmt.Errorf("daemon: loading default session config: %w", err)
+	}
+
 	// Step 6: freeze the child-env snapshot. Captured now (daemon
 	// startup), never at spawn time — design doc §7.2's "spawn behavior
 	// is a pure function of config + snapshot, testable" invariant.
-	envSnapshot := captureEnvSnapshot()
+	envSnapshot := captureEnvSnapshot(sessionCfg.EnvPassthrough)
 	d.log.Debug("captured env snapshot", "keys", snapshotKeyNames(envSnapshot))
 
 	// Step 7: resolve claude_bin and best-effort probe its version.
 	// Session-scope config (session.claude_bin) isn't loaded here — that
-	// happens per-session (design doc §8.1) — so this uses the same
-	// default LoadSession would, resolved for the daemon's own cwd, purely
-	// to log something useful; it is never fatal.
+	// happens per-session (design doc §8.1); the probe uses the same default
+	// LoadSession would, resolved for the daemon's own cwd, purely to log
+	// something useful; it is never fatal.
 	d.probeClaudeBin(ctx)
 	d.probeAutoMode(ctx)
 
@@ -218,12 +232,6 @@ func (d *Daemon) startup(ctx context.Context) error {
 	// so step 9 moves their construction ahead of step 8's recovery call
 	// (design doc §3.2 numbers these 7 and 8 in the other order, but
 	// recovery cannot do anything real without them).
-	grace := d.cfg.ShutdownGrace
-	claudeHome := filepath.Join(mustHomeDir(), ".claude")
-	sessionCfg, attachCfg, _, _, err := config.LoadSession(daemonCwd(), nil)
-	if err != nil {
-		return fmt.Errorf("daemon: loading default session config: %w", err)
-	}
 	d.checkpointer = checkpoint.NewResumeCheckpointer(d.store, d.clk, grace, claudeHome, envSnapshot, sessionCfg.EnvPassthrough, sessionCfg.Term, d.sockPath)
 	// [state] config governs the engine's permission timers and staleness
 	// grace (user/env only — no repo-file stage; LoadState has its own
@@ -435,12 +443,28 @@ func (d *Daemon) setsidSelfCheck() {
 	}
 }
 
-func captureEnvSnapshot() map[string]string {
-	snapshot := make(map[string]string, len(envSnapshotWhitelist))
-	for _, name := range envSnapshotWhitelist {
+// captureEnvSnapshot freezes the subset of the daemon's own environment that
+// child sessions may inherit: the fixed envSnapshotWhitelist plus every name
+// in passthrough (session.env_passthrough). The passthrough names MUST be
+// captured here — supervisor.BuildEnv only copies a passthrough name that is
+// already present in this snapshot, so omitting them makes env_passthrough a
+// silent no-op despite being documented (design doc §7.2 / m1.md) as "extra
+// env var NAMES added to the whitelist". Widening the snapshot this way is not
+// a trust-boundary regression: session.env_passthrough is user-config/env only
+// and rejected from repo files (config/repo_allowlist.go), so a cloned repo
+// cannot name env vars for a session to exfiltrate.
+func captureEnvSnapshot(passthrough []string) map[string]string {
+	snapshot := make(map[string]string, len(envSnapshotWhitelist)+len(passthrough))
+	capture := func(name string) {
 		if v, ok := os.LookupEnv(name); ok {
 			snapshot[name] = v
 		}
+	}
+	for _, name := range envSnapshotWhitelist {
+		capture(name)
+	}
+	for _, name := range passthrough {
+		capture(name)
 	}
 	return snapshot
 }
