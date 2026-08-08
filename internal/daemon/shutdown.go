@@ -53,6 +53,12 @@ func (d *Daemon) shutdown(ctx context.Context, grace time.Duration) error {
 	if d.notifier != nil {
 		d.notifier.Close()
 	}
+	// The reply subscriber's accept path writes session.answered on
+	// context.Background(), so like the Dispatcher it must close before the
+	// store. Close cancels the in-flight long-poll and joins the goroutine.
+	if d.replySub != nil {
+		d.replySub.Close()
+	}
 
 	// Step 5: wal_checkpoint(TRUNCATE), then close the DB.
 	if err := d.store.WalCheckpointTruncate(ctx); err != nil {

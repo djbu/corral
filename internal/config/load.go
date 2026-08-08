@@ -396,6 +396,33 @@ func resolveNotify(l *notifyLayer) (Notify, error) {
 	}, nil
 }
 
+// ValidateReply enforces the ntfy reply subscriber's startup gate (design doc
+// §8.6, gates 1 and 2). It returns a non-nil error — which the daemon treats
+// as fatal, refusing to start — when the reply subscriber is enabled but
+// misconfigured, so a guessable or anonymous reply topic can never grant PTY
+// keystroke access. It is a no-op (nil) when the reply subscriber is disabled.
+// Gate 3 (per-message: session exists, is live, is blocked) is enforced at
+// delivery time by the subscriber itself, not here.
+func ValidateReply(n Notify) error {
+	r := n.Ntfy.Reply
+	if !r.Enabled {
+		return nil
+	}
+	if !n.Ntfy.Enabled {
+		return fmt.Errorf("config: notify.ntfy.reply.enabled requires notify.ntfy.enabled")
+	}
+	if r.Topic == "" {
+		return fmt.Errorf("config: notify.ntfy.reply.topic is required when the reply subscriber is enabled")
+	}
+	if r.Token == "" {
+		return fmt.Errorf("config: notify.ntfy.reply.token is required when the reply subscriber is enabled")
+	}
+	if r.Topic == n.Ntfy.Topic {
+		return fmt.Errorf("config: notify.ntfy.reply.topic must differ from notify.ntfy.topic (a shared read topic would grant PTY write access)")
+	}
+	return nil
+}
+
 // LoadNotify resolves [notify]-scope config: defaults ->
 // ~/.corral/config.toml -> env. Entirely user-file/env only (design doc
 // §8.7) — no repo file, no request stage — so it merges directly with

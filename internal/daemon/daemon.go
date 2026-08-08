@@ -59,6 +59,11 @@ func (noLiveSessions) ListLive() []*supervisor.LiveSession { return nil }
 
 // Daemon is corral's daemon body: everything startup (§3.2) wires together
 // and the signal loop (§3.4) and shutdown (§3.6) act on.
+// The reply subscriber talks to the supervisor through notify's narrow
+// InputWriter seam (defined in notify to avoid a notify->supervisor cycle);
+// assert the registry satisfies it here, where both packages are imported.
+var _ notify.InputWriter = (*supervisor.Registry)(nil)
+
 type Daemon struct {
 	cfg config.Daemon
 	clk clock.Clock
@@ -73,6 +78,10 @@ type Daemon struct {
 	// would be non-nil to the engine's nil check and panic on the first block);
 	// blocking is still recorded, just not delivered. Closed on shutdown.
 	notifier *notify.Dispatcher
+	// replySub is the step-11 ntfy reply subscriber (§8.6), or nil when the
+	// reply subscriber is disabled. Closed on shutdown, before the store, since
+	// an accepted reply writes session.answered to the store.
+	replySub *notify.ReplySubscriber
 	// checkpointer is concretely typed (rather than the checkpoint.
 	// Checkpointer interface) so shutdown.go can call WithGrace for a
 	// per-request grace override; M1 has only this one implementation.
@@ -254,6 +263,15 @@ func (d *Daemon) startup(ctx context.Context) error {
 	if notifyErr != nil {
 		d.log.Warn("using default [notify] config; load failed", "err", notifyErr)
 	}
+	// The ntfy reply subscriber is a remote-input capability (§8.6). Its
+	// startup gate (reply topic must differ from the notify topic; a token is
+	// required) is FATAL, not best-effort: a misconfigured reply subscriber
+	// must stop the daemon, never fall back to a weaker posture. Checked here,
+	// before anything is built, so the failure is the first thing the operator
+	// sees. (notifyErr leaves notifyCfg zero-valued → reply disabled → nil.)
+	if err := config.ValidateReply(notifyCfg); err != nil {
+		return err
+	}
 	if backends := buildNotifyBackends(notifyCfg); notifyCfg.Enabled && len(backends) > 0 {
 		d.notifier = notify.New(backends, notify.Options{
 			On:       notifyCfg.On,
@@ -298,6 +316,20 @@ func (d *Daemon) startup(ctx context.Context) error {
 		ClaudeHome:        claudeHome,
 	}, d.log)
 	d.supervisor = registry
+
+	// Reply subscriber (§8.6): the outbound long-poll that turns ntfy replies
+	// into answer() calls, closing M2's phone-reply exit criterion with zero
+	// inbound ports. Constructed here, after the registry (its InputWriter)
+	// exists; its three-way startup gate was already validated (fatally) above.
+	if notifyCfg.Ntfy.Reply.Enabled {
+		d.replySub = notify.NewReplySubscriber(notify.ReplyConfig{
+			Server: notifyCfg.Ntfy.Server,
+			Topic:  notifyCfg.Ntfy.Reply.Topic,
+			Token:  notifyCfg.Ntfy.Reply.Token,
+		}, d.store, registry, d.clk, d.log)
+		d.replySub.Start()
+		d.log.Info("ntfy reply subscriber started", "topic", notifyCfg.Ntfy.Reply.Topic)
+	}
 
 	// Step 8: recovery, before the socket is up so no client observes a
 	// half-recovered world (design doc §3.5).
