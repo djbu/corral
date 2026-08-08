@@ -62,6 +62,16 @@ type sessionResponse struct {
 	EndedAt         *string `json:"ended_at"`
 	ExitCode        *int    `json:"exit_code"`
 	ExitSignal      *string `json:"exit_signal"`
+
+	// M2 state fields (§4.5). Stale is a render-time hint that agent_state
+	// is "working" but the last hook is older than stale_after — clients
+	// render "working?". BlockedReason is the raw stored blocked_reason JSON
+	// (§4.3) when agent_state is "blocked", embedded verbatim. PermissionMode
+	// is the last permission mode observed from hook payloads (A.8).
+	Stale          bool            `json:"stale,omitempty"`
+	BlockedReason  json.RawMessage `json:"blocked_reason,omitempty"`
+	PermissionMode string          `json:"permission_mode,omitempty"`
+	LastHookAt     *string         `json:"last_hook_at,omitempty"`
 }
 
 func msToRFC3339(ms int64) string {
@@ -105,12 +115,28 @@ func toSessionResponse(sess *session.Session, attached bool) sessionResponse {
 	if sess.ExitSignal != "" {
 		resp.ExitSignal = &sess.ExitSignal
 	}
+	if sess.BlockedReasonJSON != "" {
+		resp.BlockedReason = json.RawMessage(sess.BlockedReasonJSON)
+	}
+	resp.PermissionMode = sess.PermissionMode
+	resp.LastHookAt = msPtrToRFC3339Ptr(sess.LastHookAtMs)
 	return resp
+}
+
+// staleFor reports render-time staleness (§4.5) via the optional Stale
+// interface — implemented by the real engine, absent on NoopEngine. The
+// type assertion keeps staleness out of the core Engine contract.
+func (d SessionsDeps) staleFor(id string) bool {
+	if s, ok := d.Engine.(interface{ Stale(string) bool }); ok {
+		return s.Stale(id)
+	}
+	return false
 }
 
 func (d SessionsDeps) writeSession(w http.ResponseWriter, status int, sess *session.Session) {
 	resp := toSessionResponse(sess, d.Registry.Attached(sess.ID))
 	resp.AgentState = string(d.Engine.State(sess.ID))
+	resp.Stale = d.staleFor(sess.ID)
 	writeJSON(w, status, resp)
 }
 
@@ -140,6 +166,7 @@ func (d SessionsDeps) handleList(w http.ResponseWriter, r *http.Request) {
 	for _, sess := range sessions {
 		resp := toSessionResponse(sess, d.Registry.Attached(sess.ID))
 		resp.AgentState = string(d.Engine.State(sess.ID))
+		resp.Stale = d.staleFor(sess.ID)
 		out = append(out, resp)
 	}
 	writeJSON(w, http.StatusOK, listSessionsResponse{Sessions: out})

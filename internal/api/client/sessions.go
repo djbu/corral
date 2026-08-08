@@ -31,6 +31,12 @@ type SessionInfo struct {
 	EndedAt         *string `json:"ended_at"`
 	ExitCode        *int    `json:"exit_code"`
 	ExitSignal      *string `json:"exit_signal"`
+
+	// M2 state fields (§4.5). See sessionResponse in the api package.
+	Stale          bool            `json:"stale"`
+	BlockedReason  json.RawMessage `json:"blocked_reason"`
+	PermissionMode string          `json:"permission_mode"`
+	LastHookAt     *string         `json:"last_hook_at"`
 }
 
 type listSessionsResponse struct {

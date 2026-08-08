@@ -52,7 +52,7 @@ func cmdLs(args []string, stdout, stderr io.Writer) int {
 	tw := tabwriter.NewWriter(stdout, 0, 2, 2, ' ', 0)
 	fmt.Fprintln(tw, "NAME\tSTATE\tATTACHED\tCWD\tUPTIME\tPID")
 	for _, s := range sessions {
-		fmt.Fprintf(tw, "%s\t%s\t%t\t%s\t%s\t%d\n", s.Name, s.Status, s.Attached, s.Cwd, uptime(s), s.PID)
+		fmt.Fprintf(tw, "%s\t%s\t%t\t%s\t%s\t%d\n", s.Name, stateColumn(s), s.Attached, s.Cwd, uptime(s), s.PID)
 	}
 	if err := tw.Flush(); err != nil {
 		fmt.Fprintf(stderr, "corral: ls: %v\n", err)
@@ -74,4 +74,50 @@ func uptime(s client.SessionInfo) string {
 		return "-"
 	}
 	return time.Since(t).Round(time.Second).String()
+}
+
+// stateColumn renders the STATE cell from agent_state with the §4.5 display
+// decorations: unknown gets the "hooks not firing?" hint (the failure that
+// otherwise leaves the user staring at a silent session), a working session
+// past stale_after renders "working?", and blocked appends the blocked_reason
+// summary so the user sees WHAT is blocked without a second command. Falls
+// back to the process status when agent_state is empty (NoopEngine, or a
+// session with no hook history yet).
+func stateColumn(s client.SessionInfo) string {
+	st := s.AgentState
+	if st == "" {
+		return s.Status
+	}
+	switch st {
+	case "unknown":
+		return "unknown (hooks not firing?)"
+	case "working":
+		if s.Stale {
+			return "working?"
+		}
+		return "working"
+	case "blocked":
+		if summary := blockedSummary(s.BlockedReason); summary != "" {
+			return "blocked: " + summary
+		}
+		return "blocked"
+	default:
+		return st
+	}
+}
+
+// blockedSummary pulls the human-readable summary out of the raw blocked_reason
+// JSON (§4.3). Best-effort: any decode error yields "" and the caller renders
+// a bare "blocked".
+func blockedSummary(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var r struct {
+		Summary string `json:"summary"`
+	}
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return ""
+	}
+	return r.Summary
 }

@@ -782,6 +782,47 @@ func TestState_NeverHooked_RendersUnknown(t *testing.T) {
 	}
 }
 
+// TestStale_WorkingPastStaleAfter covers §4.5 render-time staleness: a
+// working session whose last hook is older than StaleAfter reports Stale
+// (rendered "working?"), while blocked/idle/terminal never go stale.
+func TestStale_WorkingPastStaleAfter(t *testing.T) {
+	fc := clocktest.NewFake(fixedStart)
+	st := openRealTestStore(t, fc)
+	e := NewEngine(st, fc, EngineConfig{StaleAfter: 15 * time.Minute}, nil, nil)
+
+	const id = "sess-stale"
+	createTestSession(t, st, id, session.StatusRunning)
+	hookMs := fixedStart.UnixMilli()
+	if _, err := st.UpdateSession(context.Background(), id, func(s *session.Session) {
+		s.AgentState = session.AgentWorking
+		s.HookCount = 3
+		s.LastHookAtMs = &hookMs
+	}); err != nil {
+		t.Fatalf("UpdateSession(working): %v", err)
+	}
+
+	// Fresh hook: working, not stale.
+	if e.Stale(id) {
+		t.Fatal("fresh working session reported stale")
+	}
+
+	fc.Advance(16 * time.Minute) // past the 15m StaleAfter
+	if !e.Stale(id) {
+		t.Fatal("working session past stale_after not reported stale")
+	}
+
+	// Blocked never goes stale even with an old hook: a human is the
+	// bottleneck, not a wedged agent.
+	if _, err := st.UpdateSession(context.Background(), id, func(s *session.Session) {
+		s.AgentState = session.AgentBlocked
+	}); err != nil {
+		t.Fatalf("UpdateSession(blocked): %v", err)
+	}
+	if e.Stale(id) {
+		t.Fatal("blocked session reported stale")
+	}
+}
+
 // TestPermissionModeRecordedFromPayload covers A.8's "last observed, from
 // hook payloads": the mode riding on a hook payload is persisted onto the
 // session row so `corral ls --json` can surface it.

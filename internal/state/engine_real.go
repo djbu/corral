@@ -164,6 +164,13 @@ func (e *realEngine) State(sessionID string) session.AgentState {
 	if err != nil {
 		return session.AgentFailed
 	}
+	return e.deriveState(sess)
+}
+
+// deriveState is the pure render-time state derivation shared by State and
+// Stale. A terminal Status (exited/failed) always wins over any persisted
+// agent_state, so a dead session is never rendered as working/blocked/idle.
+func (e *realEngine) deriveState(sess *session.Session) session.AgentState {
 	if sess.Status == session.StatusExited || sess.Status == session.StatusFailed {
 		return statusToAgentState(sess.Status)
 	}
@@ -181,6 +188,27 @@ func (e *realEngine) State(sessionID string) session.AgentState {
 		}
 	}
 	return sess.AgentState
+}
+
+// Stale reports §4.5 render-time staleness: a session whose derived state is
+// working but whose last hook arrived longer ago than StaleAfter. Callers
+// render this as "working?" — the agent may be wedged. Only working goes
+// stale: blocked never does (a human is the bottleneck, not the agent),
+// unknown/idle/terminal are not working. Timer-free, derived at read time
+// against the injected clock. Unknown sessionID or a session with no hook
+// history reports false.
+func (e *realEngine) Stale(sessionID string) bool {
+	sess, err := e.store.GetSession(context.Background(), sessionID)
+	if err != nil {
+		return false
+	}
+	if e.deriveState(sess) != session.AgentWorking {
+		return false
+	}
+	if sess.LastHookAtMs == nil {
+		return false
+	}
+	return e.clk.Now().Sub(time.UnixMilli(*sess.LastHookAtMs)) > e.cfg.StaleAfter
 }
 
 // getOrCreateLoop returns sessionID's sessionLoop, creating and starting it
