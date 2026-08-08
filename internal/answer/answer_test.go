@@ -1,13 +1,13 @@
-package api
+package answer
 
 import (
 	"bytes"
 	"testing"
 )
 
-// TestEncodeAnswer is a byte-exact table test for encodeAnswer (design doc
-// §7.2). Every case asserts on the literal bytes, not on a derived property,
-// since encodeAnswer's entire job is producing an exact wire payload.
+// TestEncodeAnswer is a byte-exact table test for Encode (design doc §7.2).
+// Every case asserts on the literal bytes, not on a derived property, since
+// Encode's entire job is producing an exact wire payload.
 func TestEncodeAnswer(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -96,18 +96,18 @@ func TestEncodeAnswer(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := encodeAnswer(tc.text, tc.key, tc.newline)
+			got, err := Encode(tc.text, tc.key, tc.newline)
 			if tc.wantErr {
 				if err == nil {
-					t.Fatalf("encodeAnswer(%q, %q, %v) = %q, nil; want error", tc.text, tc.key, tc.newline, got)
+					t.Fatalf("Encode(%q, %q, %v) = %q, nil; want error", tc.text, tc.key, tc.newline, got)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("encodeAnswer(%q, %q, %v) unexpected error: %v", tc.text, tc.key, tc.newline, err)
+				t.Fatalf("Encode(%q, %q, %v) unexpected error: %v", tc.text, tc.key, tc.newline, err)
 			}
 			if !bytes.Equal(got, tc.want) {
-				t.Fatalf("encodeAnswer(%q, %q, %v) = %q, want %q", tc.text, tc.key, tc.newline, got, tc.want)
+				t.Fatalf("Encode(%q, %q, %v) = %q, want %q", tc.text, tc.key, tc.newline, got, tc.want)
 			}
 		})
 	}

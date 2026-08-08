@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/danielbecerra/corral/internal/answer"
 	"github.com/danielbecerra/corral/internal/config"
 	"github.com/danielbecerra/corral/internal/session"
 	"github.com/danielbecerra/corral/internal/state"
@@ -395,10 +396,6 @@ func (d SessionsDeps) handleDelete(w http.ResponseWriter, r *http.Request) {
 	d.writeSession(w, http.StatusOK, updated)
 }
 
-// maxAnswerBytes caps answerRequest.Text so a runaway client can't wedge a
-// session's PTY (or the daemon's memory) with an unbounded write.
-const maxAnswerBytes = 64 << 10 // 65536
-
 // answerRequest is POST /v1/sessions/{idOrName}/answer's body (design doc
 // §7). Newline is a *bool, not bool, so an omitted field defaults to true
 // (append "\r") rather than false — an explicit `"newline": false` is the
@@ -427,12 +424,12 @@ func (d SessionsDeps) handleAnswer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeBadRequest, "exactly one of text or key must be set", nil)
 		return
 	}
-	if len(body.Text) > maxAnswerBytes {
+	if len(body.Text) > answer.MaxBytes {
 		writeError(w, http.StatusBadRequest, CodeBadRequest, "answer text too large", nil)
 		return
 	}
 	// newline defaults to true when omitted; it is ignored entirely when Key
-	// is set (encodeAnswer never consults it in that branch), so a client
+	// is set (answer.Encode never consults it in that branch), so a client
 	// that also passes --no-newline alongside --key is not an error.
 	newline := true
 	if body.Newline != nil {
@@ -449,7 +446,7 @@ func (d SessionsDeps) handleAnswer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	payload, err := encodeAnswer(body.Text, body.Key, newline)
+	payload, err := answer.Encode(body.Text, body.Key, newline)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error(), nil)
 		return
