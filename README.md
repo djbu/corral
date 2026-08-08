@@ -4,7 +4,22 @@
 
 A daemon that supervises Claude Code sessions: knows their exact state via hooks (never terminal scraping), checkpoints idle sessions to disk and resumes them on demand, orchestrates task DAGs with per-task model tiering and budgets, and answers you on your phone when an agent is blocked.
 
-**Status: pre-alpha — M0 spike in progress.** See [RUNBOOK.md](RUNBOOK.md) for the full architecture, milestones, and test strategy.
+**Status: pre-alpha — M1 complete** (daemon, supervised interactive sessions, tmux-style attach/detach, survive daemon restart via `--resume`). See [RUNBOOK.md](RUNBOOK.md) for the full architecture, milestones, and test strategy; [docs/design/m1.md](docs/design/m1.md) for the M1 design.
+
+## Try it
+
+```sh
+go build -o corral ./cmd/corral
+
+./corral daemon                # starts the background daemon
+./corral new --cwd ~/code/x    # spawns a supervised claude session and attaches
+# … work with claude normally; detach with Ctrl-\ then d …
+./corral ls                    # NAME STATE ATTACHED CWD UPTIME PID
+./corral attach x-1            # reattach — full screen repaint, state intact
+./corral kill x-1
+```
+
+Kill the terminal mid-session and reattach: the session is intact. Restart the daemon: sessions come back via `claude --resume` (in-flight turns survive graceful shutdown as partial-but-marked; see `spike/verify/NOTES.md` V3).
 
 ## Layout
 

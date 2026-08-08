@@ -117,7 +117,7 @@ Dependencies (keep the list short on purpose): `creack/pty`, `modernc.org/sqlite
 
 Each milestone ends with: tests green, `README` section updated, demo command documented. Don't start M(n+1) with M(n) red.
 
-### M0 — Spike (throwaway allowed)
+### M0 — Spike ✅ (see docs/spike-notes.md)
 Prove the two risky primitives before building anything real:
 - Spawn `claude` in a PTY from a detached process; attach/detach from another terminal; TUI renders correctly (winsize, SIGWINCH).
 - Kill a `claude` process mid-conversation; relaunch with `--resume <id>`; conversation continues.
@@ -125,7 +125,7 @@ Prove the two risky primitives before building anything real:
 
 **Exit criteria:** both primitives demonstrated in a script; findings written into `docs/spike-notes.md` (quirks, escape sequences, resume edge cases).
 
-### M1 — Daemon skeleton + interactive sessions
+### M1 — Daemon skeleton + interactive sessions ✅ (tagged v0.1.0)
 
 > **Spike findings folded in (see docs/spike-notes.md):** (a) reattach requires a headless terminal emulator tracking screen-grid state per session — raw byte-ring replay corrupts alt-screen TUIs (proven with vi and claude); (b) daemonization = setsid re-exec pattern; (c) child env is a minimal explicit whitelist, never `os.Environ()` passthrough; (d) detach = tmux-style prefix key + socket goodbye frame so the daemon can tell detach from client crash; (e) every supervised session gets a pinned settings file — global user settings leak into headless behavior.
 
