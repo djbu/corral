@@ -33,54 +33,22 @@ func cmdConfig(args []string, stdout, stderr io.Writer) int {
 		dir = wd
 	}
 
-	daemon, daemonSources, err := config.LoadDaemon()
-	if err != nil {
-		fmt.Fprintf(stderr, "corral: config: %v\n", err)
-		return 1
-	}
-	session, attach, sessionSources, rejections, err := config.LoadSession(dir, nil)
+	eff, err := config.Effective(dir)
 	if err != nil {
 		fmt.Fprintf(stderr, "corral: config: %v\n", err)
 		return 1
 	}
 
-	values := map[string]string{
-		"daemon.socket":                daemon.Socket,
-		"daemon.state_dir":             daemon.StateDir,
-		"daemon.log_level":             daemon.LogLevel,
-		"daemon.log_format":            daemon.LogFormat,
-		"daemon.shutdown_grace":        daemon.ShutdownGrace.String(),
-		"session.claude_bin":           session.ClaudeBin,
-		"session.model":                session.Model,
-		"session.setting_sources":      session.SettingSources,
-		"session.env_passthrough":      fmt.Sprintf("%v", session.EnvPassthrough),
-		"session.term":                 session.Term,
-		"session.scrollback_lines":     fmt.Sprintf("%d", session.ScrollbackLines),
-		"session.output_log_max_bytes": fmt.Sprintf("%d", session.OutputLogMaxBytes),
-		"attach.prefix_key":            attach.PrefixKey,
-		"attach.detach_key":            attach.DetachKey,
-		"attach.ping_interval":         attach.PingInterval.String(),
-		"attach.ping_timeout":          attach.PingTimeout.String(),
-	}
-
-	sources := make(map[string]string, len(daemonSources)+len(sessionSources))
-	for k, v := range daemonSources {
-		sources[k] = v
-	}
-	for k, v := range sessionSources {
-		sources[k] = v
-	}
-
-	keys := make([]string, 0, len(values))
-	for k := range values {
+	keys := make([]string, 0, len(eff.Values))
+	for k := range eff.Values {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 
 	for _, key := range keys {
-		fmt.Fprintf(stdout, "%s = %s   # from %s\n", key, values[key], sources[key])
+		fmt.Fprintf(stdout, "%s = %s   # from %s\n", key, eff.Values[key], eff.Sources[key])
 	}
-	for _, r := range rejections {
+	for _, r := range eff.Ignored {
 		fmt.Fprintf(stdout, "# ignored (repo files may not set this key): %s in %s\n", r.Key, r.File)
 	}
 

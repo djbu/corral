@@ -26,10 +26,20 @@ const (
 type cmdFunc func(args []string, stdout, stderr io.Writer) int
 
 // commands is the dispatch table from subcommand name to implementation.
-// Steps 5+ add entries here (e.g. "run", "attach", "ls"); this file only
-// wires the subset in scope for this milestone slice.
+// Steps 9+ add entries here (e.g. "ls", "new", "attach", "kill"); this file
+// only wires the subset in scope so far.
 var commands = map[string]cmdFunc{
-	"config": cmdConfig,
+	"config":     cmdConfig,
+	"daemon":     cmdDaemon,
+	"daemon-run": cmdDaemonRun,
+}
+
+// hiddenCommands are dispatchable but never listed by printCommands.
+// "daemon-run" is the detached daemon body (design doc §3.1); it is always
+// launched by `corral daemon` itself via re-exec, never meant to be typed
+// by a human.
+var hiddenCommands = map[string]bool{
+	"daemon-run": true,
 }
 
 func main() {
@@ -68,6 +78,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 func printCommands(w io.Writer) {
 	names := make([]string, 0, len(commands))
 	for name := range commands {
+		if hiddenCommands[name] {
+			continue
+		}
 		names = append(names, name)
 	}
 	sort.Strings(names)

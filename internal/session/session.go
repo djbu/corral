@@ -26,6 +26,20 @@ const (
 	DesiredStopped DesiredState = "stopped"
 )
 
+// AgentState is what `corral ls` renders for a session (design doc §6.4,
+// §9.2): a later-milestone-friendly rendering distinct from Status. M1's
+// state.NoopEngine derives it purely from Status; M2 overrides it with a
+// hook-driven working/blocked/idle rendering without changing this type or
+// the API shape that carries it.
+type AgentState string
+
+const (
+	AgentStarting AgentState = "starting"
+	AgentRunning  AgentState = "running"
+	AgentExited   AgentState = "exited"
+	AgentFailed   AgentState = "failed"
+)
+
 // Session is the persisted view of a session: the store's sessions table,
 // typed. Nullable DB columns (model, claude_session_id, exit_signal) map to
 // "" when NULL; exit_code and the three *_at_ms timestamps map to nil

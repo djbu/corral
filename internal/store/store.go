@@ -89,6 +89,27 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+// SchemaVersion returns the database's current PRAGMA user_version, for
+// GET /v1/version's schema_version field.
+func (s *Store) SchemaVersion(ctx context.Context) (int, error) {
+	var v int
+	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&v); err != nil {
+		return 0, fmt.Errorf("store: reading user_version: %w", err)
+	}
+	return v, nil
+}
+
+// WalCheckpointTruncate runs PRAGMA wal_checkpoint(TRUNCATE), folding the
+// WAL back into the main database file and truncating it to zero bytes.
+// Shutdown (design doc §3.6 step 5) calls this immediately before Close so
+// a daemon restart never has to replay a WAL left over from a clean exit.
+func (s *Store) WalCheckpointTruncate(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		return fmt.Errorf("store: wal_checkpoint(TRUNCATE): %w", err)
+	}
+	return nil
+}
+
 // withTx runs fn inside a transaction, committing if fn returns nil and
 // rolling back otherwise (including on panic, via the deferred Rollback —
 // harmless no-op after a successful Commit).
