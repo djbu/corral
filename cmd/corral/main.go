@@ -30,6 +30,7 @@ var commands = map[string]cmdFunc{
 	"config":     cmdConfig,
 	"daemon":     cmdDaemon,
 	"daemon-run": cmdDaemonRun,
+	"doctor":     cmdDoctor,
 	"ls":         cmdLs,
 	"new":        cmdNew,
 	"kill":       cmdKill,

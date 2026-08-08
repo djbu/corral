@@ -18,6 +18,7 @@ import (
 
 	"github.com/danielbecerra/corral/internal/api"
 	"github.com/danielbecerra/corral/internal/checkpoint"
+	"github.com/danielbecerra/corral/internal/claude/automode"
 	"github.com/danielbecerra/corral/internal/clock"
 	"github.com/danielbecerra/corral/internal/config"
 	"github.com/danielbecerra/corral/internal/session"
@@ -203,6 +204,7 @@ func (d *Daemon) startup(ctx context.Context) error {
 	// default LoadSession would, resolved for the daemon's own cwd, purely
 	// to log something useful; it is never fatal.
 	d.probeClaudeBin(ctx)
+	d.probeAutoMode(ctx)
 
 	// The checkpointer, engine, and live-session registry all have to
 	// exist before recovery runs (recovery resumes sessions through them),
@@ -435,6 +437,23 @@ func (d *Daemon) probeClaudeBin(ctx context.Context) {
 		return
 	}
 	d.log.Info("resolved claude_bin", "claude_bin", bin, "version", string(out))
+}
+
+// probeAutoMode best-effort detects Claude Code's Auto Mode at startup and
+// logs it (design doc Amendment A.6). Same discipline as probeClaudeBin:
+// non-fatal, 3s budget inside automode.Detect, never blocks startup. When
+// active it logs at INFO so an operator scanning startup logs sees that
+// `blocked` will be rare on this account; otherwise it is silent at Debug
+// (Auto Mode's off-state shape is unverified, so "not detected" is not a
+// claim that it is off — see automode.StatusUnknown).
+func (d *Daemon) probeAutoMode(ctx context.Context) {
+	res := automode.Detect(ctx, "")
+	if res.Status == automode.StatusActive {
+		d.log.Info(automode.ActiveMessage,
+			"allow", res.AllowCount, "soft_deny", res.SoftDenyCount, "hard_deny", res.HardDenyCount)
+		return
+	}
+	d.log.Debug("Auto Mode not detected at startup", "raw", res.Raw)
 }
 
 func (d *Daemon) writePIDFile() error {

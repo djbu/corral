@@ -11,7 +11,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"sort"
 	"sync"
 	"syscall"
@@ -193,37 +192,6 @@ func envKeyNames(env map[string]string) []string {
 	return keys
 }
 
-// readForeignHookEvents best-effort reads <claudeHome>/settings.json and
-// returns the sorted event names under its top-level "hooks" object — hooks
-// a user configured outside corral (Amendment: corral's own pinned
-// settings.json lives per-session under stateDir, never under claudeHome).
-// Read-only, and never fails Spawn: a missing or unparseable file simply
-// yields no names.
-func readForeignHookEvents(claudeHome string) []string {
-	if claudeHome == "" {
-		return nil
-	}
-	b, err := os.ReadFile(filepath.Join(claudeHome, "settings.json"))
-	if err != nil {
-		return nil
-	}
-	var parsed struct {
-		Hooks map[string]json.RawMessage `json:"hooks"`
-	}
-	if err := json.Unmarshal(b, &parsed); err != nil {
-		return nil
-	}
-	if len(parsed.Hooks) == 0 {
-		return nil
-	}
-	names := make([]string, 0, len(parsed.Hooks))
-	for k := range parsed.Hooks {
-		names = append(names, k)
-	}
-	sort.Strings(names)
-	return names
-}
-
 func normalizeSize(rows, cols uint16) (uint16, uint16) {
 	if rows == 0 || cols == 0 {
 		return 40, 120
@@ -251,7 +219,7 @@ func (r *Registry) Spawn(ctx context.Context, spec session.Spec) (*session.Sessi
 		return nil, fmt.Errorf("supervisor: generating session secret for %s: %w", spec.ID, err)
 	}
 
-	foreignHooks := readForeignHookEvents(r.cfg.ClaudeHome)
+	foreignHooks := settings.ForeignHookEvents(r.cfg.ClaudeHome)
 	if len(foreignHooks) > 0 {
 		r.log.Info("supervisor: foreign hooks present in supervised session", "session_id", spec.ID, "events", foreignHooks)
 	}
