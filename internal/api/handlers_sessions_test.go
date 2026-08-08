@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -477,5 +478,109 @@ func TestHandleSessions_MuxRejections_BypassEnvelope(t *testing.T) {
 				t.Fatalf("FINDING invalidated: mux rejection body decoded as a real error envelope (code=%q) — expected plain text, body=%s", env.Error.Code, rec.Body.String())
 			}
 		})
+	}
+}
+
+// --- GET /v1/sessions/{idOrName}/events ---------------------------------
+
+func seedEventsSession(t *testing.T, st *store.Store, id string) {
+	t.Helper()
+	_, err := st.CreateSession(context.Background(), store.CreateSessionParams{
+		ID: id, Name: id, Mode: session.ModeInteractive, Cwd: "/tmp/work",
+		ClaudeBin: "/usr/local/bin/claude", Argv: []string{"/usr/local/bin/claude"},
+		EnvKeys: []string{"HOME"}, SettingsPath: "/tmp/state/" + id + "/settings.json",
+		SettingSources: "user,project,local", DesiredState: session.DesiredRunning,
+		Status: session.StatusRunning, PID: 1234, PGID: 1234, ProcStartNs: 1, Rows: 40, Cols: 120,
+	})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+}
+
+func TestHandleSessionEvents(t *testing.T) {
+	deps := newSessionsTestDeps(t)
+	srv := newSessionsTestServer(t, deps)
+	ctx := context.Background()
+
+	const id = "sess-events"
+	seedEventsSession(t, deps.Store, id)
+
+	if _, err := deps.Store.AppendEvent(ctx, id, session.EventHookReceived, `{"event":"PreToolUse"}`); err != nil {
+		t.Fatalf("AppendEvent 1: %v", err)
+	}
+	if _, err := deps.Store.AppendEvent(ctx, id, session.EventPermissionRequested, `{"tool_name":"Bash"}`); err != nil {
+		t.Fatalf("AppendEvent 2: %v", err)
+	}
+
+	rec := doVersioned(t, srv.Handler(), http.MethodGet, "/v1/sessions/"+id+"/events", nil)
+	assertAPIVersionHeader(t, rec)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Events []struct {
+			Seq  int64           `json:"seq"`
+			Ts   string          `json:"ts"`
+			Kind string          `json:"kind"`
+			Data json.RawMessage `json:"data"`
+		} `json:"events"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal: %v, body=%s", err, rec.Body.String())
+	}
+	if len(resp.Events) != 2 {
+		t.Fatalf("got %d events, want 2: %s", len(resp.Events), rec.Body.String())
+	}
+	// seq-ascending append order.
+	if resp.Events[0].Seq >= resp.Events[1].Seq {
+		t.Fatalf("events not seq-ascending: %d then %d", resp.Events[0].Seq, resp.Events[1].Seq)
+	}
+	if resp.Events[0].Kind != string(session.EventHookReceived) {
+		t.Fatalf("event[0].kind = %q, want %q", resp.Events[0].Kind, session.EventHookReceived)
+	}
+	// data is embedded verbatim (never re-encoded).
+	if string(resp.Events[1].Data) != `{"tool_name":"Bash"}` {
+		t.Fatalf("event[1].data = %s, want verbatim payload", resp.Events[1].Data)
+	}
+	if resp.Events[0].Ts == "" {
+		t.Fatal("event ts empty")
+	}
+}
+
+func TestHandleSessionEvents_Empty(t *testing.T) {
+	deps := newSessionsTestDeps(t)
+	srv := newSessionsTestServer(t, deps)
+
+	const id = "sess-events-empty"
+	seedEventsSession(t, deps.Store, id)
+
+	rec := doVersioned(t, srv.Handler(), http.MethodGet, "/v1/sessions/"+id+"/events", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	// Empty stream must serialize as [] (not null) so clients can range safely.
+	var resp struct {
+		Events []json.RawMessage `json:"events"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if resp.Events == nil {
+		t.Fatalf("events serialized as null, want []: %s", rec.Body.String())
+	}
+	if len(resp.Events) != 0 {
+		t.Fatalf("got %d events, want 0", len(resp.Events))
+	}
+}
+
+func TestHandleSessionEvents_UnknownSession(t *testing.T) {
+	deps := newSessionsTestDeps(t)
+	srv := newSessionsTestServer(t, deps)
+
+	rec := doVersioned(t, srv.Handler(), http.MethodGet, "/v1/sessions/no-such/events", nil)
+	assertAPIVersionHeader(t, rec)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404, body=%s", rec.Code, rec.Body.String())
 	}
 }

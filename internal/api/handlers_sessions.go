@@ -36,6 +36,7 @@ func (s *Server) RegisterSessions(deps SessionsDeps) {
 	s.Handle("GET /v1/sessions", deps.handleList)
 	s.Handle("POST /v1/sessions", deps.handleCreate)
 	s.Handle("GET /v1/sessions/{idOrName}", deps.handleGet)
+	s.Handle("GET /v1/sessions/{idOrName}/events", deps.handleEvents)
 	s.Handle("DELETE /v1/sessions/{idOrName}", deps.handleDelete)
 }
 
@@ -155,6 +156,56 @@ func (d SessionsDeps) handleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.writeSession(w, http.StatusOK, sess)
+}
+
+// eventResponse is one row of GET /v1/sessions/{idOrName}/events. Data is
+// embedded verbatim (never re-encoded) so the wire bytes match the stored
+// audit payload exactly — the contract suite (A.7) diffs these.
+type eventResponse struct {
+	Seq  int64           `json:"seq"`
+	Ts   string          `json:"ts"`
+	Kind string          `json:"kind"`
+	Data json.RawMessage `json:"data"`
+}
+
+type listEventsResponse struct {
+	Events []eventResponse `json:"events"`
+}
+
+// handleEvents serves one session's append-only event stream in
+// seq-ascending order (design doc §9.2 / step 6c). It is the audit/replay
+// source of truth the fakeclaude-vs-real-claude contract suite reads to
+// compare hook traces, and what blocked-reason debugging needs. Cheap: a
+// single indexed ListEvents, no derivation.
+func (d SessionsDeps) handleEvents(w http.ResponseWriter, r *http.Request) {
+	sess, err := d.resolveSession(r, r.PathValue("idOrName"))
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, CodeSessionNotFound, fmt.Sprintf("no session %q", r.PathValue("idOrName")), nil)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
+		return
+	}
+	evs, err := d.Store.ListEvents(r.Context(), sess.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
+		return
+	}
+	out := make([]eventResponse, 0, len(evs))
+	for _, e := range evs {
+		data := json.RawMessage(e.DataJSON)
+		if len(data) == 0 {
+			data = json.RawMessage("{}")
+		}
+		out = append(out, eventResponse{
+			Seq:  e.Seq,
+			Ts:   msToRFC3339(e.TsMs),
+			Kind: string(e.Kind),
+			Data: data,
+		})
+	}
+	writeJSON(w, http.StatusOK, listEventsResponse{Events: out})
 }
 
 type createSessionRequest struct {

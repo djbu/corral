@@ -90,6 +90,33 @@ func (c *Client) GetSession(ctx context.Context, idOrName string) (SessionInfo, 
 	return v, nil
 }
 
+// EventInfo is one decoded row of GET /v1/sessions/{idOrName}/events.
+// Data is the raw stored audit payload, embedded verbatim.
+type EventInfo struct {
+	Seq  int64           `json:"seq"`
+	Ts   string          `json:"ts"`
+	Kind string          `json:"kind"`
+	Data json.RawMessage `json:"data"`
+}
+
+type listEventsResponse struct {
+	Events []EventInfo `json:"events"`
+}
+
+// ListEvents calls GET /v1/sessions/{idOrName}/events, returning the
+// session's append-only event stream in seq-ascending order.
+func (c *Client) ListEvents(ctx context.Context, idOrName string) ([]EventInfo, error) {
+	resp, err := c.do(ctx, http.MethodGet, "/v1/sessions/"+url.PathEscape(idOrName)+"/events", nil)
+	if err != nil {
+		return nil, err
+	}
+	var v listEventsResponse
+	if err := decode(resp, &v); err != nil {
+		return nil, err
+	}
+	return v.Events, nil
+}
+
 // KillSession calls DELETE /v1/sessions/{idOrName}, optionally overriding
 // the shutdown grace (0 omits the query param, letting the daemon use its
 // configured default).
