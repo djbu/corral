@@ -132,6 +132,10 @@ var envSpecs = []envSpec{
 		l.State.PermissionTTL = strPtr(v)
 		return nil
 	}},
+	{"state.idle_timeout", "CORRAL_STATE_IDLE_TIMEOUT", func(l *layer, v string) error {
+		l.State.IdleTimeout = strPtr(v)
+		return nil
+	}},
 
 	{"notify.enabled", "CORRAL_NOTIFY_ENABLED", func(l *layer, v string) error {
 		b, err := strconv.ParseBool(v)

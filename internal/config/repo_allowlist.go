@@ -108,6 +108,9 @@ func filterRepoLayer(file string, l *layer) (*layer, []Rejection) {
 	if l.State.PermissionTTL != nil {
 		reject("state.permission_ttl")
 	}
+	if l.State.IdleTimeout != nil {
+		reject("state.idle_timeout")
+	}
 
 	// [notify] — nothing is repo-settable (design doc §8.7): a repo's
 	// .corral.toml is attacker-controlled, and a cloned repo setting

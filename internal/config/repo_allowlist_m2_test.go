@@ -29,7 +29,8 @@ func TestLoadSession_RepoAllowlistRejectsStateAndPermissionMode(t *testing.T) {
 		"persist_hook_events = \"all\"\n"+
 		"hook_timeout = \"1s\"\n"+
 		"permission_settle = \"1s\"\n"+
-		"permission_ttl = \"1s\"\n")
+		"permission_ttl = \"1s\"\n"+
+		"idle_timeout = \"1s\"\n")
 
 	sess, _, _, rej, err := LoadSession(sub, nil)
 	if err != nil {
@@ -52,6 +53,7 @@ func TestLoadSession_RepoAllowlistRejectsStateAndPermissionMode(t *testing.T) {
 		"state.hook_timeout",
 		"state.permission_settle",
 		"state.permission_ttl",
+		"state.idle_timeout",
 	}
 	for _, key := range wantRejected {
 		assertRejected(t, rej, repoPath, key)

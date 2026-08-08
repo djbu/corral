@@ -42,9 +42,11 @@ func isUniqueConstraintError(err error) bool {
 
 // CreateSessionParams is everything CreateSession needs to insert a new
 // row. Timestamps are never passed in — CreateSession stamps
-// created_at_ms/updated_at_ms itself from the Store's Clock, and leaves
-// exit_code/exit_signal/started_at_ms/last_attached_at_ms/ended_at_ms NULL,
-// since none of them apply to a session that doesn't exist yet.
+// created_at_ms/updated_at_ms/last_activity_ms itself from the Store's
+// Clock (a freshly created session counts as active as of its own
+// creation), and leaves exit_code/exit_signal/started_at_ms/
+// last_attached_at_ms/ended_at_ms NULL, since none of them apply to a
+// session that doesn't exist yet.
 type CreateSessionParams struct {
 	ID              string
 	Name            string
@@ -85,13 +87,13 @@ func (s *Store) CreateSession(ctx context.Context, p CreateSessionParams) (*sess
 			id, name, mode, cwd, claude_bin, model, argv_json, env_keys_json,
 			settings_path, setting_sources, claude_session_id,
 			desired_state, status, pid, pgid, proc_start_ns, rows, cols,
-			resume_count, created_at_ms, updated_at_ms
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+			resume_count, created_at_ms, updated_at_ms, last_activity_ms
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
 	`,
 		p.ID, p.Name, string(p.Mode), p.Cwd, p.ClaudeBin, nullableStr(p.Model),
 		argvJSON, envKeysJSON, p.SettingsPath, p.SettingSources,
 		nullableStr(p.ClaudeSessionID), string(p.DesiredState), string(p.Status),
-		p.PID, p.PGID, p.ProcStartNs, p.Rows, p.Cols, now, now,
+		p.PID, p.PGID, p.ProcStartNs, p.Rows, p.Cols, now, now, now,
 	)
 	if err != nil {
 		if isUniqueConstraintError(err) {
@@ -181,7 +183,7 @@ func (s *Store) UpdateSession(ctx context.Context, id string, mutate func(*sessi
 				updated_at_ms = ?, started_at_ms = ?, last_attached_at_ms = ?,
 				ended_at_ms = ?, agent_state = ?, agent_state_since_ms = ?,
 				blocked_reason_json = ?, last_hook_at_ms = ?, hook_count = ?,
-				permission_mode = ?, last_prompt_id = ?
+				permission_mode = ?, last_prompt_id = ?, last_activity_ms = ?
 			WHERE id = ?
 		`,
 			sess.Name, string(sess.Mode), sess.Cwd, sess.ClaudeBin, nullableStr(sess.Model),
@@ -192,7 +194,7 @@ func (s *Store) UpdateSession(ctx context.Context, id string, mutate func(*sessi
 			sess.UpdatedAtMs, sess.StartedAtMs, sess.LastAttachedAtMs, sess.EndedAtMs,
 			string(sess.AgentState), sess.AgentStateSinceMs, nullableStr(sess.BlockedReasonJSON),
 			sess.LastHookAtMs, sess.HookCount, nullableStr(sess.PermissionMode),
-			nullableStr(sess.LastPromptID),
+			nullableStr(sess.LastPromptID), sess.LastActivityMs,
 			sess.ID,
 		)
 		if err != nil {
@@ -217,7 +219,7 @@ const sessionSelectColumns = `SELECT
 	resume_count, created_at_ms, updated_at_ms, started_at_ms,
 	last_attached_at_ms, ended_at_ms,
 	agent_state, agent_state_since_ms, blocked_reason_json, last_hook_at_ms,
-	hook_count, permission_mode, last_prompt_id`
+	hook_count, permission_mode, last_prompt_id, last_activity_ms`
 
 // rowScanner is implemented by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -249,7 +251,7 @@ func scanSessionRow(row rowScanner) (*session.Session, error) {
 		&sess.ResumeCount, &sess.CreatedAtMs, &sess.UpdatedAtMs,
 		&startedAtMs, &lastAttachedAtMs, &endedAtMs,
 		&agentState, &agentStateSinceMs, &blockedReasonJSON, &lastHookAtMs,
-		&sess.HookCount, &permissionMode, &lastPromptID,
+		&sess.HookCount, &permissionMode, &lastPromptID, &sess.LastActivityMs,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -302,6 +304,22 @@ func scanSessionRow(row rowScanner) (*session.Session, error) {
 	}
 
 	return &sess, nil
+}
+
+// TouchActivity records human/external input to a session by bumping
+// last_activity_ms (and updated_at_ms). It is a single-column UPDATE rather
+// than a full UpdateSession upsert because it is called on the hot input
+// path. Bumping is best-effort; callers log-and-continue on error and must
+// never fail an input write because of it. It records ONLY human/external
+// input (PTY writes, attach, inbound hooks) — never agent output.
+func (s *Store) TouchActivity(ctx context.Context, id string, atMs int64) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE sessions SET last_activity_ms = ?, updated_at_ms = ? WHERE id = ?`,
+		atMs, s.clk.Now().UnixMilli(), id)
+	if err != nil {
+		return fmt.Errorf("store: touching activity for %s: %w", id, err)
+	}
+	return nil
 }
 
 func marshalStrings(v []string) (string, error) {

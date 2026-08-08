@@ -102,7 +102,7 @@ func TestMigration0002_PreservesDataAndEvents(t *testing.T) {
 	clk := clocktest.NewFake(time.Unix(1700000000, 0))
 	st, err := Open(path, clk)
 	if err != nil {
-		t.Fatalf("Open (running migration 0002): %v", err)
+		t.Fatalf("Open (running migration 0002 and later): %v", err)
 	}
 	defer st.Close()
 
@@ -111,8 +111,11 @@ func TestMigration0002_PreservesDataAndEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	if v != 2 {
-		t.Fatalf("SchemaVersion = %d, want 2", v)
+	// Open always runs every pending migration, not just 0002 — this
+	// fixture starts at schema 1, so it lands on the newest known version
+	// (3, since 0003_activity.sql), not 2.
+	if v != 3 {
+		t.Fatalf("SchemaVersion = %d, want 3", v)
 	}
 
 	if n := countRows(t, st.db, "sessions"); n != len(v1Fixture) {

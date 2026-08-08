@@ -630,13 +630,17 @@ func (l *sessionLoop) reasonFor(r *openReq) BlockedReason {
 	}
 }
 
-// persistHeartbeat bumps HookCount/LastHookAtMs/LastPromptID. It is called
-// on every event, recognized or not, independent of recomputeAndPersist
-// (which is not called for unknown events).
+// persistHeartbeat bumps HookCount/LastHookAtMs/LastPromptID/LastActivityMs.
+// It is called on every event, recognized or not, independent of
+// recomputeAndPersist (which is not called for unknown events). An inbound
+// hook event is HUMAN/EXTERNAL activity for last_activity_ms's purposes
+// (design doc's activity-tracking step) — it is never emitted by corral's
+// own agent-output path.
 func (l *sessionLoop) persistHeartbeat(ctx context.Context, ev hookrelay.HookPayload, nowMs int64) {
 	_, err := l.engine.store.UpdateSession(ctx, l.sessionID, func(s *session.Session) {
 		s.HookCount++
 		s.LastHookAtMs = &nowMs
+		s.LastActivityMs = nowMs
 		if ev.PromptID != "" {
 			s.LastPromptID = ev.PromptID
 		}

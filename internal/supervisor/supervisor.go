@@ -95,7 +95,17 @@ type Registry struct {
 	mu    sync.Mutex
 	live  map[string]*LiveSession // keyed by session ID
 	names map[string]string       // name -> ID
+
+	// activityMu/lastActivityTouch throttle touchActivity's DB writes
+	// (below) — kept separate from mu, which guards live/names, so a slow
+	// activity UPDATE never blocks unrelated registry operations.
+	activityMu        sync.Mutex
+	lastActivityTouch map[string]int64 // session id -> unix-ms of last DB touch
 }
+
+// activityTouchIntervalMs throttles touchActivity so a burst of per-keystroke
+// PTY writes bumps last_activity_ms in the DB at most this often per session.
+const activityTouchIntervalMs = 5000
 
 // New returns a Registry with no live sessions.
 func New(st *store.Store, engine state.Engine, checkpointer Checkpointer, clk clock.Clock, cfg Config, log *slog.Logger) *Registry {
@@ -103,14 +113,35 @@ func New(st *store.Store, engine state.Engine, checkpointer Checkpointer, clk cl
 		log = slog.Default()
 	}
 	return &Registry{
-		store:        st,
-		engine:       engine,
-		checkpointer: checkpointer,
-		clock:        clk,
-		cfg:          cfg,
-		log:          log,
-		live:         make(map[string]*LiveSession),
-		names:        make(map[string]string),
+		store:             st,
+		engine:            engine,
+		checkpointer:      checkpointer,
+		clock:             clk,
+		cfg:               cfg,
+		log:               log,
+		live:              make(map[string]*LiveSession),
+		names:             make(map[string]string),
+		lastActivityTouch: map[string]int64{},
+	}
+}
+
+// touchActivity bumps the session's last_activity_ms, throttled to at most
+// once per activityTouchIntervalMs so per-keystroke PTY writes don't hammer
+// the DB. Best-effort: errors are logged, never propagated to the input
+// path. Callers must pass the session's HUMAN/EXTERNAL activity only — see
+// WriteInput, Attach, and state.persistHeartbeat's call sites.
+func (r *Registry) touchActivity(id string) {
+	nowMs := r.clock.Now().UnixMilli()
+	r.activityMu.Lock()
+	last := r.lastActivityTouch[id]
+	if nowMs-last < activityTouchIntervalMs {
+		r.activityMu.Unlock()
+		return
+	}
+	r.lastActivityTouch[id] = nowMs
+	r.activityMu.Unlock()
+	if err := r.store.TouchActivity(context.Background(), id, nowMs); err != nil {
+		r.log.Warn("supervisor: touching activity", "session_id", id, "err", err)
 	}
 }
 
@@ -159,9 +190,15 @@ func (r *Registry) register(ls *LiveSession, name string) {
 
 func (r *Registry) deregister(id, name string) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	delete(r.live, id)
 	delete(r.names, name)
+	r.mu.Unlock()
+	// Drop the activity-throttle entry so lastActivityTouch doesn't grow
+	// unboundedly over the daemon's lifetime as sessions come and go. Uses
+	// its own lock (never held together with r.mu).
+	r.activityMu.Lock()
+	delete(r.lastActivityTouch, id)
+	r.activityMu.Unlock()
 }
 
 // SecretFor returns the in-memory hook-auth secret for a live session.
@@ -528,7 +565,14 @@ func (r *Registry) WriteInput(ctx context.Context, idOrName string, b []byte) er
 		return ErrNotLive
 	}
 	_, err := ls.PTYMaster.Write(b)
-	return err
+	if err != nil {
+		return err
+	}
+	// Human/external input (design doc's activity-tracking step): bump
+	// last_activity_ms via the resolved canonical session ID, never
+	// idOrName, since idOrName may be a name rather than an ID.
+	r.touchActivity(ls.SessionID)
+	return nil
 }
 
 // ErrNotLive is returned by Kill when idOrName does not name a session this

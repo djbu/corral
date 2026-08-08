@@ -49,6 +49,12 @@ type State struct {
 	HookTimeout          time.Duration
 	PermissionSettle     time.Duration
 	PermissionTTL        time.Duration
+	// IdleTimeout is the foundation for the idle reaper (a later step): 0
+	// (default) disables it. Lives in [state] rather than [session]
+	// because [state] is user-file/env-only, never repo-settable (trust
+	// boundary — a cloned repo must not be able to set how aggressively
+	// its own sessions get reaped).
+	IdleTimeout time.Duration
 }
 
 // Attach is the resolved attach-scope configuration.

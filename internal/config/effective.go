@@ -57,6 +57,7 @@ func Effective(cwd string) (EffectiveResult, error) {
 		"state.hook_timeout":            state.HookTimeout.String(),
 		"state.permission_settle":       state.PermissionSettle.String(),
 		"state.permission_ttl":          state.PermissionTTL.String(),
+		"state.idle_timeout":            state.IdleTimeout.String(),
 	}
 
 	sources := make(map[string]string, len(daemonSources)+len(sessionSources)+len(stateSources))

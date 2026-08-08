@@ -90,4 +90,13 @@ type Session struct {
 	HookCount         int
 	PermissionMode    string // "" = NULL = unset; user/env-settable only, never repo-settable (§8.7)
 	LastPromptID      string // "" = NULL; set by the most recent UserPromptSubmit hook
+
+	// LastActivityMs is new in M3 (see migration 0003): unix-ms
+	// of the last HUMAN/EXTERNAL input to this session — PTY WriteInput,
+	// client attach, or an inbound hook event. It is deliberately NOT
+	// bumped by agent PTY output; a session streaming output with no human
+	// present is exactly the future idle reaper's target. NOT NULL DEFAULT
+	// 0 in the schema, so unlike the *_at_ms pointer fields above this is a
+	// plain int64, never nil.
+	LastActivityMs int64
 }

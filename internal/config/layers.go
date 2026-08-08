@@ -58,6 +58,7 @@ type stateLayer struct {
 	HookTimeout          *string `toml:"hook_timeout"`
 	PermissionSettle     *string `toml:"permission_settle"`
 	PermissionTTL        *string `toml:"permission_ttl"`
+	IdleTimeout          *string `toml:"idle_timeout"`
 }
 
 // notifyLayer is [notify]'s section (design doc §8.7): entirely
@@ -259,6 +260,10 @@ func mergeState(dst, src *stateLayer, srcSource sourceFunc, sources map[string]s
 	if src.PermissionTTL != nil {
 		dst.PermissionTTL = src.PermissionTTL
 		sources["state.permission_ttl"] = srcSource("state.permission_ttl")
+	}
+	if src.IdleTimeout != nil {
+		dst.IdleTimeout = src.IdleTimeout
+		sources["state.idle_timeout"] = srcSource("state.idle_timeout")
 	}
 }
 

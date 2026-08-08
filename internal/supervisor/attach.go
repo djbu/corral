@@ -236,6 +236,11 @@ func (r *Registry) Attach(ls *LiveSession, conn net.Conn, br *bufio.Reader) erro
 	}
 	defer r.clearAttachmentIfCurrent(ls, att)
 
+	// A client attaching is human/external activity (design doc's
+	// activity-tracking step) — bump last_activity_ms now that the
+	// attachment has been successfully installed.
+	r.touchActivity(ls.SessionID)
+
 	rows, cols := normalizeSize(uint16(hello.Rows), uint16(hello.Cols))
 	r.applyResize(ctx, ls, rows, cols)
 

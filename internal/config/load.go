@@ -54,6 +54,7 @@ func defaultsStateLayer() *stateLayer {
 		HookTimeout:          strPtr("2s"),
 		PermissionSettle:     strPtr("15s"),
 		PermissionTTL:        strPtr("6h"),
+		IdleTimeout:          strPtr("0s"),
 	}
 }
 
@@ -269,7 +270,7 @@ func resolveSession(l *sessionLayer) (Session, error) {
 	}, nil
 }
 
-// resolveState parses a fully-merged stateLayer into State. All six duration
+// resolveState parses a fully-merged stateLayer into State. All duration
 // fields use time.ParseDuration; MaxEventPayloadBytes uses the same
 // ParseBytes helper as session.output_log_max_bytes; PersistHookEvents is
 // carried through as a plain string (its enum of values is validated by the
@@ -303,6 +304,10 @@ func resolveState(l *stateLayer) (State, error) {
 	if err != nil {
 		return State{}, fmt.Errorf("config: state.permission_ttl=%q: %w", derefStr(l.PermissionTTL), err)
 	}
+	idleTimeout, err := time.ParseDuration(derefStr(l.IdleTimeout))
+	if err != nil {
+		return State{}, fmt.Errorf("config: state.idle_timeout=%q: %w", derefStr(l.IdleTimeout), err)
+	}
 	return State{
 		StaleAfter:           staleAfter,
 		FirstHookGrace:       firstHookGrace,
@@ -312,6 +317,7 @@ func resolveState(l *stateLayer) (State, error) {
 		HookTimeout:          hookTimeout,
 		PermissionSettle:     permissionSettle,
 		PermissionTTL:        permissionTTL,
+		IdleTimeout:          idleTimeout,
 	}, nil
 }
 
