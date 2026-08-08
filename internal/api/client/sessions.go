@@ -123,6 +123,33 @@ func (c *Client) ListEvents(ctx context.Context, idOrName string) ([]EventInfo, 
 	return v.Events, nil
 }
 
+// answerRequest is POST /v1/sessions/{idOrName}/answer's request body.
+type answerRequest struct {
+	Text    string `json:"text"`
+	Key     string `json:"key"`
+	Newline bool   `json:"newline"`
+}
+
+// Answer calls POST /v1/sessions/{idOrName}/answer, writing text (or, if key
+// is non-empty and text is "", a named key) to the session's live PTY as if
+// a human had typed it (design doc §7). Exactly one of text/key should be
+// set; newline is ignored by the daemon when key is set.
+func (c *Client) Answer(ctx context.Context, idOrName, text, key string, newline bool) (*SessionInfo, error) {
+	b, err := json.Marshal(answerRequest{Text: text, Key: key, Newline: newline})
+	if err != nil {
+		return nil, fmt.Errorf("client: encoding answer request: %w", err)
+	}
+	resp, err := c.do(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(idOrName)+"/answer", b)
+	if err != nil {
+		return nil, err
+	}
+	var v SessionInfo
+	if err := decode(resp, &v); err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
 // KillSession calls DELETE /v1/sessions/{idOrName}, optionally overriding
 // the shutdown grace (0 omits the query param, letting the daemon use its
 // configured default).

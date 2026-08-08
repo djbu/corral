@@ -65,6 +65,10 @@ type APIError struct {
 // part of the wire contract and must stay in sync with api/errors.go.
 type Code string
 
+// CodeSessionNotLive mirrors api.CodeSessionNotLive (internal/api/errors.go):
+// the session exists but has no live PTY to write to (design doc §7).
+const CodeSessionNotLive Code = "session_not_live"
+
 func (e *APIError) Error() string {
 	return fmt.Sprintf("corral: %s: %s", e.Code, e.Message)
 }

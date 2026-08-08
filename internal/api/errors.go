@@ -26,6 +26,7 @@ const (
 	CodeDaemonShuttingDown Code = "daemon_shutting_down"
 	CodeInternal           Code = "internal"
 	CodeUnauthorized       Code = "unauthorized"
+	CodeSessionNotLive     Code = "session_not_live"
 )
 
 // errorBody is the "error" object inside the envelope.

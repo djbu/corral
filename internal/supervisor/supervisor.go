@@ -517,6 +517,20 @@ func (r *Registry) Kill(ctx context.Context, idOrName string, grace *time.Durati
 	return r.store.GetSession(ctx, ls.SessionID)
 }
 
+// WriteInput writes b to idOrName's live PTY master verbatim, as if a human
+// had typed it (design doc §7). Callers are responsible for encoding the
+// answer payload and for appending any resulting event; WriteInput does
+// neither. r.mu is not held across the Write so a slow/blocked PTY write
+// never stalls other registry operations.
+func (r *Registry) WriteInput(ctx context.Context, idOrName string, b []byte) error {
+	ls, ok := r.Get(idOrName)
+	if !ok {
+		return ErrNotLive
+	}
+	_, err := ls.PTYMaster.Write(b)
+	return err
+}
+
 // ErrNotLive is returned by Kill when idOrName does not name a session this
 // registry currently tracks as live.
 var ErrNotLive = fmt.Errorf("supervisor: session is not live")

@@ -21,6 +21,7 @@ const (
 	EventSessionResumed       EventKind = "session.resumed"
 	EventSessionOrphanReaped  EventKind = "session.orphan_reaped"
 	EventSessionUnresumable   EventKind = "session.unresumable"
+	EventSessionAnswered      EventKind = "session.answered" // corral answer wrote input to the PTY
 
 	EventHookReceived     EventKind = "hook.received"
 	EventHookDropped      EventKind = "hook.dropped"

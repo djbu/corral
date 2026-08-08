@@ -851,3 +851,56 @@ func TestPermissionModeRecordedFromPayload(t *testing.T) {
 		t.Fatalf("PermissionMode = %q, want %q", sess.PermissionMode, "acceptEdits")
 	}
 }
+
+// TestAnswerDoesNotForceTransition proves design doc §7's central invariant:
+// `corral answer` never changes agent_state itself. It only writes bytes to
+// the PTY (simulated here by the store side effect corral answer's handler
+// performs: appending a session.answered event) — a session leaves
+// AgentBlocked only when a later hook proves it, not because an answer was
+// recorded.
+func TestAnswerDoesNotForceTransition(t *testing.T) {
+	fc := clocktest.NewFake(fixedStart)
+	st := openRealTestStore(t, fc)
+	e := NewEngine(st, fc, EngineConfig{}, &spyNotifier{}, nil)
+
+	stepCh := make(chan struct{}, 64)
+	e.afterStep = func() { stepCh <- struct{}{} }
+
+	const id = "sess-answer-no-transition"
+	createTestSession(t, st, id, session.StatusRunning)
+	stopEngineLoop(t, e, id)
+
+	deliver(t, e, id, stepCh, hookrelay.HookPayload{Common: hookrelay.Common{HookEventName: "SessionStart", SessionID: id}})
+	deliver(t, e, id, stepCh, hookrelay.HookPayload{Common: hookrelay.Common{HookEventName: "UserPromptSubmit", SessionID: id}, PromptID: "p1"})
+	deliver(t, e, id, stepCh, hookrelay.HookPayload{Common: hookrelay.Common{HookEventName: "PreToolUse", SessionID: id}, PromptID: "p1", ToolName: "Bash", ToolUseID: "tu1", ToolInput: json.RawMessage(`{"command":"echo hi"}`)})
+	deliver(t, e, id, stepCh, bashPayload("PermissionRequest", id, "p1", "echo hi"))
+
+	fc.Advance(16 * time.Second) // past the 15s settle default; never resolved
+	pollAgentState(t, st, id, session.AgentBlocked)
+
+	// Simulate corral answer's own store side effect directly (bypassing the
+	// PTY write, which this package has no business exercising): appending
+	// the event is the ONLY thing the answer path does to durable state.
+	if _, err := st.AppendEvent(context.Background(), id, session.EventSessionAnswered, `{"len":1}`); err != nil {
+		t.Fatalf("AppendEvent: %v", err)
+	}
+
+	// The engine never observed a hook here, so agent_state must still be
+	// AgentBlocked — an answer alone provably cannot force a transition.
+	sess := pollAgentState(t, st, id, session.AgentBlocked)
+	if sess.BlockedReasonJSON == "" {
+		t.Fatalf("blocked_reason_json is empty after answer; want the permission block still recorded")
+	}
+	kinds := listEventKinds(t, st, id)
+	if !containsEventKind(kinds, session.EventSessionAnswered) {
+		t.Fatalf("no session.answered event recorded; events=%v", kinds)
+	}
+
+	// Only a real hook proving the tool resolved moves the session out of
+	// blocked.
+	deliver(t, e, id, stepCh, bashPayload("PostToolUse", id, "p1", "echo hi"))
+	sess = pollAgentState(t, st, id, session.AgentWorking)
+	if sess.BlockedReasonJSON != "" {
+		t.Fatalf("blocked_reason_json = %q, want empty after resolution", sess.BlockedReasonJSON)
+	}
+}

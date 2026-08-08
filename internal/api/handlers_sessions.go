@@ -38,6 +38,7 @@ func (s *Server) RegisterSessions(deps SessionsDeps) {
 	s.Handle("GET /v1/sessions/{idOrName}", deps.handleGet)
 	s.Handle("GET /v1/sessions/{idOrName}/events", deps.handleEvents)
 	s.Handle("DELETE /v1/sessions/{idOrName}", deps.handleDelete)
+	s.Handle("POST /v1/sessions/{idOrName}/answer", deps.handleAnswer)
 }
 
 // sessionResponse is design doc §9.2's exact <Session> JSON shape.
@@ -392,6 +393,98 @@ func (d SessionsDeps) handleDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	d.writeSession(w, http.StatusOK, updated)
+}
+
+// maxAnswerBytes caps answerRequest.Text so a runaway client can't wedge a
+// session's PTY (or the daemon's memory) with an unbounded write.
+const maxAnswerBytes = 64 << 10 // 65536
+
+// answerRequest is POST /v1/sessions/{idOrName}/answer's body (design doc
+// §7). Newline is a *bool, not bool, so an omitted field defaults to true
+// (append "\r") rather than false — an explicit `"newline": false` is the
+// only way to suppress it.
+type answerRequest struct {
+	Text    string `json:"text"`
+	Key     string `json:"key"`
+	Newline *bool  `json:"newline"`
+}
+
+// handleAnswer writes text or a named key to a live session's PTY master, as
+// if a human had typed it (design doc §7). It never touches agent_state: a
+// session leaves "blocked" only when a later hook proves it, so the only
+// state-machine-visible trace of an answer is the session.answered event
+// appended here, best-effort, after the write succeeds.
+func (d SessionsDeps) handleAnswer(w http.ResponseWriter, r *http.Request) {
+	idOrName := r.PathValue("idOrName")
+
+	var body answerRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, CodeBadRequest, "invalid JSON body: "+err.Error(), nil)
+		return
+	}
+
+	if (body.Text == "") == (body.Key == "") {
+		writeError(w, http.StatusBadRequest, CodeBadRequest, "exactly one of text or key must be set", nil)
+		return
+	}
+	if len(body.Text) > maxAnswerBytes {
+		writeError(w, http.StatusBadRequest, CodeBadRequest, "answer text too large", nil)
+		return
+	}
+	// newline defaults to true when omitted; it is ignored entirely when Key
+	// is set (encodeAnswer never consults it in that branch), so a client
+	// that also passes --no-newline alongside --key is not an error.
+	newline := true
+	if body.Newline != nil {
+		newline = *body.Newline
+	}
+
+	sess, err := d.resolveSession(r, idOrName)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, CodeSessionNotFound, fmt.Sprintf("no session %q", idOrName), nil)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
+		return
+	}
+
+	payload, err := encodeAnswer(body.Text, body.Key, newline)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error(), nil)
+		return
+	}
+
+	ctx := r.Context()
+	if err := d.Registry.WriteInput(ctx, sess.ID, payload); err != nil {
+		if errors.Is(err, supervisor.ErrNotLive) {
+			writeError(w, http.StatusConflict, CodeSessionNotLive, "session is not live", nil)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
+		return
+	}
+
+	// Best-effort audit trail: the write already happened, so a failure here
+	// must not turn into an error response (matches the session.created
+	// pattern in handleCreate above).
+	var data []byte
+	var marshalErr error
+	if body.Key != "" {
+		data, marshalErr = json.Marshal(map[string]string{"key": body.Key})
+	} else {
+		// Raw byte length of the text, deliberately not len(redact(text)):
+		// redacting first would leak whether the text looked secret-shaped
+		// through the length alone.
+		data, marshalErr = json.Marshal(map[string]int{"len": len(body.Text)})
+	}
+	if marshalErr == nil {
+		if _, err := d.Store.AppendEvent(ctx, sess.ID, session.EventSessionAnswered, string(data)); err != nil {
+			_ = err
+		}
+	}
+
+	d.writeSession(w, http.StatusOK, sess)
 }
 
 // defaultSessionName implements design doc §9.2's "<basename(cwd)>-<n>"
