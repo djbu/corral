@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"sort"
 )
 
 // hookCmd is one entry of a hookEntry's "hooks" array: the command Claude
@@ -61,8 +62,38 @@ var hookEvents = []hookEventSpec{
 // carries "timeout":5 (seconds). Output is deterministic (stable key order)
 // so the golden test is a byte comparison.
 func BuildSettingsJSON(relayCommand string) ([]byte, error) {
+	return BuildSettingsJSONWithRules(relayCommand, nil)
+}
+
+// BuildSettingsJSONWithRules adds exact, verified permission allow rules to
+// the pinned settings. Sorting and deduplication make the output stable across
+// store/query order. The compatibility wrapper above preserves M1-M5 bytes
+// when no rules are present.
+func BuildSettingsJSONWithRules(relayCommand string, rules []string) ([]byte, error) {
+	rules = append([]string(nil), rules...)
+	sort.Strings(rules)
+	unique := rules[:0]
+	for _, rule := range rules {
+		if rule == "" || (len(unique) > 0 && unique[len(unique)-1] == rule) {
+			continue
+		}
+		unique = append(unique, rule)
+	}
+
 	var buf bytes.Buffer
-	buf.WriteString(`{"hooks":{`)
+	buf.WriteByte('{')
+	if len(unique) > 0 {
+		permissions, err := json.Marshal(struct {
+			Allow []string `json:"allow"`
+		}{Allow: unique})
+		if err != nil {
+			return nil, fmt.Errorf("settings: marshaling permission rules: %w", err)
+		}
+		buf.WriteString(`"permissions":`)
+		buf.Write(permissions)
+		buf.WriteByte(',')
+	}
+	buf.WriteString(`"hooks":{`)
 
 	for i, ev := range hookEvents {
 		if i > 0 {

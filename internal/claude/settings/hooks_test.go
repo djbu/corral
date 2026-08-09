@@ -120,3 +120,33 @@ func TestBuildSettingsJSON_Shape(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildSettingsJSONWithRulesSortedAndDeduplicated(t *testing.T) {
+	got, err := BuildSettingsJSONWithRules(goldenRelayCommand, []string{
+		"Bash(npm test)", "Bash(go test ./...)", "Bash(npm test)", "",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		Permissions struct {
+			Allow []string `json:"allow"`
+		} `json:"permissions"`
+		Hooks map[string]json.RawMessage `json:"hooks"`
+	}
+	if err := json.Unmarshal(got, &parsed); err != nil {
+		t.Fatalf("invalid JSON: %v: %s", err, got)
+	}
+	want := []string{"Bash(go test ./...)", "Bash(npm test)"}
+	if len(parsed.Permissions.Allow) != len(want) {
+		t.Fatalf("allow = %v, want %v", parsed.Permissions.Allow, want)
+	}
+	for i := range want {
+		if parsed.Permissions.Allow[i] != want[i] {
+			t.Fatalf("allow = %v, want %v", parsed.Permissions.Allow, want)
+		}
+	}
+	if len(parsed.Hooks) != len(wantHookEventNames) {
+		t.Fatalf("hooks = %d, want %d", len(parsed.Hooks), len(wantHookEventNames))
+	}
+}

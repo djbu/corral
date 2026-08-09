@@ -99,12 +99,7 @@ func (m *Miner) Scan(ctx context.Context, onlyRepo string) (ScanResult, error) {
 
 	grouped := make(map[candidateKey]*candidateEvidence)
 	for _, h := range history {
-		repoPath := h.TaskRepo
-		if repoPath != "" {
-			repoPath, err = corralgit.CanonicalPath(repoPath)
-		} else {
-			repoPath, err = m.resolve(ctx, h.Cwd)
-		}
+		repoPath, err := resolveHistoryRepo(ctx, h, m.resolve)
 		if err != nil {
 			result.SkippedCWDs++
 			continue
@@ -187,6 +182,13 @@ func (m *Miner) Scan(ctx context.Context, onlyRepo string) (ScanResult, error) {
 		}
 	}
 	return result, nil
+}
+
+func resolveHistoryRepo(ctx context.Context, h store.PermissionHistory, resolver RepoResolver) (string, error) {
+	if h.TaskRepo != "" {
+		return corralgit.CanonicalPath(h.TaskRepo)
+	}
+	return resolver(ctx, h.Cwd)
 }
 
 func correlate(events []session.Event) []requestObservation {

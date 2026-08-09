@@ -69,7 +69,10 @@ const (
 
 	// M6 learning-loop audit events are daemon-scoped. Detailed immutable
 	// provenance remains in learning_evidence.
-	EventLearningMined EventKind = "learning.mined"
+	EventLearningMined    EventKind = "learning.mined"
+	EventLearningVerified EventKind = "learning.verified"
+	EventLearningProposed EventKind = "learning.proposed"
+	EventLearningRejected EventKind = "learning.rejected"
 )
 
 // Event is one row of the append-only events table. SessionID is "" for a
