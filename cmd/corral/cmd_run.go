@@ -198,6 +198,8 @@ func cmdRun(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
+	// No --host here: a DAG's node repo paths are daemon-filesystem paths —
+	// meaningless when submitted against a remote daemon's filesystem.
 	cfg, _, err := config.LoadDaemon()
 	if err != nil {
 		fmt.Fprintf(stderr, "corral: run: %v\n", err)

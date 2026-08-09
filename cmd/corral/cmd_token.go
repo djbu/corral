@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/danielbecerra/corral/internal/api/client"
-	"github.com/danielbecerra/corral/internal/config"
 )
 
 // cmdToken implements `corral token <create|list|revoke>` (m5.md §11 step
@@ -52,6 +51,7 @@ func tokenCreate(args []string, stdout, stderr io.Writer) int {
 	label := fs.String("label", "", "human-readable label for this token")
 	scope := fs.String("scope", "", `token scope: "admin" (default) or "session"`)
 	session := fs.String("session", "", "session id (required when --scope=session)")
+	cf := addClientFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -64,12 +64,11 @@ func tokenCreate(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 
-	cfg, _, err := config.LoadDaemon()
+	c, err := newClient(cf, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "corral: token: %v\n", err)
 		return exitError
 	}
-	c := client.New(cfg.Socket, stderr)
 
 	created, err := c.CreateToken(context.Background(), client.CreateTokenRequest{
 		Label:     *label,
@@ -92,6 +91,7 @@ func tokenCreate(args []string, stdout, stderr io.Writer) int {
 func tokenList(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("token list", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	cf := addClientFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -100,12 +100,11 @@ func tokenList(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 
-	cfg, _, err := config.LoadDaemon()
+	c, err := newClient(cf, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "corral: token: %v\n", err)
 		return exitError
 	}
-	c := client.New(cfg.Socket, stderr)
 
 	tokens, err := c.ListTokens(context.Background())
 	if err != nil {
@@ -131,6 +130,7 @@ func tokenList(args []string, stdout, stderr io.Writer) int {
 func tokenRevoke(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("token revoke", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	cf := addClientFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -140,12 +140,11 @@ func tokenRevoke(args []string, stdout, stderr io.Writer) int {
 	}
 	id := fs.Arg(0)
 
-	cfg, _, err := config.LoadDaemon()
+	c, err := newClient(cf, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "corral: token: %v\n", err)
 		return exitError
 	}
-	c := client.New(cfg.Socket, stderr)
 
 	if err := c.RevokeToken(context.Background(), id); err != nil {
 		fmt.Fprintf(stderr, "corral: token: %v\n", err)

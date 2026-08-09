@@ -15,7 +15,6 @@ import (
 
 	xterm "github.com/charmbracelet/x/term"
 
-	"github.com/danielbecerra/corral/internal/api/client"
 	"github.com/danielbecerra/corral/internal/config"
 	"github.com/danielbecerra/corral/internal/proto"
 	"github.com/danielbecerra/corral/internal/version"
@@ -31,6 +30,12 @@ func cmdAttach(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("attach", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	noTakeOver := fs.Bool("no-take-over", false, "fail with already_attached instead of evicting an already-attached client")
+	// addClientFlags is registered here even though attach can only ever
+	// target a local daemon (design doc m5.md §7 rule 3: attach's PTY
+	// hijack has no remote transport), so a stray --host parses cleanly and
+	// newLocalClient below can give a clear diagnosis instead of flag's
+	// generic "flag provided but not defined" error.
+	cf := addClientFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -40,11 +45,6 @@ func cmdAttach(args []string, stdout, stderr io.Writer) int {
 	}
 	idOrName := fs.Arg(0)
 
-	cfg, _, err := config.LoadDaemon()
-	if err != nil {
-		fmt.Fprintf(stderr, "corral: attach: %v\n", err)
-		return exitError
-	}
 	wd, _ := os.Getwd()
 	_, attachCfg, _, _, err := config.LoadSession(wd, nil)
 	if err != nil {
@@ -62,7 +62,11 @@ func cmdAttach(args []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 
-	c := client.New(cfg.Socket, stderr)
+	c, err := newLocalClient(cf, stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "corral: attach: %v\n", err)
+		return exitError
+	}
 	conn, br, err := c.Attach(context.Background(), idOrName)
 	if err != nil {
 		fmt.Fprintf(stderr, "corral: attach: %v\n", err)

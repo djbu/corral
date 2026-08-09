@@ -30,6 +30,9 @@ func cmdReview(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 
+	// No --host here: review runs local `git` against daemon-side worktrees,
+	// which only exist (and are only reachable by that name) on the daemon's
+	// own filesystem.
 	cfg, _, err := config.LoadDaemon()
 	if err != nil {
 		fmt.Fprintf(stderr, "corral: review: %v\n", err)

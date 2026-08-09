@@ -184,5 +184,23 @@ func filterRepoLayer(file string, l *layer) (*layer, []Rejection) {
 		reject("notify.webhook.headers")
 	}
 
+	// [client] — nothing is repo-settable (design doc m5.md §7): a repo's
+	// .corral.toml is attacker-controlled content in any cloned repo; letting
+	// it set client.host / client.token / client.cacert would redirect the
+	// CLI to an attacker's daemon or hand a bearer token to one. Entirely
+	// user-file/env only, resolved by its own LoadClient pipeline which
+	// never consults a repo file at all. These checks exist so a repo file
+	// that sets [client] keys anyway is still reported as a Rejection
+	// rather than silently ignored.
+	if l.Client.Host != nil {
+		reject("client.host")
+	}
+	if l.Client.Token != nil {
+		reject("client.token")
+	}
+	if l.Client.CACert != nil {
+		reject("client.cacert")
+	}
+
 	return out, rej
 }

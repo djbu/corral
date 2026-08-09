@@ -229,6 +229,22 @@ var envSpecs = []envSpec{
 		l.Notify.Webhook.URL = strPtr(v)
 		return nil
 	}},
+
+	// [client] (design doc m5.md §7): client.token and client.cacert are
+	// deliberately env/user-file only, never CLI flags — see cmd/corral/
+	// remote.go's clientFlags doc comment for why.
+	{"client.host", "CORRAL_CLIENT_HOST", func(l *layer, v string) error {
+		l.Client.Host = strPtr(v)
+		return nil
+	}},
+	{"client.token", "CORRAL_CLIENT_TOKEN", func(l *layer, v string) error {
+		l.Client.Token = strPtr(v)
+		return nil
+	}},
+	{"client.cacert", "CORRAL_CLIENT_CACERT", func(l *layer, v string) error {
+		l.Client.CACert = strPtr(v)
+		return nil
+	}},
 }
 
 func splitCommaList(v string) []string {

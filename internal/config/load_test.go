@@ -254,7 +254,11 @@ func TestLoadSession_RepoAllowlistRejection(t *testing.T) {
 		"tls_cert = \"/evil/cert.pem\"\n"+
 		"tls_key = \"/evil/key.pem\"\n"+
 		"[attach]\n"+
-		"prefix_key = \"x\"\n")
+		"prefix_key = \"x\"\n"+
+		"[client]\n"+
+		"host = \"evil.example.com:443\"\n"+
+		"token = \"crl_evil\"\n"+
+		"cacert = \"/evil/ca.pem\"\n")
 
 	sess, _, _, rej, err := LoadSession(sub, nil)
 	if err != nil {
@@ -282,6 +286,9 @@ func TestLoadSession_RepoAllowlistRejection(t *testing.T) {
 		"daemon.tls_cert",
 		"daemon.tls_key",
 		"attach.prefix_key",
+		"client.host",
+		"client.token",
+		"client.cacert",
 	}
 	for _, key := range wantRejected {
 		assertRejected(t, rej, repoPath, key)
@@ -329,6 +336,76 @@ func TestLoadSession_RepoSearchStopsAtGitRootInclusive(t *testing.T) {
 	}
 	if sources["session.term"] != filepath.Join(root, ".corral.toml") {
 		t.Errorf("Sources[session.term] = %q, want the git-root file", sources["session.term"])
+	}
+}
+
+// TestLoadClient mirrors TestLoadDaemon_Precedence's structure for the
+// [client] pipeline (design doc m5.md §7): defaults (all empty, meaning
+// "local unix socket") -> user file -> env, plus the home-expansion rule
+// that applies to client.cacert (a file path) but not client.host (a
+// network address) or client.token (a secret, not a path at all).
+func TestLoadClient(t *testing.T) {
+	home := withHome(t)
+	userPath := filepath.Join(home, ".corral", "config.toml")
+
+	// Defaults only: everything empty, never falling back to some implicit
+	// remote target.
+	cl, sources, err := LoadClient()
+	if err != nil {
+		t.Fatalf("LoadClient: %v", err)
+	}
+	if cl.Host != "" || cl.Token != "" || cl.CACert != "" {
+		t.Fatalf("defaults-only Client = %+v, want all empty", cl)
+	}
+	if sources["client.host"] != "default" {
+		t.Fatalf(`Sources["client.host"] = %q, want "default"`, sources["client.host"])
+	}
+
+	// User file overrides defaults; client.cacert's leading "~" must expand
+	// to the fake HOME, exactly like daemon.tls_cert does in resolveDaemon.
+	writeFile(t, userPath, ""+
+		"[client]\n"+
+		"host = \"corral.example.com:8443\"\n"+
+		"token = \"crl_user_token\"\n"+
+		"cacert = \"~/certs/ca.pem\"\n")
+	cl, sources, err = LoadClient()
+	if err != nil {
+		t.Fatalf("LoadClient: %v", err)
+	}
+	if cl.Host != "corral.example.com:8443" {
+		t.Fatalf("Host = %q, want %q (user layer)", cl.Host, "corral.example.com:8443")
+	}
+	if cl.Token != "crl_user_token" {
+		t.Fatalf("Token = %q, want %q (user layer)", cl.Token, "crl_user_token")
+	}
+	wantCACert := filepath.Join(home, "certs", "ca.pem")
+	if cl.CACert != wantCACert {
+		t.Fatalf("CACert = %q, want %q (~ expanded to fake HOME)", cl.CACert, wantCACert)
+	}
+	if sources["client.host"] != userPath {
+		t.Fatalf("Sources[client.host] = %q, want %q", sources["client.host"], userPath)
+	}
+
+	// Env overrides user file.
+	t.Setenv("CORRAL_CLIENT_HOST", "env.example.com:9443")
+	t.Setenv("CORRAL_CLIENT_TOKEN", "crl_env_token")
+	t.Setenv("CORRAL_CLIENT_CACERT", "~/env-certs/ca.pem")
+	cl, sources, err = LoadClient()
+	if err != nil {
+		t.Fatalf("LoadClient: %v", err)
+	}
+	if cl.Host != "env.example.com:9443" {
+		t.Fatalf("Host = %q, want %q (env layer)", cl.Host, "env.example.com:9443")
+	}
+	if cl.Token != "crl_env_token" {
+		t.Fatalf("Token = %q, want %q (env layer)", cl.Token, "crl_env_token")
+	}
+	wantEnvCACert := filepath.Join(home, "env-certs", "ca.pem")
+	if cl.CACert != wantEnvCACert {
+		t.Fatalf("CACert = %q, want %q (env layer, ~ expanded)", cl.CACert, wantEnvCACert)
+	}
+	if sources["client.host"] != "env CORRAL_CLIENT_HOST" {
+		t.Fatalf("Sources[client.host] = %q, want %q", sources["client.host"], "env CORRAL_CLIENT_HOST")
 	}
 }
 

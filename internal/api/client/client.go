@@ -9,12 +9,16 @@ package client
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -22,11 +26,27 @@ import (
 	"github.com/danielbecerra/corral/internal/version"
 )
 
-// Client talks to one daemon over its unix socket.
+// Client talks to one daemon, either over its local unix socket (New) or a
+// remote TCP+TLS listener with bearer auth (NewRemote, design doc m5.md
+// §7). sockPath is kept (rather than folded into baseURL/target) because
+// attach.go dials it directly for the attach-protocol HTTP upgrade, which
+// has no client-side hijack API to route through do()'s http.Client.
 type Client struct {
 	httpClient *http.Client
 	sockPath   string
-	stderr     io.Writer
+	// baseURL is the request base: "http://corral" for the unix socket
+	// (the host portion is inert — DialContext ignores it — but do() still
+	// needs a well-formed URL to build requests against), "https://host:port"
+	// for a remote daemon.
+	baseURL string
+	// token is the bearer token sent as "Authorization: Bearer <token>".
+	// Empty for a unix-socket Client (design doc §4: the socket's 0600
+	// permission is that transport's auth boundary, no token needed).
+	token string
+	// target is the human-readable dial target named in error messages:
+	// sockPath for a local Client, host:port for a remote one.
+	target string
+	stderr io.Writer
 
 	warnOnce  sync.Once
 	sawDaemon string // last Corral-Daemon-Version seen, for tests
@@ -46,8 +66,51 @@ func New(sockPath string, stderr io.Writer) *Client {
 			Timeout: 10 * time.Second,
 		},
 		sockPath: sockPath,
+		baseURL:  "http://corral",
+		target:   sockPath,
 		stderr:   stderr,
 	}
+}
+
+// NewRemote returns a Client that dials host ("host:port") over TLS,
+// presenting token as a bearer credential on every request (design doc
+// m5.md §7). If caCertPath is non-empty, it is read and pinned as the SOLE
+// trusted CA for TLS verification — no other root, including the system
+// trust store, is consulted (rule 4: no InsecureSkipVerify, ever; an
+// operator who wants a publicly-trusted-CA daemon just leaves this empty).
+// If caCertPath is empty, RootCAs is left nil, which makes crypto/tls fall
+// back to the system trust store.
+func NewRemote(host, token, caCertPath string, stderr io.Writer) (*Client, error) {
+	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	if caCertPath != "" {
+		pem, err := os.ReadFile(caCertPath)
+		if err != nil {
+			return nil, fmt.Errorf("client: reading client.cacert %s: %w", caCertPath, err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("client: client.cacert %s: no valid PEM certificate found", caCertPath)
+		}
+		tlsCfg.RootCAs = pool
+	}
+
+	return &Client{
+		httpClient: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: tlsCfg,
+				// Never route corral traffic through an ambient HTTP(S)_PROXY —
+				// a bearer token must go straight to the pinned daemon, not
+				// through whatever proxy happens to be configured in the
+				// caller's environment.
+				Proxy: nil,
+			},
+			Timeout: 10 * time.Second,
+		},
+		baseURL: "https://" + host,
+		token:   token,
+		target:  host,
+		stderr:  stderr,
+	}, nil
 }
 
 // APIError is the typed decoding of the error envelope (design doc §9):
@@ -69,7 +132,19 @@ type Code string
 // the session exists but has no live PTY to write to (design doc §7).
 const CodeSessionNotLive Code = "session_not_live"
 
+// CodeUnauthorized mirrors api.CodeUnauthorized (internal/api/errors.go:28):
+// a request to the TCP+TLS listener with a missing/invalid/revoked bearer
+// token (design doc m5.md §6/§7). The unix socket never returns this code —
+// it is token-free — so seeing it always means a remote-client auth problem.
+const CodeUnauthorized Code = "unauthorized"
+
 func (e *APIError) Error() string {
+	if e.Code == CodeUnauthorized {
+		// A 401 can only come from the TCP listener (the unix socket is
+		// token-free), so this message is always the right diagnosis —
+		// unlike the generic fallback below, it doesn't need e.Message.
+		return "corral: unauthorized — check your client.token (or CORRAL_CLIENT_TOKEN)"
+	}
 	return fmt.Sprintf("corral: %s: %s", e.Code, e.Message)
 }
 
@@ -90,7 +165,7 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte) (*htt
 	if body != nil {
 		reqBody = bytes.NewReader(body)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, "http://corral"+path, reqBody)
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("client: building request: %w", err)
 	}
@@ -99,14 +174,35 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte) (*htt
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("client: dialing %s: %w", c.sockPath, err)
+		return nil, c.dialError(err)
 	}
 
 	c.checkDaemonVersion(resp)
 	return resp, nil
+}
+
+// dialError wraps a transport error with c.target, and — for a remote (TLS)
+// client hitting a certificate-verification failure — points the operator
+// at the client.cacert pin they most likely need (design doc m5.md §7 rule
+// 4). A local unix-socket Client never has a token and always has
+// baseURL == "http://corral", so it never takes the remote-hint branch.
+func (c *Client) dialError(err error) error {
+	base := fmt.Errorf("client: dialing %s: %w", c.target, err)
+	var ua x509.UnknownAuthorityError
+	var hn x509.HostnameError
+	var cv *tls.CertificateVerificationError
+	if c.token != "" || c.baseURL != "http://corral" { // remote
+		if errors.As(err, &ua) || errors.As(err, &hn) || errors.As(err, &cv) {
+			return fmt.Errorf("%w; if the daemon uses corral's self-signed cert, set client.cacert (or CORRAL_CLIENT_CACERT) to a copy of its <state_dir>/tls/cert.pem", base)
+		}
+	}
+	return base
 }
 
 // checkDaemonVersion prints a one-line stderr warning, at most once per

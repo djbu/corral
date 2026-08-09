@@ -114,6 +114,23 @@ type NotifyWebhook struct {
 	Headers map[string]string // secret-class
 }
 
+// Client is the resolved [client]-scope configuration (design doc m5.md
+// §7): where the CLI points when targeting a remote daemon. Entirely
+// user-file/env only, never repo-settable; resolved by its own LoadClient
+// pipeline, not LoadDaemon or LoadSession.
+type Client struct {
+	Host string
+	// Token is the bearer token presented to a remote daemon's TCP+TLS
+	// listener. It is a secret, deliberately never CLI-flag-settable (that
+	// would put plaintext in `ps aux`/shell history) and never surfaced by
+	// Effective's values map (see effective.go).
+	Token string // secret
+	// CACert, when set, pins the remote daemon's self-signed CA/cert as the
+	// SOLE trusted root for TLS verification (see client.NewRemote); empty
+	// falls back to the system trust store.
+	CACert string
+}
+
 // Rejection records one key found in a repo .corral.toml that was not
 // applied because the key is not on the repo-file allowlist (§8.2). File is
 // the absolute path of the repo file; Key is "section.key".

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/danielbecerra/corral/internal/api/client"
-	"github.com/danielbecerra/corral/internal/config"
 )
 
 // cmdLs implements `corral ls [--json]` (design doc §9.2): NAME STATE
@@ -22,16 +21,16 @@ func cmdLs(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("ls", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	asJSON := fs.Bool("json", false, "print the raw session array as JSON")
+	cf := addClientFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
 
-	cfg, _, err := config.LoadDaemon()
+	c, err := newClient(cf, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "corral: ls: %v\n", err)
 		return exitError
 	}
-	c := client.New(cfg.Socket, stderr)
 
 	sessions, err := c.ListSessions(context.Background())
 	if err != nil {

@@ -30,6 +30,10 @@ func Effective(cwd string) (EffectiveResult, error) {
 	if err != nil {
 		return EffectiveResult{}, err
 	}
+	clientCfg, clientSources, err := LoadClient()
+	if err != nil {
+		return EffectiveResult{}, err
+	}
 
 	values := map[string]string{
 		"daemon.socket":                 daemon.Socket,
@@ -61,9 +65,14 @@ func Effective(cwd string) (EffectiveResult, error) {
 		"state.permission_settle":       state.PermissionSettle.String(),
 		"state.permission_ttl":          state.PermissionTTL.String(),
 		"state.idle_timeout":            state.IdleTimeout.String(),
+		// client.token is deliberately NOT included here (design doc m5.md
+		// §7, rule 2): it is a secret, and this map is what both `corral
+		// config` and GET /v1/config render verbatim.
+		"client.host":   clientCfg.Host,
+		"client.cacert": clientCfg.CACert,
 	}
 
-	sources := make(map[string]string, len(daemonSources)+len(sessionSources)+len(stateSources))
+	sources := make(map[string]string, len(daemonSources)+len(sessionSources)+len(stateSources)+len(clientSources))
 	for k, v := range daemonSources {
 		sources[k] = v
 	}
@@ -71,6 +80,16 @@ func Effective(cwd string) (EffectiveResult, error) {
 		sources[k] = v
 	}
 	for k, v := range stateSources {
+		sources[k] = v
+	}
+	for k, v := range clientSources {
+		// client.token's source is never surfaced either, for the same
+		// reason its value isn't — Sources is keyed by the same
+		// "section.key" set as Values, and a source entry with no matching
+		// value would be a confusing half-exposure of a secret's presence.
+		if k == "client.token" {
+			continue
+		}
 		sources[k] = v
 	}
 

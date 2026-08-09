@@ -5,12 +5,14 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -291,5 +293,88 @@ func TestForeground_TCPListener_RoundTrip(t *testing.T) {
 	defer authed.Body.Close()
 	if authed.StatusCode != http.StatusOK {
 		t.Fatalf("status (valid bearer token) = %d, want %d", authed.StatusCode, http.StatusOK)
+	}
+}
+
+// TestForeground_RemoteClient_RoundTrip is M5 step 31's exit criterion: the
+// client SDK's NewRemote constructor (internal/api/client/client.go), used
+// exactly as `corral --host` wires it up, against a real TCP+TLS listener
+// with the self-signed bootstrap cert — no operator TLS override, mirroring
+// TestForeground_TCPListener_RoundTrip above but exercising the SDK's own
+// remote path instead of a hand-built http.Client.
+//
+// Every listener bound in this test is loopback-only (the same free-port-
+// on-127.0.0.1 probe as TestForeground_TCPListener_RoundTrip above) — never
+// wildcard, never a bare :0.
+func TestForeground_RemoteClient_RoundTrip(t *testing.T) {
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen (free port probe): %v", err)
+	}
+	addr := probe.Addr().String()
+	probe.Close()
+
+	cfg := testConfig(t)
+	cfg.Listen = addr
+
+	c, stop := startForTest(t, cfg)
+	defer stop()
+
+	// Mint an admin token over the unix socket (the SDK client, unaffected
+	// by this test's TCP listener) — the same mint-over-unix pattern as
+	// TestForeground_TCPListener_RoundTrip above.
+	created, err := c.CreateToken(context.Background(), client.CreateTokenRequest{Label: "remote-client-roundtrip-test"})
+	if err != nil {
+		t.Fatalf("CreateToken (over unix socket): %v", err)
+	}
+
+	// The self-signed cert lands at StateDir/tls/cert.pem (tlsbootstrap's
+	// fixed basename) — the exact path client.cacert is documented to point
+	// at (design doc m5.md §7 rule 4).
+	certPath := filepath.Join(cfg.StateDir, "tls", "cert.pem")
+
+	// Valid token + pinned cert: ListSessions must succeed. An empty list is
+	// fine — this proves the remote round trip works end to end, not that
+	// any particular session exists.
+	rc, err := client.NewRemote(addr, created.Token, certPath, io.Discard)
+	if err != nil {
+		t.Fatalf("NewRemote: %v", err)
+	}
+	if _, err := rc.ListSessions(context.Background()); err != nil {
+		t.Fatalf("ListSessions (valid token, pinned cert): %v", err)
+	}
+
+	// Bad token: the daemon's bearer-auth middleware must reject it with
+	// api.CodeUnauthorized, and the SDK must decode that into an
+	// *client.APIError an errors.As caller can branch on.
+	badRC, err := client.NewRemote(addr, "crl_bogus", certPath, io.Discard)
+	if err != nil {
+		t.Fatalf("NewRemote (bad token): %v", err)
+	}
+	_, err = badRC.ListSessions(context.Background())
+	if err == nil {
+		t.Fatal("ListSessions (bad token): want error, got nil")
+	}
+	var apiErr *client.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("ListSessions (bad token) error %v does not errors.As to *client.APIError", err)
+	}
+	if apiErr.Code != client.CodeUnauthorized {
+		t.Fatalf("ListSessions (bad token) APIError.Code = %q, want %q", apiErr.Code, client.CodeUnauthorized)
+	}
+
+	// No cacert against a self-signed cert: the system trust store won't
+	// trust it, so this must fail — and the error must carry the
+	// client.cacert hint dialError adds for exactly this case.
+	noCACertRC, err := client.NewRemote(addr, created.Token, "", io.Discard)
+	if err != nil {
+		t.Fatalf("NewRemote (no cacert): %v", err)
+	}
+	_, err = noCACertRC.ListSessions(context.Background())
+	if err == nil {
+		t.Fatal("ListSessions (no cacert, self-signed daemon): want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "client.cacert") {
+		t.Fatalf("ListSessions (no cacert) error %q does not mention client.cacert", err.Error())
 	}
 }

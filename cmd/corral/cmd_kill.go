@@ -5,9 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-
-	"github.com/danielbecerra/corral/internal/api/client"
-	"github.com/danielbecerra/corral/internal/config"
 )
 
 // cmdKill implements `corral kill <name-or-id> [--grace DURATION]` (design
@@ -18,6 +15,7 @@ func cmdKill(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("kill", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	grace := fs.Duration("grace", 0, "override the SIGTERM-to-SIGKILL grace period for this kill")
+	cf := addClientFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -27,12 +25,11 @@ func cmdKill(args []string, stdout, stderr io.Writer) int {
 	}
 	idOrName := fs.Arg(0)
 
-	cfg, _, err := config.LoadDaemon()
+	c, err := newClient(cf, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "corral: kill: %v\n", err)
 		return exitError
 	}
-	c := client.New(cfg.Socket, stderr)
 
 	sess, err := c.KillSession(context.Background(), idOrName, *grace)
 	if err != nil {

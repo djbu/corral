@@ -44,6 +44,10 @@ func cmdNew(args []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 
+	// No --host here: cmdNew attaches by default (calls cmdAttach below
+	// unless --no-attach), and attach is local-only (design doc m5.md §7
+	// rule 3); a session's cwd is also daemon-side, so remote-create is a
+	// web-dashboard concern deferred to step 33.
 	cfg, _, err := config.LoadDaemon()
 	if err != nil {
 		fmt.Fprintf(stderr, "corral: new: %v\n", err)

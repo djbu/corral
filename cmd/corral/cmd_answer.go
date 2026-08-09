@@ -8,7 +8,6 @@ import (
 	"io"
 
 	"github.com/danielbecerra/corral/internal/api/client"
-	"github.com/danielbecerra/corral/internal/config"
 )
 
 // cmdAnswer implements `corral answer <session> "text"` and
@@ -22,6 +21,7 @@ func cmdAnswer(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	key := fs.String("key", "", "send a named key (enter, esc, up, down, tab, ctrl-c) instead of text")
 	noNewline := fs.Bool("no-newline", false, "do not append a trailing newline after text (ignored for --key)")
+	cf := addClientFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -49,12 +49,11 @@ func cmdAnswer(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
-	cfg, _, err := config.LoadDaemon()
+	c, err := newClient(cf, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "corral: answer: %v\n", err)
 		return exitError
 	}
-	c := client.New(cfg.Socket, stderr)
 
 	_, err = c.Answer(context.Background(), session, text, *key, !*noNewline)
 	if err != nil {

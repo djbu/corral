@@ -12,6 +12,7 @@ type layer struct {
 	Attach  attachLayer  `toml:"attach"`
 	State   stateLayer   `toml:"state"`
 	Notify  notifyLayer  `toml:"notify"`
+	Client  clientLayer  `toml:"client"`
 }
 
 type daemonLayer struct {
@@ -103,6 +104,17 @@ type notifyWebhookLayer struct {
 	Enabled *bool             `toml:"enabled"`
 	URL     *string           `toml:"url"`
 	Headers map[string]string `toml:"headers,omitempty"`
+}
+
+// clientLayer is [client]'s section (design doc m5.md §7): entirely
+// user-file/env only, never repo-settable — see repo_allowlist.go. It is
+// resolved by its own LoadClient() pipeline (defaults -> user file -> env,
+// no repo file, no request), not by LoadDaemon or LoadSession, so it is
+// deliberately not touched by merge() below; see mergeClient.
+type clientLayer struct {
+	Host   *string `toml:"host"`
+	Token  *string `toml:"token"`
+	CACert *string `toml:"cacert"`
 }
 
 // newLayer returns an all-nil layer, ready to be merged into.
@@ -364,5 +376,26 @@ func mergeNotifyWebhook(dst, src *notifyWebhookLayer, srcSource sourceFunc, sour
 	if src.Headers != nil {
 		dst.Headers = src.Headers
 		sources["notify.webhook.headers"] = srcSource("notify.webhook.headers")
+	}
+}
+
+// mergeClient is intentionally not called by merge() above: [client] has
+// its own pipeline (LoadClient, load.go) with no repo-file stage and no
+// request stage, so it is merged by LoadClient directly rather than being
+// folded into the daemon/session/attach merge every LoadDaemon/LoadSession
+// call would otherwise perform (which would pollute those calls' Sources
+// maps with "client.*" keys neither call site returns).
+func mergeClient(dst, src *clientLayer, srcSource sourceFunc, sources map[string]string) {
+	if src.Host != nil {
+		dst.Host = src.Host
+		sources["client.host"] = srcSource("client.host")
+	}
+	if src.Token != nil {
+		dst.Token = src.Token
+		sources["client.token"] = srcSource("client.token")
+	}
+	if src.CACert != nil {
+		dst.CACert = src.CACert
+		sources["client.cacert"] = srcSource("client.cacert")
 	}
 }

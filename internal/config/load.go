@@ -91,6 +91,19 @@ func defaultsNotifyLayer() *notifyLayer {
 	}
 }
 
+// defaultsClientLayer holds the [client] defaults (design doc m5.md §7): all
+// empty, meaning "no remote target — use the local unix socket" (§7 rule 3:
+// resolving no host must never fall back to dialing anything). Unlike
+// defaultsLayer's Daemon/Session/Attach blocks, this is only ever merged by
+// LoadClient, never by LoadDaemon/LoadSession's merge() call.
+func defaultsClientLayer() *clientLayer {
+	return &clientLayer{
+		Host:   strPtr(""),
+		Token:  strPtr(""),
+		CACert: strPtr(""),
+	}
+}
+
 // userConfigPath returns ~/.corral/config.toml.
 func userConfigPath() (string, error) {
 	home, err := os.UserHomeDir()
@@ -469,6 +482,53 @@ func LoadNotify() (Notify, map[string]string, error) {
 		return Notify{}, nil, err
 	}
 	return n, sources, nil
+}
+
+// resolveClient parses a fully-merged clientLayer into Client. Host is a
+// network address ("host:port"), not a path, so — like daemon.listen — it
+// is never home-expanded; Token is a secret, also never home-expanded (it
+// isn't a path at all); CACert IS a file path, so it is home-expanded, the
+// same daemon.listen-vs-daemon.tls_cert precedent resolveDaemon follows.
+func resolveClient(l *clientLayer) (Client, error) {
+	return Client{
+		Host:   derefStr(l.Host),
+		Token:  derefStr(l.Token),
+		CACert: expandHome(derefStr(l.CACert)),
+	}, nil
+}
+
+// LoadClient resolves [client]-scope config: defaults -> ~/.corral/
+// config.toml -> env. Entirely user-file/env only (design doc m5.md §7) —
+// no repo file, no request stage — so it merges directly with mergeClient
+// rather than going through LoadDaemon/LoadSession's merge().
+func LoadClient() (Client, map[string]string, error) {
+	merged := newLayer()
+	sources := make(map[string]string)
+	mergeClient(&merged.Client, defaultsClientLayer(), uniformSource(sourceDefault), sources)
+
+	userPath, err := userConfigPath()
+	if err != nil {
+		return Client{}, nil, err
+	}
+	userLayer, err := decodeTOMLLayerIfExists(userPath)
+	if err != nil {
+		return Client{}, nil, err
+	}
+	if userLayer != nil {
+		mergeClient(&merged.Client, &userLayer.Client, uniformSource(userPath), sources)
+	}
+
+	envLayer, envSources, err := layerFromEnv(osLookup)
+	if err != nil {
+		return Client{}, nil, err
+	}
+	mergeClient(&merged.Client, &envLayer.Client, mapSource(envSources), sources)
+
+	cl, err := resolveClient(&merged.Client)
+	if err != nil {
+		return Client{}, nil, err
+	}
+	return cl, sources, nil
 }
 
 func resolveAttach(l *attachLayer) (Attach, error) {
