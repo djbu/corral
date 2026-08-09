@@ -425,6 +425,39 @@ func (s *Store) AddCost(ctx context.Context, taskID string, usd float64) error {
 	})
 }
 
+// DAGBudget is one dag_budgets row: the per-dag budget cap and the
+// denormalized cost rollup. A nil BudgetUSD means unbounded.
+type DAGBudget struct {
+	DAGID     string
+	BudgetUSD *float64
+	CostUSD   float64
+}
+
+// GetDAGBudget returns the dag_budgets row for dagID, or (nil, nil) if no
+// row exists — an ABSENT row means "unbounded", NOT an error (m4.md §7:
+// CreateDAGBudget is step 24's job, so most dags have no row yet and must
+// never be gated). A present row with budget_usd NULL is also unbounded.
+func (s *Store) GetDAGBudget(ctx context.Context, dagID string) (*DAGBudget, error) {
+	var (
+		b         DAGBudget
+		budgetUSD sql.NullFloat64
+	)
+	err := s.db.QueryRowContext(ctx,
+		`SELECT dag_id, budget_usd, cost_usd FROM dag_budgets WHERE dag_id = ?`, dagID,
+	).Scan(&b.DAGID, &budgetUSD, &b.CostUSD)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: getting dag budget for %s: %w", dagID, err)
+	}
+	if budgetUSD.Valid {
+		v := budgetUSD.Float64
+		b.BudgetUSD = &v
+	}
+	return &b, nil
+}
+
 // CreateDAGBudget inserts dagID's dag_budgets row (cost_usd starts at 0).
 // It is the SOLE writer of that row — AddCost only ever UPDATEs it and
 // assumes it already exists (m4.md §3.3). Calling this twice for the same

@@ -30,6 +30,12 @@ const (
 	// interactive session.
 	EventSessionResult EventKind = "session.result"
 
+	// New in M4 step 22 (design doc §7) — a task/dag crossed its budget.
+	// Attached to the tripping attempt's session_id (the exact attempt that
+	// pushed cost at/over the cap). Recording only: status stays `failed`
+	// (§7).
+	EventTaskBudgetExceeded EventKind = "task.budget_exceeded"
+
 	EventHookReceived     EventKind = "hook.received"
 	EventHookDropped      EventKind = "hook.dropped"
 	EventHookUnauthorized EventKind = "hook.unauthorized"

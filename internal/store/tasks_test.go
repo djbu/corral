@@ -361,6 +361,66 @@ func TestStore_CreateDAGBudget_DuplicateIsTypedError(t *testing.T) {
 	}
 }
 
+func TestStore_GetDAGBudget(t *testing.T) {
+	st, _ := openTestStore(t)
+	ctx := context.Background()
+
+	// (i) present, bounded row: returns both cost and budget.
+	budget := 10.0
+	if err := st.CreateDAGBudget(ctx, "dag-bounded", &budget); err != nil {
+		t.Fatalf("CreateDAGBudget(dag-bounded): %v", err)
+	}
+	if _, err := st.CreateTask(ctx, sampleCreateTaskParams("t1", "dag-bounded", "plan")); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if err := st.AddCost(ctx, "t1", 2.5); err != nil {
+		t.Fatalf("AddCost: %v", err)
+	}
+
+	got, err := st.GetDAGBudget(ctx, "dag-bounded")
+	if err != nil {
+		t.Fatalf("GetDAGBudget(dag-bounded): %v", err)
+	}
+	if got == nil {
+		t.Fatalf("GetDAGBudget(dag-bounded) = nil, want a row")
+	}
+	if got.DAGID != "dag-bounded" {
+		t.Fatalf("DAGID = %q, want %q", got.DAGID, "dag-bounded")
+	}
+	if got.BudgetUSD == nil || *got.BudgetUSD != 10.0 {
+		t.Fatalf("BudgetUSD = %v, want 10.0", got.BudgetUSD)
+	}
+	if got.CostUSD != 2.5 {
+		t.Fatalf("CostUSD = %v, want 2.5", got.CostUSD)
+	}
+
+	// (ii) present row with NULL budget_usd: BudgetUSD comes back nil
+	// (unbounded), not a zero value.
+	if err := st.CreateDAGBudget(ctx, "dag-unbounded", nil); err != nil {
+		t.Fatalf("CreateDAGBudget(dag-unbounded): %v", err)
+	}
+	got, err = st.GetDAGBudget(ctx, "dag-unbounded")
+	if err != nil {
+		t.Fatalf("GetDAGBudget(dag-unbounded): %v", err)
+	}
+	if got == nil {
+		t.Fatalf("GetDAGBudget(dag-unbounded) = nil, want a row")
+	}
+	if got.BudgetUSD != nil {
+		t.Fatalf("BudgetUSD = %v, want nil (NULL budget_usd means unbounded)", *got.BudgetUSD)
+	}
+
+	// (iii) absent row: (nil, nil), never an error — an absent row means
+	// unbounded (m4.md §7), and most dags have no row at all until step 24.
+	got, err = st.GetDAGBudget(ctx, "dag-never-created")
+	if err != nil {
+		t.Fatalf("GetDAGBudget(dag-never-created): err = %v, want nil", err)
+	}
+	if got != nil {
+		t.Fatalf("GetDAGBudget(dag-never-created) = %+v, want nil", got)
+	}
+}
+
 func TestStore_SetTaskSession(t *testing.T) {
 	st, _ := openTestStore(t)
 	ctx := context.Background()

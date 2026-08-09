@@ -38,6 +38,7 @@ type Store interface {
 	UpdateTask(ctx context.Context, id string, mutate func(*store.Task)) (*store.Task, error)
 	SetTaskSession(ctx context.Context, taskID, sessionID string) error
 	AddCost(ctx context.Context, taskID string, usd float64) error
+	GetDAGBudget(ctx context.Context, dagID string) (*store.DAGBudget, error)
 
 	CreateSession(ctx context.Context, p store.CreateSessionParams) (*session.Session, error)
 	GetSession(ctx context.Context, id string) (*session.Session, error)
@@ -249,7 +250,7 @@ func (o *Orchestrator) reconcileOrphans(ctx context.Context) {
 		case orphanRespawn:
 			o.log.Info("orchestrator: reconciliation: orphaned attempt, respawning",
 				"task_id", t.ID, "session_id", t.SessionID)
-			if err := o.applyOutcome(ctx, t, false); err != nil {
+			if err := o.applyOutcome(ctx, t, false, false); err != nil {
 				o.log.Error("orchestrator: reconciliation: applying orphan outcome", "task_id", t.ID, "err", err)
 			}
 		case orphanHarvest:
@@ -279,6 +280,16 @@ func (o *Orchestrator) launchReady(ctx context.Context, dagIDs []string) {
 		if err := DetectCycle(tasks, deps); err != nil {
 			o.log.Error("orchestrator: cyclic dag, skipping", "dag_id", dagID, "err", err)
 			continue
+		}
+
+		over, err := o.dagOverBudget(ctx, dagID)
+		if err != nil {
+			o.log.Error("orchestrator: checking dag budget", "dag_id", dagID, "err", err)
+			continue
+		}
+		if over {
+			o.cancelRemaining(ctx, tasks)
+			continue // gate-next: start no new tasks in an over-budget dag
 		}
 
 		ready, err := o.store.ReadyTasks(ctx, dagID)
@@ -472,6 +483,7 @@ func (o *Orchestrator) pollInFlight(ctx context.Context) {
 			o.log.Error("orchestrator: computing outcome", "task_id", taskID, "session_id", attempt.sessionID, "err", err)
 			continue
 		}
+		overBudget := false
 		if captured {
 			if err := o.store.AddCost(ctx, taskID, costUSD); err != nil {
 				// Logged, not fatal (see step 21 report's DEVIATIONS): a
@@ -480,10 +492,18 @@ func (o *Orchestrator) pollInFlight(ctx context.Context) {
 				// refuse to record this attempt's own terminal outcome.
 				o.log.Warn("orchestrator: recording cost", "task_id", taskID, "err", err)
 			}
+			// overBudget is only ever computed off cost that was actually
+			// recorded (§7): when !captured (a mid-turn crash, no result
+			// line, no cost to add), overBudget stays false — the
+			// documented "known under-count" rather than a guess.
+			overBudget = o.overBudget(ctx, taskID)
+			if overBudget {
+				o.recordBudgetExceeded(ctx, taskID, attempt.sessionID)
+			}
 		}
 
 		delete(o.inFlight, taskID)
-		if err := o.applyOutcome(ctx, task, success); err != nil {
+		if err := o.applyOutcome(ctx, task, success, overBudget); err != nil {
 			o.log.Error("orchestrator: applying outcome", "task_id", taskID, "err", err)
 		}
 	}
@@ -545,11 +565,25 @@ func (o *Orchestrator) outcomeForSession(ctx context.Context, sessionID string) 
 }
 
 // applyOutcome persists task's terminal-or-retry state (§8.1's post-
-// outcome bookkeeping). It is also reconciliation's respawn path (§9): an
-// orphaned attempt is applied here with success=false, exactly like a
-// normal terminal failure, so it flows through the same max-attempts/
-// backoff decision as any other failure.
-func (o *Orchestrator) applyOutcome(ctx context.Context, task *store.Task, success bool) error {
+// outcome bookkeeping, §7's budget enforcement). It is also reconciliation's
+// respawn path (§9): an orphaned attempt is applied here with
+// success=false, overBudget=false, exactly like a normal terminal failure,
+// so it flows through the same max-attempts/backoff decision as any other
+// failure.
+//
+// This is the SINGLE terminal-disposition site (same "no second mapping"
+// discipline as HeadlessOutcome, §8.1) — overBudget is threaded in as a
+// param rather than re-decided here so there is exactly one place that
+// turns (success, overBudget, attempts) into a status.
+//
+// Governing invariant (§7): budget never rewrites the outcome of a turn
+// that already happened; it only forbids FUTURE spend. A successful
+// attempt stays succeeded even if it pushed cost over budget — the paid-for
+// work is never discarded, and ReadyTasks keys dependents on
+// dep.status='succeeded'. A failing attempt while over budget skips the
+// retry path entirely: retrying would spend more, which is exactly what
+// the budget forbids.
+func (o *Orchestrator) applyOutcome(ctx context.Context, task *store.Task, success, overBudget bool) error {
 	if success {
 		_, err := o.store.UpdateTask(ctx, task.ID, func(t *store.Task) {
 			t.Status = store.TaskSucceeded
@@ -558,7 +592,7 @@ func (o *Orchestrator) applyOutcome(ctx context.Context, task *store.Task, succe
 		return err
 	}
 
-	if task.Attempts >= task.MaxAttempts {
+	if overBudget || task.Attempts >= task.MaxAttempts {
 		_, err := o.store.UpdateTask(ctx, task.ID, func(t *store.Task) {
 			t.Status = store.TaskFailed
 		})
@@ -586,6 +620,121 @@ func retryBackoff(attempts int) time.Duration {
 		}
 	}
 	return d
+}
+
+// overBudget reports whether taskID's task-level or dag-level budget is
+// already at or over its cap (§7: "enforcement purely post-hoc — gate only
+// when cost_usd already at/over budget"; est=0, no cost estimator). It
+// reloads the task fresh via GetTask rather than trusting the caller's
+// (possibly pre-AddCost) copy, since pollInFlight calls this immediately
+// after AddCost and needs the just-recorded cost. A missing task-level
+// BudgetUSD or a missing/nil-budget dag_budgets row both mean unbounded —
+// never gate — matching GetDAGBudget's own doc contract. Any lookup error
+// is logged and treated as "not over budget" rather than blocking progress
+// on a transient store error.
+func (o *Orchestrator) overBudget(ctx context.Context, taskID string) bool {
+	t, err := o.store.GetTask(ctx, taskID)
+	if err != nil {
+		o.log.Error("orchestrator: reloading task for budget check", "task_id", taskID, "err", err)
+		return false
+	}
+	if t.BudgetUSD != nil && t.CostUSD >= *t.BudgetUSD {
+		return true
+	}
+	b, err := o.store.GetDAGBudget(ctx, t.DAGID)
+	if err != nil {
+		o.log.Error("orchestrator: checking dag budget", "dag_id", t.DAGID, "task_id", taskID, "err", err)
+		return false
+	}
+	return b != nil && b.BudgetUSD != nil && b.CostUSD >= *b.BudgetUSD
+}
+
+// dagOverBudget reports whether dagID's dag-level budget is already at or
+// over its cap. Unlike overBudget, this never looks at a per-task
+// BudgetUSD — it is launchReady's per-dag gate (§7's "path (a): starting a
+// new ready task"), which has no single task in hand yet. No row, or a
+// present row with a nil BudgetUSD, both mean unbounded (never gated).
+func (o *Orchestrator) dagOverBudget(ctx context.Context, dagID string) (bool, error) {
+	b, err := o.store.GetDAGBudget(ctx, dagID)
+	if err != nil {
+		return false, err
+	}
+	if b == nil || b.BudgetUSD == nil {
+		return false, nil
+	}
+	return b.CostUSD >= *b.BudgetUSD, nil
+}
+
+// recordBudgetExceeded appends the durable EventTaskBudgetExceeded event
+// (§7) to the tripping attempt's own session — the exact attempt whose
+// AddCost pushed cost at/over the cap — carrying both task- and dag-level
+// cost/budget figures so the record is self-contained without a join.
+// Warn-not-fatal on any error: a failure to record the reason must never
+// block applyOutcome from persisting the (already-decided) terminal status.
+func (o *Orchestrator) recordBudgetExceeded(ctx context.Context, taskID, sessionID string) {
+	t, err := o.store.GetTask(ctx, taskID)
+	if err != nil {
+		o.log.Warn("orchestrator: reloading task for budget_exceeded event", "task_id", taskID, "err", err)
+		return
+	}
+	b, err := o.store.GetDAGBudget(ctx, t.DAGID)
+	if err != nil {
+		o.log.Warn("orchestrator: loading dag budget for budget_exceeded event", "dag_id", t.DAGID, "task_id", taskID, "err", err)
+		return
+	}
+
+	payload := struct {
+		TaskID        string   `json:"task_id"`
+		DAGID         string   `json:"dag_id"`
+		TaskCostUSD   float64  `json:"task_cost_usd"`
+		TaskBudgetUSD *float64 `json:"task_budget_usd,omitempty"`
+		DAGCostUSD    float64  `json:"dag_cost_usd"`
+		DAGBudgetUSD  *float64 `json:"dag_budget_usd"`
+	}{
+		TaskID:        t.ID,
+		DAGID:         t.DAGID,
+		TaskCostUSD:   t.CostUSD,
+		TaskBudgetUSD: t.BudgetUSD,
+	}
+	if b != nil {
+		payload.DAGCostUSD = b.CostUSD
+		payload.DAGBudgetUSD = b.BudgetUSD
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		o.log.Warn("orchestrator: encoding budget_exceeded event", "task_id", taskID, "err", err)
+		return
+	}
+	if _, err := o.store.AppendEvent(ctx, sessionID, session.EventTaskBudgetExceeded, string(data)); err != nil {
+		o.log.Warn("orchestrator: appending budget_exceeded event", "task_id", taskID, "session_id", sessionID, "err", err)
+	}
+}
+
+// cancelRemaining marks every non-terminal, non-running task in tasks as
+// cancelled (§7 "no perpetual stall"): pending/ready/blocked tasks in an
+// over-budget dag have no future — launchReady will never start them, and
+// leaving them pending forever would keep the dag out of terminalDAGStatuses
+// indefinitely. Running tasks are deliberately left alone: they finish and
+// record their spend normally (§7 "in-flight siblings finish current
+// turn"), reaching the dag's clean terminal state on their own via the
+// normal pollInFlight/applyOutcome path.
+func (o *Orchestrator) cancelRemaining(ctx context.Context, tasks []*store.Task) {
+	for _, t := range tasks {
+		switch t.Status {
+		case store.TaskPending, store.TaskReady, store.TaskBlocked:
+		default:
+			continue
+		}
+		o.log.Warn("orchestrator: dag over budget, cancelling task", "task_id", t.ID, "dag_id", t.DAGID)
+		if _, err := o.store.UpdateTask(ctx, t.ID, func(task *store.Task) {
+			task.Status = store.TaskCancelled
+		}); err != nil {
+			o.log.Error("orchestrator: cancelling over-budget task", "task_id", t.ID, "err", err)
+			continue
+		}
+		delete(o.nextAttemptAt, t.ID)
+	}
 }
 
 // enforceTimeouts kills any in-flight attempt that has exceeded

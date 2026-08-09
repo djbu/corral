@@ -719,3 +719,290 @@ func TestOrchestrator_DepWorktrees_ReachRealChildEnv(t *testing.T) {
 		t.Fatalf("target session EnvKeys = %v, want CORRAL_DEP_WORKTREES present (real BuildEnv call against a real dep worktree)", sess.EnvKeys)
 	}
 }
+
+// --- 7: budget enforcement (step 22, design doc §7) -----------------------
+
+// TestOrchestrator_NoBudgetRow_NeverGates guards the single most important
+// invariant in §7: a dag with NO dag_budgets row at all (the step-21
+// baseline -- CreateDAGBudget is step 24's job, so this is the common case
+// today) must never be gated, no matter how much cost its tasks accrue.
+// Getting this wrong would stop the orchestrator entirely and break the
+// whole step-21 suite.
+func TestOrchestrator_NoBudgetRow_NeverGates(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := clocktest.NewFake(start)
+	st := newTestStore(t, clk)
+	reg := &fakeRegistry{}
+	repo := t.TempDir()
+	ctx := context.Background()
+
+	dagID := "dag-no-budget-row"
+	a := mkTask(t, st, dagID, "task-a", "a", repo, 1)
+	b := mkTask(t, st, dagID, "task-b", "b", repo, 1)
+
+	orch := New(reg, st, clk, nil, Config{TaskTimeout: time.Hour, MaxConcurrent: 4, StateDir: t.TempDir()}, "/usr/bin/true")
+
+	orch.tickOnce(ctx)
+	if got := reg.spawnCount(); got != 2 {
+		t.Fatalf("spawn count = %d, want 2 (both independent tasks launched normally)", got)
+	}
+
+	// A huge cost with no dag_budgets row to compare against at all: AddCost
+	// itself refuses (ErrBudgetRowMissing, logged not fatal), and overBudget
+	// must still come back false rather than gating on it.
+	finishSession(t, st, reg.spawns[0].ID, false, 1000.0)
+	orch.tickOnce(ctx)
+
+	for _, tsk := range []*store.Task{a, b} {
+		got, err := st.GetTask(ctx, tsk.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Status == store.TaskCancelled {
+			t.Fatalf("task %s cancelled with no dag_budgets row at all -- absent row must mean unbounded", tsk.Name)
+		}
+	}
+	if got := reg.spawnCount(); got != 2 {
+		t.Fatalf("spawn count after cost = %d, want 2 (no gating without a budget row)", got)
+	}
+}
+
+// TestOrchestrator_NullBudget_NeverGates covers §7's other unbounded case:
+// a PRESENT dag_budgets row whose budget_usd is NULL. Distinct from the
+// no-row case above -- this exercises GetDAGBudget's "row exists but
+// BudgetUSD is nil" branch, not its "no row" branch.
+func TestOrchestrator_NullBudget_NeverGates(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := clocktest.NewFake(start)
+	st := newTestStore(t, clk)
+	reg := &fakeRegistry{}
+	repo := t.TempDir()
+	ctx := context.Background()
+
+	dagID := "dag-null-budget"
+	if err := st.CreateDAGBudget(ctx, dagID, nil); err != nil {
+		t.Fatalf("CreateDAGBudget: %v", err)
+	}
+	a := mkTask(t, st, dagID, "task-a", "a", repo, 1)
+	b := mkTask(t, st, dagID, "task-b", "b", repo, 1)
+
+	orch := New(reg, st, clk, nil, Config{TaskTimeout: time.Hour, MaxConcurrent: 4, StateDir: t.TempDir()}, "/usr/bin/true")
+
+	orch.tickOnce(ctx)
+	if got := reg.spawnCount(); got != 2 {
+		t.Fatalf("spawn count = %d, want 2 (both independent tasks launched normally)", got)
+	}
+
+	// A huge cost against a real row whose budget_usd is NULL -- still
+	// unbounded, must never gate.
+	finishSession(t, st, reg.spawns[0].ID, false, 1000.0)
+	orch.tickOnce(ctx)
+
+	for _, tsk := range []*store.Task{a, b} {
+		got, err := st.GetTask(ctx, tsk.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Status == store.TaskCancelled {
+			t.Fatalf("task %s cancelled despite budget_usd IS NULL (unbounded)", tsk.Name)
+		}
+	}
+	if got := reg.spawnCount(); got != 2 {
+		t.Fatalf("spawn count after cost = %d, want 2 (no gating with a null budget)", got)
+	}
+}
+
+// TestOrchestrator_DAGOverBudget_GatesAndCancels drives a dag over its
+// budget via one attempt's recorded cost, then asserts launchReady's
+// gate-next path (§7 path (a)): remaining pending tasks are cancelled
+// (no perpetual stall) and no further spawn happens for that dag.
+func TestOrchestrator_DAGOverBudget_GatesAndCancels(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := clocktest.NewFake(start)
+	st := newTestStore(t, clk)
+	reg := &fakeRegistry{}
+	repo := t.TempDir()
+	ctx := context.Background()
+
+	dagID := "dag-over-budget"
+	small := 1.0
+	if err := st.CreateDAGBudget(ctx, dagID, &small); err != nil {
+		t.Fatalf("CreateDAGBudget: %v", err)
+	}
+	a := mkTask(t, st, dagID, "task-a", "a", repo, 1)
+	b := mkTask(t, st, dagID, "task-b", "b", repo, 1)
+	c := mkTask(t, st, dagID, "task-c", "c", repo, 1)
+
+	// MaxConcurrent=1 so only "a" launches this tick, leaving b and c
+	// pending -- exactly the "remaining ready/pending tasks" §7 wants
+	// cancelled once the dag trips its budget.
+	orch := New(reg, st, clk, nil, Config{TaskTimeout: time.Hour, MaxConcurrent: 1, StateDir: t.TempDir()}, "/usr/bin/true")
+
+	orch.tickOnce(ctx)
+	if got := reg.spawnCount(); got != 1 {
+		t.Fatalf("spawn count after tick 1 = %d, want 1 (MaxConcurrent=1)", got)
+	}
+
+	// "a" succeeds, but its own cost alone pushes the dag's rollup past its
+	// $1.00 budget.
+	finishSession(t, st, reg.lastSpawn().ID, false, 2.0)
+	orch.tickOnce(ctx) // pollInFlight: applies a's outcome, rolls up dag cost
+	orch.tickOnce(ctx) // launchReady now observes the dag is over budget
+
+	gotA, err := st.GetTask(ctx, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotA.Status != store.TaskSucceeded {
+		t.Fatalf("task a status = %s, want succeeded (paid-for work is never discarded)", gotA.Status)
+	}
+	for _, tsk := range []*store.Task{b, c} {
+		got, err := st.GetTask(ctx, tsk.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Status != store.TaskCancelled {
+			t.Fatalf("task %s status = %s, want cancelled (dag over budget, no perpetual stall)", tsk.Name, got.Status)
+		}
+	}
+	if got := reg.spawnCount(); got != 1 {
+		t.Fatalf("spawn count after gating = %d, want 1 (no new spawn in an over-budget dag)", got)
+	}
+}
+
+// TestOrchestrator_SuccessfulOverBudgetAttempt_StaysSucceeded is §7's
+// central rule: budget never rewrites the outcome of a turn that already
+// happened. A SUCCEEDING attempt that itself pushes the dag over budget
+// must stay succeeded, and the trip must still be durably recorded as an
+// EventTaskBudgetExceeded event on that attempt's own session.
+func TestOrchestrator_SuccessfulOverBudgetAttempt_StaysSucceeded(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := clocktest.NewFake(start)
+	st := newTestStore(t, clk)
+	reg := &fakeRegistry{}
+	repo := t.TempDir()
+	ctx := context.Background()
+
+	dagID := "dag-success-over-budget"
+	small := 1.0
+	if err := st.CreateDAGBudget(ctx, dagID, &small); err != nil {
+		t.Fatalf("CreateDAGBudget: %v", err)
+	}
+	tsk := mkTask(t, st, dagID, "task-s", "s", repo, 1)
+
+	orch := New(reg, st, clk, nil, Config{TaskTimeout: time.Hour, MaxConcurrent: 4, StateDir: t.TempDir()}, "/usr/bin/true")
+
+	orch.tickOnce(ctx)
+	if got := reg.spawnCount(); got != 1 {
+		t.Fatalf("spawn count = %d, want 1", got)
+	}
+	sessionID := reg.lastSpawn().ID
+
+	finishSession(t, st, sessionID, false, 5.0) // succeeds, well over the $1 budget
+	orch.tickOnce(ctx)
+
+	got, err := st.GetTask(ctx, tsk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != store.TaskSucceeded {
+		t.Fatalf("task status = %s, want succeeded (over-budget must never discard a completed, paid-for turn)", got.Status)
+	}
+
+	events, err := st.ListEvents(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	found := false
+	for _, ev := range events {
+		if ev.Kind == session.EventTaskBudgetExceeded {
+			found = true
+			var data struct {
+				TaskID string `json:"task_id"`
+				DAGID  string `json:"dag_id"`
+			}
+			if err := json.Unmarshal([]byte(ev.DataJSON), &data); err != nil {
+				t.Fatalf("unmarshal budget_exceeded event %q: %v", ev.DataJSON, err)
+			}
+			if data.TaskID != tsk.ID || data.DAGID != dagID {
+				t.Fatalf("budget_exceeded event = %+v, want task_id=%q dag_id=%q", data, tsk.ID, dagID)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("session %s events = %+v, want an EventTaskBudgetExceeded event recording the trip", sessionID, events)
+	}
+}
+
+// TestOrchestrator_FailedOverBudget_TerminalNoRetry covers §7 path (b): a
+// FAILING attempt while over budget skips the retry path entirely and goes
+// straight to terminal TaskFailed, with no nextAttemptAt scheduled and no
+// second spawn -- even though attempts is well under max_attempts, unlike
+// the ordinary exhaustion case TestOrchestrator_ErrorTurn_* covers.
+func TestOrchestrator_FailedOverBudget_TerminalNoRetry(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := clocktest.NewFake(start)
+	st := newTestStore(t, clk)
+	reg := &fakeRegistry{}
+	repo := t.TempDir()
+	ctx := context.Background()
+
+	// A task-level budget (rather than a dag one) keeps this test's outcome
+	// isolated to the single attempt under test: its own cost alone trips
+	// its own cap, with no dag-level gating/cancellation side effects to
+	// account for. The dag itself still needs an (unbounded) dag_budgets
+	// row -- AddCost is a single all-or-nothing transaction across both
+	// tasks.cost_usd and dag_budgets.cost_usd (m4.md §3.3), so without one
+	// it would roll back the task-side update too and this test would
+	// never see task.cost_usd change at all.
+	dagID := "dag-failed-over-budget"
+	if err := st.CreateDAGBudget(ctx, dagID, nil); err != nil {
+		t.Fatalf("CreateDAGBudget: %v", err)
+	}
+	budget := 1.0
+	tsk, err := st.CreateTask(ctx, store.CreateTaskParams{
+		ID:          "task-fb",
+		DAGID:       dagID,
+		Name:        "fb",
+		Prompt:      "do fb",
+		Repo:        repo,
+		Cwd:         repo,
+		MaxAttempts: 3, // plenty of retries left, if this were an ordinary failure
+		BudgetUSD:   &budget,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	orch := New(reg, st, clk, nil, Config{TaskTimeout: time.Hour, MaxConcurrent: 4, StateDir: t.TempDir()}, "/usr/bin/true")
+
+	orch.tickOnce(ctx)
+	if got := reg.spawnCount(); got != 1 {
+		t.Fatalf("spawn count = %d, want 1", got)
+	}
+
+	// The attempt fails, AND its own cost alone crosses the task's $1.00
+	// budget.
+	finishSession(t, st, reg.lastSpawn().ID, true, 2.0)
+	orch.tickOnce(ctx)
+
+	got, err := st.GetTask(ctx, tsk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != store.TaskFailed {
+		t.Fatalf("status = %s, want failed (over budget forbids the retry, contrast the ordinary retry test)", got.Status)
+	}
+	if got.Attempts >= got.MaxAttempts {
+		t.Fatalf("attempts = %d, max_attempts = %d: this must be an over-budget short-circuit, not ordinary exhaustion", got.Attempts, got.MaxAttempts)
+	}
+
+	// No backoff scheduled, no second spawn -- even once plenty of time has
+	// passed.
+	clk.Advance(time.Hour)
+	orch.tickOnce(ctx)
+	if got := reg.spawnCount(); got != 1 {
+		t.Fatalf("spawn count after over-budget failure = %d, want 1 (no retry)", got)
+	}
+}
