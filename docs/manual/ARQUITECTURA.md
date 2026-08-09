@@ -270,7 +270,8 @@ son:
 1. empaquetado de releases para macOS/Linux, instalador, Homebrew, firma y
    notarización;
 2. `corral service install` para launchd/systemd y operación al iniciar sesión;
-3. publicar el repositorio/tag en un remote y automatizar artefactos de release;
+3. crear el repositorio privado `djbu/corral`, subir tags y automatizar
+   artefactos de release privados;
 4. comandos seguros para aceptar o descartar worktrees desde `corral review`;
 5. E2E con navegador real, además del E2E HTTP ya existente;
 6. Windows, modo multiusuario/equipo y más notificadores;

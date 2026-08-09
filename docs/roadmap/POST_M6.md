@@ -43,7 +43,7 @@ Cada milestone seguirá este ciclo:
 8. crear un tag anotado sólo sobre un árbol limpio y exactamente validado.
 
 Una funcionalidad que requiera credenciales, cuenta externa, firma o cambio
-público de repositorio se prepara completamente, pero se detiene antes de la
+externo de repositorio se prepara completamente, pero se detiene antes de la
 acción externa hasta contar con la decisión o secreto del operador.
 
 ## 3. Decisiones externas que hay que resolver
@@ -53,11 +53,12 @@ de los milestones indicados:
 
 | Decisión | Necesaria para | Valor recomendado |
 |---|---|---|
-| Nombre público y owner/org de GitHub | Publicación M7 | Conservar `corral` si está disponible |
-| Licencia | Repositorio público M7 | Apache-2.0, como recomienda el runbook |
-| URL del remote | CI y releases M7 | Repositorio principal bajo el owner elegido |
+| Nombre y owner/org de GitHub | Repositorio M7 | **Decidido:** `djbu/corral` |
+| Visibilidad | Repositorio M7 | **Decidido:** privado |
+| Licencia | Baseline legal M7 | **Decidido:** Apache-2.0 |
+| URL del remote | CI y releases M7 | **Decidido:** `https://github.com/djbu/corral` |
 | Apple Developer ID/notarización | Distribución macOS estable | Posponer firma sólo para una preview claramente marcada |
-| Dominio/canal de instalación | curl/Brew M7 | Releases de GitHub primero; dominio después |
+| Canal de instalación | Distribución M7 | Release privada autenticada; Homebrew público diferido |
 | Modelo comercial de equipos | M10 | OSS single-user completo; colaboración como capa adicional |
 | Prioridad Windows frente a nuevas learnings | M11/M12 | Learnings primero salvo demanda real de Windows |
 
@@ -75,13 +76,17 @@ sin conocer el código”.
 
 #### 46. Identidad y baseline legal
 
-- decidir nombre público, owner y URL canónica;
+- usar `corral` como nombre, `djbu` como owner,
+  `https://github.com/djbu/corral` como URL canónica y visibilidad privada;
+- migrar el módulo Go de `github.com/danielbecerra/corral` a
+  `github.com/djbu/corral` en una operación mecánica verificada;
 - añadir `LICENSE`, copyright y política de contribución mínima;
 - registrar ADR de licencia, telemetría y nombre;
 - corregir metadatos que todavía asumen un repositorio sin remote.
 
-**Gate:** el contenido puede publicarse legalmente y `go list ./...` no contiene
-rutas de módulo equivocadas para la ubicación elegida.
+**Gate:** el contenido puede almacenarse y distribuirse internamente bajo la
+licencia elegida, el remote confirma visibilidad privada y `go list ./...` no
+contiene rutas de módulo equivocadas para la ubicación elegida.
 
 #### 47. CI obligatoria para cada cambio
 
@@ -110,7 +115,7 @@ binario anuncia `0.7.0`, commit correcto y API 1.
 
 - disparar sólo desde tags `v*`;
 - exigir que CI del commit ya esté verde;
-- publicar artefactos, checksums, SBOM y notas de release;
+- publicar artefactos, checksums, SBOM y notas como release privada de GitHub;
 - fallar si el tag no es anotado, el árbol no corresponde o la versión diverge;
 - documentar rollback y revocación de una release defectuosa.
 
@@ -139,17 +144,21 @@ sesiones recuperables.
 **Gate:** el servicio arranca al iniciar sesión, reinicia tras crash, se detiene
 ordenadamente y uninstall no borra datos del usuario sin confirmación aparte.
 
-#### 52. Instalador y canal Homebrew
+#### 52. Instalador privado y preparación de Homebrew
 
 - implementar un instalador que detecte OS/arquitectura;
-- descargar una versión explícita, verificar checksum y hacer reemplazo atómico;
+- descargar una versión explícita desde la release privada usando credenciales
+  por entorno o instalar desde un archivo offline;
+- verificar checksum y hacer reemplazo atómico;
 - no usar `sudo` por defecto; instalar en una ruta del usuario;
 - soportar `--version`, `--prefix` y modo dry-run;
-- crear fórmula/tap Homebrew después de validar el tarball primario;
+- preparar y probar una fórmula/tap Homebrew sin publicarla mientras el
+  repositorio y sus artefactos sean privados;
 - documentar instalación offline y desinstalación.
 
-**Gate:** una VM limpia instala, ejecuta y desinstala sin residuos fuera de las
-rutas documentadas; un checksum inválido aborta sin reemplazar el binario.
+**Gate:** una VM limpia y autenticada instala, ejecuta y desinstala sin residuos
+fuera de las rutas documentadas; una VM sin credenciales falla claramente y un
+checksum inválido aborta sin reemplazar el binario.
 
 #### 53. Operación de datos
 
@@ -411,13 +420,15 @@ La primera tanda concreta es:
 - [ ] 49 — workflow de prerelease/release;
 - [ ] 50 — `daemon status|stop|restart`;
 - [ ] 51 — servicio launchd/systemd;
-- [ ] 52 — instalador y Homebrew, una vez estable el ciclo del servicio;
+- [ ] 52 — instalador privado y fórmula Homebrew no publicada, una vez estable
+  el ciclo del servicio;
 - [ ] 53 — backup/GC/disco;
 - [ ] 54 — smoke limpio y tag `v0.7.0`.
 
 El orden 50→51→52 es deliberado: no se debe distribuir un servicio antes de
-tener un ciclo de vida estable, ni publicar un instalador antes de conocer las
-rutas y archivos finales del servicio.
+tener un ciclo de vida estable, ni distribuir un instalador antes de conocer
+las rutas y archivos finales del servicio. La publicación pública de Homebrew
+queda fuera de M7 mientras `djbu/corral` sea privado.
 
 ## 11. Validación estándar de cada release
 
