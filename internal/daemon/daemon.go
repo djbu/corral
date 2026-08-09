@@ -15,8 +15,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/djbu/corral/internal/api"
 	"github.com/djbu/corral/internal/api/dashboard"
@@ -600,11 +601,11 @@ func (d *Daemon) initLogging() error {
 }
 
 // setsidSelfCheck implements design doc §3.1's "daemon-run self-checks
-// syscall.Getsid(0) == os.Getpid(), logs WARN if not — silently-failed
+// unix.Getsid(0) == os.Getpid(), logs WARN if not — silently-failed
 // setsid degrades to 'works until terminal closes', exactly the bug class
 // worth one-line assertion." It never fails startup — only logs.
 func (d *Daemon) setsidSelfCheck() {
-	sid, err := syscall.Getsid(0)
+	sid, err := unix.Getsid(0)
 	if err != nil {
 		d.log.Warn("setsid self-check: Getsid failed", "err", err)
 		return
