@@ -68,6 +68,14 @@ func TestLearningStoreLifecycleAndProvenance(t *testing.T) {
 	if err != nil || l.VerifiedMs == nil {
 		t.Fatalf("verify transition = (%+v,%v)", l, err)
 	}
+	p.Evidence = append(p.Evidence, LearningEvidence{EventSeq: event.Seq, Role: "late"})
+	if _, err := st.UpsertLearningCandidate(ctx, p); err != nil {
+		t.Fatalf("re-scan verified learning: %v", err)
+	}
+	evidence, _ = st.ListLearningEvidence(ctx, l.ID)
+	if len(evidence) != 1 {
+		t.Fatalf("verified learning evidence mutated by re-scan: %+v", evidence)
+	}
 	l, err = st.TransitionLearning(ctx, l.ID, LearningTransition{From: LearningVerified, To: LearningProposed})
 	if err != nil || l.ProposedMs == nil {
 		t.Fatalf("propose transition = (%+v,%v)", l, err)

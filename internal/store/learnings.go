@@ -94,11 +94,20 @@ func (s *Store) UpsertLearningCandidate(ctx context.Context, p UpsertLearningPar
 		if err != nil {
 			return fmt.Errorf("store: upserting learning: %w", err)
 		}
-		var id string
+		var id, status string
 		if err := tx.QueryRowContext(ctx,
-			`SELECT id FROM learnings WHERE repo=? AND kind=? AND fingerprint=?`,
-			p.Repo, string(p.Kind), p.Fingerprint).Scan(&id); err != nil {
+			`SELECT id,status FROM learnings WHERE repo=? AND kind=? AND fingerprint=?`,
+			p.Repo, string(p.Kind), p.Fingerprint).Scan(&id, &status); err != nil {
 			return fmt.Errorf("store: resolving upserted learning: %w", err)
+		}
+		if LearningStatus(status) != LearningCandidate {
+			return nil
+		}
+		// Candidate provenance is a projection of the current scan window, not
+		// an ever-growing union. Decisions remain immutable: the status guard
+		// prevents a re-scan from changing evidence after verification/reject.
+		if _, err := tx.ExecContext(ctx, `DELETE FROM learning_evidence WHERE learning_id=?`, id); err != nil {
+			return fmt.Errorf("store: refreshing learning evidence: %w", err)
 		}
 		for _, ev := range p.Evidence {
 			if ev.EventSeq <= 0 || ev.Role == "" {
