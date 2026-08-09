@@ -31,6 +31,7 @@ const (
 	CodeDAGNotFound         Code = "dag_not_found"
 	CodeDAGCycle            Code = "dag_cycle"
 	CodeLearningNotFound    Code = "learning_not_found"
+	CodeLearningConflict    Code = "learning_conflict"
 	// CodeForbidden: token's scope='session' subtree does not include the
 	// requested session/dag (m5.md §10). Distinct from CodeUnauthorized,
 	// which means "no/invalid token" — this means "valid token, wrong

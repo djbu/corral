@@ -78,6 +78,12 @@ type Pinned struct {
 // screen.OpenOutputLog(pinned.OutputLogPath, ...) and Screen.SetOutputLog
 // itself.
 func Pin(stateDir string, spec session.Spec, clk clock.Clock, corralVersion string, apiVersion int, relayCommand string, foreignHooks []string) (*Pinned, error) {
+	return PinWithRules(stateDir, spec, clk, corralVersion, apiVersion, relayCommand, foreignHooks, nil)
+}
+
+// PinWithRules is Pin plus M6's adopted exact permission rules. Keeping Pin
+// as a wrapper preserves existing callers and byte-for-byte behavior.
+func PinWithRules(stateDir string, spec session.Spec, clk clock.Clock, corralVersion string, apiVersion int, relayCommand string, foreignHooks, rules []string) (*Pinned, error) {
 	if spec.ID == "" {
 		return nil, fmt.Errorf("settings: Pin: spec.ID is empty")
 	}
@@ -94,7 +100,7 @@ func Pin(stateDir string, spec session.Spec, clk clock.Clock, corralVersion stri
 	}
 
 	settingsPath := filepath.Join(dir, "settings.json")
-	settingsBytes, err := BuildSettingsJSON(relayCommand)
+	settingsBytes, err := BuildSettingsJSONWithRules(relayCommand, rules)
 	if err != nil {
 		return nil, fmt.Errorf("settings: building settings.json: %w", err)
 	}

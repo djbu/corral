@@ -23,6 +23,7 @@ import (
 	"github.com/danielbecerra/corral/internal/claude/settings"
 	"github.com/danielbecerra/corral/internal/claude/streamjson"
 	"github.com/danielbecerra/corral/internal/clock"
+	corralgit "github.com/danielbecerra/corral/internal/git"
 	"github.com/danielbecerra/corral/internal/proto"
 	"github.com/danielbecerra/corral/internal/screen"
 	"github.com/danielbecerra/corral/internal/session"
@@ -281,7 +282,11 @@ func (r *Registry) Spawn(ctx context.Context, spec session.Spec) (*session.Sessi
 		r.log.Info("supervisor: foreign hooks present in supervised session", "session_id", spec.ID, "events", foreignHooks)
 	}
 
-	pinned, err := settings.Pin(r.cfg.StateDir, spec, r.clock, r.cfg.CorralVersion, r.cfg.APIVersion, r.cfg.RelayCommand, foreignHooks)
+	rules, err := r.adoptedPermissionRules(ctx, spec)
+	if err != nil {
+		return nil, fmt.Errorf("supervisor: resolving adopted rules for %s: %w", spec.ID, err)
+	}
+	pinned, err := settings.PinWithRules(r.cfg.StateDir, spec, r.clock, r.cfg.CorralVersion, r.cfg.APIVersion, r.cfg.RelayCommand, foreignHooks, rules)
 	if err != nil {
 		return nil, fmt.Errorf("supervisor: pinning settings for %s: %w", spec.ID, err)
 	}
@@ -360,6 +365,44 @@ func (r *Registry) Spawn(ctx context.Context, spec session.Spec) (*session.Sessi
 	r.runGoroutines(ls, spec.ID, spec.Name)
 
 	return updated, nil
+}
+
+func (r *Registry) adoptedPermissionRules(ctx context.Context, spec session.Spec) ([]string, error) {
+	repo := ""
+	if task, err := r.store.GetTaskBySessionID(ctx, spec.ID); err == nil {
+		var resolveErr error
+		repo, resolveErr = corralgit.CanonicalPath(task.Repo)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return nil, err
+	} else {
+		var resolveErr error
+		repo, resolveErr = corralgit.ResolveRepo(ctx, spec.Cwd)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+	}
+	learnings, err := r.store.ListLearnings(ctx, repo, "")
+	if err != nil {
+		return nil, err
+	}
+	var rules []string
+	for _, l := range learnings {
+		if l.Kind != store.LearningPermissionRule || (l.Status != store.LearningAdopted &&
+			l.Status != store.LearningRegressionFlagged && l.Status != store.LearningStale) {
+			continue
+		}
+		var content struct {
+			Rule string `json:"rule"`
+		}
+		if err := json.Unmarshal([]byte(l.ContentJSON), &content); err != nil || content.Rule == "" {
+			return nil, fmt.Errorf("learning %s has invalid adopted content", l.ID)
+		}
+		rules = append(rules, content.Rule)
+	}
+	return rules, nil
 }
 
 // spawnHeadless is Spawn's fork for spec.Mode == session.ModeHeadless

@@ -73,6 +73,8 @@ const (
 	EventLearningVerified EventKind = "learning.verified"
 	EventLearningProposed EventKind = "learning.proposed"
 	EventLearningRejected EventKind = "learning.rejected"
+	EventLearningAdopted  EventKind = "learning.adopted"
+	EventLearningRetired  EventKind = "learning.retired"
 )
 
 // Event is one row of the append-only events table. SessionID is "" for a

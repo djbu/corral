@@ -10,6 +10,8 @@ import (
 	"github.com/danielbecerra/corral/internal/config"
 	corralgit "github.com/danielbecerra/corral/internal/git"
 	"github.com/danielbecerra/corral/internal/learning"
+	"github.com/danielbecerra/corral/internal/redact"
+	"github.com/danielbecerra/corral/internal/session"
 	"github.com/danielbecerra/corral/internal/store"
 )
 
@@ -24,6 +26,9 @@ func (s *Server) RegisterLearnings(deps LearningsDeps) {
 	s.Handle("GET /v1/learnings", deps.handleListLearnings)
 	s.Handle("GET /v1/learnings/{id}", deps.handleGetLearning)
 	s.Handle("GET /v1/learnings/{id}/report", deps.handleLearningReport)
+	s.Handle("POST /v1/learnings/{id}/adopt", deps.handleAdoptLearning)
+	s.Handle("POST /v1/learnings/{id}/reject", deps.handleRejectLearning)
+	s.Handle("POST /v1/learnings/{id}/retire", deps.handleRetireLearning)
 }
 
 type scanLearningsRequest struct {
@@ -254,4 +259,117 @@ func scopedLearningRepo(ctx context.Context, st *store.Store) (string, bool) {
 		return "", true
 	}
 	return repo, true
+}
+
+func (d LearningsDeps) handleAdoptLearning(w http.ResponseWriter, r *http.Request) {
+	if d.rejectScopedMutation(w, r) {
+		return
+	}
+	l, ok := d.authorizedLearning(w, r)
+	if !ok {
+		return
+	}
+	updated, err := d.Store.TransitionLearning(r.Context(), l.ID, store.LearningTransition{
+		From: store.LearningProposed, To: store.LearningAdopted,
+	})
+	if errors.Is(err, store.ErrInvalidLearningTransition) {
+		writeError(w, http.StatusConflict, CodeLearningConflict, "only a proposed learning may be adopted", nil)
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
+		return
+	}
+	if err := d.appendLearningAudit(r.Context(), session.EventLearningAdopted, updated, ""); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, toLearningResponse(updated))
+}
+
+type rejectLearningRequest struct {
+	Reason string `json:"reason"`
+}
+
+func (d LearningsDeps) handleRejectLearning(w http.ResponseWriter, r *http.Request) {
+	if d.rejectScopedMutation(w, r) {
+		return
+	}
+	l, ok := d.authorizedLearning(w, r)
+	if !ok {
+		return
+	}
+	var req rejectLearningRequest
+	if r.Body != nil && r.ContentLength != 0 {
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, CodeBadRequest, "invalid JSON body: "+err.Error(), nil)
+			return
+		}
+	}
+	note, _ := redact.Redact([]byte(req.Reason))
+	if len(note) > 1024 {
+		note = note[:1024]
+	}
+	decision, _ := json.Marshal(map[string]string{"reason_category": "operator_rejected", "note": string(note)})
+	updated, err := d.Store.TransitionLearning(r.Context(), l.ID, store.LearningTransition{
+		From: l.Status, To: store.LearningRejected, VerificationJSON: string(decision),
+	})
+	if errors.Is(err, store.ErrInvalidLearningTransition) {
+		writeError(w, http.StatusConflict, CodeLearningConflict, "learning cannot be rejected from its current status", nil)
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
+		return
+	}
+	if err := d.appendLearningAudit(r.Context(), session.EventLearningRejected, updated, "operator_rejected"); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, toLearningResponse(updated))
+}
+
+func (d LearningsDeps) handleRetireLearning(w http.ResponseWriter, r *http.Request) {
+	if d.rejectScopedMutation(w, r) {
+		return
+	}
+	l, ok := d.authorizedLearning(w, r)
+	if !ok {
+		return
+	}
+	updated, err := d.Store.TransitionLearning(r.Context(), l.ID, store.LearningTransition{
+		From: l.Status, To: store.LearningRetired,
+	})
+	if errors.Is(err, store.ErrInvalidLearningTransition) {
+		writeError(w, http.StatusConflict, CodeLearningConflict, "only a stale or regression-flagged learning may be retired", nil)
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
+		return
+	}
+	if err := d.appendLearningAudit(r.Context(), session.EventLearningRetired, updated, ""); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, toLearningResponse(updated))
+}
+
+func (d LearningsDeps) rejectScopedMutation(w http.ResponseWriter, r *http.Request) bool {
+	if _, scoped := scopedLearningRepo(r.Context(), d.Store); scoped {
+		writeError(w, http.StatusForbidden, CodeForbidden, "session-scoped tokens cannot mutate learnings", nil)
+		return true
+	}
+	return false
+}
+
+func (d LearningsDeps) appendLearningAudit(ctx context.Context, kind session.EventKind, l *store.Learning, reason string) error {
+	data, _ := json.Marshal(map[string]any{
+		"learning_id": l.ID, "repo": l.Repo, "fingerprint": l.Fingerprint,
+		"status": l.Status, "reason": reason,
+	})
+	_, err := d.Store.AppendEvent(ctx, "", kind, string(data))
+	return err
 }

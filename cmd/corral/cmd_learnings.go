@@ -26,6 +26,12 @@ func cmdLearnings(args []string, stdout, stderr io.Writer) int {
 		return learningsShow(args[1:], stdout, stderr)
 	case "report":
 		return learningsReport(args[1:], stdout, stderr)
+	case "adopt":
+		return learningsDecision(args[1:], stdout, stderr, "adopt")
+	case "reject":
+		return learningsDecision(args[1:], stdout, stderr, "reject")
+	case "retire":
+		return learningsDecision(args[1:], stdout, stderr, "retire")
 	default:
 		printLearningsUsage(stderr)
 		return exitUsage
@@ -33,11 +39,14 @@ func cmdLearnings(args []string, stdout, stderr io.Writer) int {
 }
 
 func printLearningsUsage(w io.Writer) {
-	fmt.Fprintln(w, "usage: corral learnings <scan|list|show|report> [flags]")
+	fmt.Fprintln(w, "usage: corral learnings <scan|list|show|report|adopt|reject|retire> [flags]")
 	fmt.Fprintln(w, "  corral learnings scan [--repo PATH] [--json]")
 	fmt.Fprintln(w, "  corral learnings list [--repo PATH] [--status STATUS] [--json]")
 	fmt.Fprintln(w, "  corral learnings show <id> [--diff] [--json]")
 	fmt.Fprintln(w, "  corral learnings report <id> [--json]")
+	fmt.Fprintln(w, "  corral learnings adopt <id> [--json]")
+	fmt.Fprintln(w, "  corral learnings reject <id> [--reason TEXT] [--json]")
+	fmt.Fprintln(w, "  corral learnings retire <id> [--json]")
 }
 
 func learningsScan(args []string, stdout, stderr io.Writer) int {
@@ -171,6 +180,40 @@ func learningsReport(args []string, stdout, stderr io.Writer) int {
 			time.UnixMilli(m.WindowStartMs).Format(time.RFC3339),
 			time.UnixMilli(m.WindowEndMs).Format(time.RFC3339), m.Metrics)
 	}
+	return exitOK
+}
+
+func learningsDecision(args []string, stdout, stderr io.Writer, action string) int {
+	fs := flag.NewFlagSet("learnings "+action, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	reason := fs.String("reason", "", "operator reason (reject only; secrets are redacted)")
+	jsonOut := fs.Bool("json", false, "print stable JSON")
+	cf := addClientFlags(fs)
+	if err := fs.Parse(args); err != nil || fs.NArg() != 1 || (action != "reject" && *reason != "") {
+		return exitUsage
+	}
+	c, err := newClient(cf, stderr)
+	if err != nil {
+		return learningCLIError(stderr, err)
+	}
+	var updated client.LearningInfo
+	switch action {
+	case "adopt":
+		updated, err = c.AdoptLearning(context.Background(), fs.Arg(0))
+	case "reject":
+		updated, err = c.RejectLearning(context.Background(), fs.Arg(0), *reason)
+	case "retire":
+		updated, err = c.RetireLearning(context.Background(), fs.Arg(0))
+	default:
+		return exitUsage
+	}
+	if err != nil {
+		return learningCLIError(stderr, err)
+	}
+	if *jsonOut {
+		return printLearningJSON(stdout, stderr, updated)
+	}
+	fmt.Fprintf(stdout, "%s %s %s\n", updated.ID, updated.Status, learningRule(updated))
 	return exitOK
 }
 

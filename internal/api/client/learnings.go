@@ -123,3 +123,33 @@ func (c *Client) GetLearningReport(ctx context.Context, id string) (LearningRepo
 	}
 	return out, nil
 }
+
+func (c *Client) AdoptLearning(ctx context.Context, id string) (LearningInfo, error) {
+	return c.mutateLearning(ctx, id, "adopt", nil)
+}
+
+func (c *Client) RejectLearning(ctx context.Context, id, reason string) (LearningInfo, error) {
+	body, err := json.Marshal(struct {
+		Reason string `json:"reason"`
+	}{Reason: reason})
+	if err != nil {
+		return LearningInfo{}, err
+	}
+	return c.mutateLearning(ctx, id, "reject", body)
+}
+
+func (c *Client) RetireLearning(ctx context.Context, id string) (LearningInfo, error) {
+	return c.mutateLearning(ctx, id, "retire", nil)
+}
+
+func (c *Client) mutateLearning(ctx context.Context, id, action string, body []byte) (LearningInfo, error) {
+	resp, err := c.do(ctx, http.MethodPost, "/v1/learnings/"+url.PathEscape(id)+"/"+action, body)
+	if err != nil {
+		return LearningInfo{}, err
+	}
+	var out LearningInfo
+	if err := decode(resp, &out); err != nil {
+		return LearningInfo{}, err
+	}
+	return out, nil
+}

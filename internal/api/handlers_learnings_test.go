@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -65,6 +66,19 @@ func TestLearningsAPI_ScanListShowReport(t *testing.T) {
 	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"measurements":[]`)) {
 		t.Fatalf("report status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	rec = doVersioned(t, srv.Handler(), http.MethodPost, "/v1/learnings/"+id+"/adopt", nil)
+	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"status":"adopted"`)) {
+		t.Fatalf("adopt status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if _, err := st.TransitionLearning(context.Background(), id, store.LearningTransition{
+		From: store.LearningAdopted, To: store.LearningStale,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rec = doVersioned(t, srv.Handler(), http.MethodPost, "/v1/learnings/"+id+"/retire", nil)
+	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"status":"retired"`)) {
+		t.Fatalf("retire status=%d body=%s", rec.Code, rec.Body.String())
+	}
 }
 
 func TestLearningsAPI_SessionTokenScope(t *testing.T) {
@@ -95,6 +109,32 @@ func TestLearningsAPI_SessionTokenScope(t *testing.T) {
 	rec = scopedVersionedRequest(t, srv.Handler(), tokenCtx, http.MethodPost, "/v1/learnings/scan", mustMarshal(t, scanLearningsRequest{}))
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("scoped scan status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = scopedVersionedRequest(t, srv.Handler(), tokenCtx, http.MethodPost, "/v1/learnings/a/reject", nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("scoped reject status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestLearningsAPI_RejectRedactsOperatorReason(t *testing.T) {
+	fc := clocktest.NewFake(time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC))
+	st, err := store.Open(filepath.Join(t.TempDir(), "corral.db"), fc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	createAPILearning(t, st, "reject-me", t.TempDir(), "fp")
+	srv := New()
+	srv.RegisterLearnings(LearningsDeps{Store: st, Clock: fc, Config: config.Learn{}})
+	secret := "sk-ant-abcdefghijklmnopqrstuvwxyz0123456789"
+	rec := doVersioned(t, srv.Handler(), http.MethodPost, "/v1/learnings/reject-me/reject",
+		mustMarshal(t, rejectLearningRequest{Reason: "contains " + secret}))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("reject status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	l, err := st.GetLearning(context.Background(), "reject-me")
+	if err != nil || strings.Contains(l.VerificationJSON, secret) || !strings.Contains(l.VerificationJSON, "redacted") {
+		t.Fatalf("rejected learning = (%+v,%v)", l, err)
 	}
 }
 
