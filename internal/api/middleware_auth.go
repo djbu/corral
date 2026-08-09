@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/danielbecerra/corral/internal/apitoken"
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/store"
+	"github.com/djbu/corral/internal/apitoken"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/store"
 )
 
 // tokenAuthStore is the subset of *store.Store bearerAuth needs to

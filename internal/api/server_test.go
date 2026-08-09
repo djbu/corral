@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/danielbecerra/corral/internal/version"
+	"github.com/djbu/corral/internal/version"
 )
 
 // TestVersionMiddleware_HeaderMatrix exercises the handshake in design doc

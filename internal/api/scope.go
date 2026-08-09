@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/danielbecerra/corral/internal/store"
+	"github.com/djbu/corral/internal/store"
 )
 
 // errForbiddenScope is resolveSession's sentinel for "the request's token

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/claude/sessions"
+	"github.com/djbu/corral/internal/claude/sessions"
 )
 
 // TranscriptEntry is one line of fakeclaude's fake transcript. It is not

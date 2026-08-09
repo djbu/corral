@@ -8,8 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/danielbecerra/corral/internal/api/client"
-	"github.com/danielbecerra/corral/internal/config"
+	"github.com/djbu/corral/internal/api/client"
+	"github.com/djbu/corral/internal/config"
 )
 
 // cmdNew implements `corral new [--cwd DIR] [--name NAME] [--model MODEL]

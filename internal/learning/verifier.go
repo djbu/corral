@@ -7,11 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/danielbecerra/corral/internal/claude/settings"
-	"github.com/danielbecerra/corral/internal/config"
-	corralgit "github.com/danielbecerra/corral/internal/git"
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/store"
+	"github.com/djbu/corral/internal/claude/settings"
+	"github.com/djbu/corral/internal/config"
+	corralgit "github.com/djbu/corral/internal/git"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/store"
 )
 
 type VerifierStore interface {

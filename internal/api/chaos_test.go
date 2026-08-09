@@ -25,14 +25,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/checkpoint"
-	"github.com/danielbecerra/corral/internal/claude/sessions"
-	"github.com/danielbecerra/corral/internal/clock"
-	"github.com/danielbecerra/corral/internal/clock/clocktest"
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/state"
-	"github.com/danielbecerra/corral/internal/store"
-	"github.com/danielbecerra/corral/internal/supervisor"
+	"github.com/djbu/corral/internal/checkpoint"
+	"github.com/djbu/corral/internal/claude/sessions"
+	"github.com/djbu/corral/internal/clock"
+	"github.com/djbu/corral/internal/clock/clocktest"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/state"
+	"github.com/djbu/corral/internal/store"
+	"github.com/djbu/corral/internal/supervisor"
 )
 
 // chaosCheckpointer adapts *checkpoint.ResumeCheckpointer (whose Checkpoint

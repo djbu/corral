@@ -6,10 +6,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/clock"
-	"github.com/danielbecerra/corral/internal/config"
-	"github.com/danielbecerra/corral/internal/store"
-	"github.com/danielbecerra/corral/internal/version"
+	"github.com/djbu/corral/internal/clock"
+	"github.com/djbu/corral/internal/config"
+	"github.com/djbu/corral/internal/store"
+	"github.com/djbu/corral/internal/version"
 )
 
 // MetaDeps is what handlers_meta.go's three routes need. daemon.go

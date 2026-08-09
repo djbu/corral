@@ -8,8 +8,8 @@ import (
 	"os"
 	"sort"
 
-	"github.com/danielbecerra/corral/internal/api/client"
-	"github.com/danielbecerra/corral/internal/config"
+	"github.com/djbu/corral/internal/api/client"
+	"github.com/djbu/corral/internal/config"
 )
 
 // cmdConfig implements `corral config [--cwd DIR] [--host HOST]`: it prints

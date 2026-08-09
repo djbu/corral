@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/danielbecerra/corral/internal/claude/automode"
+	"github.com/djbu/corral/internal/claude/automode"
 )
 
 // TestWriteDoctorReport covers the four report branches: foreign hooks

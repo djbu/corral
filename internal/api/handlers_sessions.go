@@ -13,12 +13,12 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/danielbecerra/corral/internal/answer"
-	"github.com/danielbecerra/corral/internal/config"
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/state"
-	"github.com/danielbecerra/corral/internal/store"
-	"github.com/danielbecerra/corral/internal/supervisor"
+	"github.com/djbu/corral/internal/answer"
+	"github.com/djbu/corral/internal/config"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/state"
+	"github.com/djbu/corral/internal/store"
+	"github.com/djbu/corral/internal/supervisor"
 )
 
 // SessionsDeps is what handlers_sessions.go's routes need. daemon.go

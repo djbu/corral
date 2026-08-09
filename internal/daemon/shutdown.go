@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/supervisor"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/supervisor"
 )
 
 // shutdown runs design doc §3.6's sequence. It is called exactly once,

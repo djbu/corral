@@ -7,12 +7,12 @@ import "strconv"
 
 // Version is the corral release version, e.g. "0.1.0". Set via:
 //
-//	-ldflags "-X github.com/danielbecerra/corral/internal/version.Version=..."
+//	-ldflags "-X github.com/djbu/corral/internal/version.Version=..."
 var Version = "dev"
 
 // Commit is the git commit hash corral was built from. Set via:
 //
-//	-ldflags "-X github.com/danielbecerra/corral/internal/version.Commit=..."
+//	-ldflags "-X github.com/djbu/corral/internal/version.Commit=..."
 var Commit = "none"
 
 // APIVersion is the daemon<->client attach-protocol and API version. It is

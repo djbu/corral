@@ -13,8 +13,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/config"
-	"github.com/danielbecerra/corral/internal/daemon"
+	"github.com/djbu/corral/internal/config"
+	"github.com/djbu/corral/internal/daemon"
 )
 
 // daemonReadyTimeout is how long the launcher waits for the "OK"/"ERR: "

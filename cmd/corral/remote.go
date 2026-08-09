@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/danielbecerra/corral/internal/api/client"
-	"github.com/danielbecerra/corral/internal/config"
+	"github.com/djbu/corral/internal/api/client"
+	"github.com/djbu/corral/internal/config"
 )
 
 // clientFlags holds the one shared remote-targeting flag every

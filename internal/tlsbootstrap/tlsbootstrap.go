@@ -33,7 +33,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/danielbecerra/corral/internal/clock"
+	"github.com/djbu/corral/internal/clock"
 )
 
 // certFileName and keyFileName are the fixed basenames written under dir.

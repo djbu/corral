@@ -10,14 +10,14 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/danielbecerra/corral/internal/checkpoint"
-	"github.com/danielbecerra/corral/internal/claude/sessions"
-	"github.com/danielbecerra/corral/internal/claude/streamjson"
-	"github.com/danielbecerra/corral/internal/clock"
-	"github.com/danielbecerra/corral/internal/git"
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/store"
-	"github.com/danielbecerra/corral/internal/supervisor"
+	"github.com/djbu/corral/internal/checkpoint"
+	"github.com/djbu/corral/internal/claude/sessions"
+	"github.com/djbu/corral/internal/claude/streamjson"
+	"github.com/djbu/corral/internal/clock"
+	"github.com/djbu/corral/internal/git"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/store"
+	"github.com/djbu/corral/internal/supervisor"
 )
 
 // Registry is the subset of *supervisor.Registry the orchestrator needs to

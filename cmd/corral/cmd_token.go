@@ -8,7 +8,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/api/client"
+	"github.com/djbu/corral/internal/api/client"
 )
 
 // cmdToken implements `corral token <create|list|revoke>` (m5.md §11 step

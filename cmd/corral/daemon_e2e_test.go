@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/api/client"
+	"github.com/djbu/corral/internal/api/client"
 )
 
 // TestDaemonE2E_SetsidReExec builds the real corral binary and exercises

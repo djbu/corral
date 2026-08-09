@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/clock/clocktest"
+	"github.com/djbu/corral/internal/clock/clocktest"
 )
 
 // v1Session is one row written by writeV1Fixture, chosen to exercise every

@@ -78,7 +78,7 @@ sin conocer el código”.
 
 - usar `corral` como nombre, `djbu` como owner,
   `https://github.com/djbu/corral` como URL canónica y visibilidad privada;
-- migrar el módulo Go de `github.com/danielbecerra/corral` a
+- migrar el módulo Go desde su ruta provisional a
   `github.com/djbu/corral` en una operación mecánica verificada;
 - añadir `LICENSE`, copyright y política de contribución mínima;
 - registrar ADR de licencia, telemetría y nombre;
@@ -414,7 +414,7 @@ paridad probada o rechazo explícito basado en evidencia.
 
 La primera tanda concreta es:
 
-- [ ] 46 — decidir identidad/licencia/remote;
+- [x] 46 — identidad, licencia, remote privado y módulo canónico;
 - [ ] 47 — CI normal macOS/Linux;
 - [ ] 48 — build reproducible y checksums;
 - [ ] 49 — workflow de prerelease/release;

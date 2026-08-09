@@ -13,8 +13,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/danielbecerra/corral/internal/api/client"
-	"github.com/danielbecerra/corral/internal/config"
+	"github.com/djbu/corral/internal/api/client"
+	"github.com/djbu/corral/internal/config"
 )
 
 // terminalTaskStatuses is the set of task statuses that end waitForDAG's

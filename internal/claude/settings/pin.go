@@ -12,8 +12,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/danielbecerra/corral/internal/clock"
-	"github.com/danielbecerra/corral/internal/session"
+	"github.com/djbu/corral/internal/clock"
+	"github.com/djbu/corral/internal/session"
 )
 
 // Why this file may contain *only* documented Claude Code settings keys,

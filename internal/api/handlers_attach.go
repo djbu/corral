@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/danielbecerra/corral/internal/store"
-	"github.com/danielbecerra/corral/internal/supervisor"
+	"github.com/djbu/corral/internal/store"
+	"github.com/djbu/corral/internal/supervisor"
 )
 
 // attachDeps is what the attach upgrade route needs. It is deliberately

@@ -10,7 +10,7 @@ import (
 
 	sqlite "modernc.org/sqlite"
 
-	"github.com/danielbecerra/corral/internal/session"
+	"github.com/djbu/corral/internal/session"
 )
 
 // ErrNotFound is returned by Get* methods when no row matches.

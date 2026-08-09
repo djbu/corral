@@ -15,7 +15,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/danielbecerra/corral/internal/clock"
+	"github.com/djbu/corral/internal/clock"
 )
 
 //go:embed migrations/*.sql

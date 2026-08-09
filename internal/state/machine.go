@@ -5,7 +5,7 @@ package state
 // holds the per-session pending-tool tracker step 6b's ingest goroutine
 // owns. engine.go (untouched by this file) holds the seam from M1.
 
-import "github.com/danielbecerra/corral/internal/hookrelay"
+import "github.com/djbu/corral/internal/hookrelay"
 
 // Target is the agent-state a transition drives toward. TargetNone means
 // the event is record-only and drives no state change. These are named

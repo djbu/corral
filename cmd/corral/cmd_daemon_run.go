@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/danielbecerra/corral/internal/daemon"
+	"github.com/djbu/corral/internal/daemon"
 )
 
 // fdReadyPipe is fd 3: cmd_daemon.go's launcher passes the write end of its

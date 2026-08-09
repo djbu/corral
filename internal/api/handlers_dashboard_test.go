@@ -12,15 +12,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/api/dashboard"
-	"github.com/danielbecerra/corral/internal/clock"
-	"github.com/danielbecerra/corral/internal/clock/clocktest"
-	corralgit "github.com/danielbecerra/corral/internal/git"
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/state"
-	"github.com/danielbecerra/corral/internal/store"
-	"github.com/danielbecerra/corral/internal/supervisor"
-	"github.com/danielbecerra/corral/internal/version"
+	"github.com/djbu/corral/internal/api/dashboard"
+	"github.com/djbu/corral/internal/clock"
+	"github.com/djbu/corral/internal/clock/clocktest"
+	corralgit "github.com/djbu/corral/internal/git"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/state"
+	"github.com/djbu/corral/internal/store"
+	"github.com/djbu/corral/internal/supervisor"
+	"github.com/djbu/corral/internal/version"
 )
 
 // fakeDashboardEngine is a minimal state.Engine test double whose State

@@ -7,8 +7,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/procinfo"
-	"github.com/danielbecerra/corral/internal/session"
+	"github.com/djbu/corral/internal/procinfo"
+	"github.com/djbu/corral/internal/session"
 )
 
 // procChecker is the subset of internal/procinfo Recover needs, declared

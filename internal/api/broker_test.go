@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/session"
+	"github.com/djbu/corral/internal/session"
 )
 
 func mustRecvFrame(t *testing.T, ch <-chan Frame) Frame {

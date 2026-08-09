@@ -34,7 +34,7 @@ Un build directo muestra versión `dev`. Para incrustar la versión del tag:
 
 ```sh
 go build \
-  -ldflags "-X github.com/danielbecerra/corral/internal/version.Version=0.6.0 -X github.com/danielbecerra/corral/internal/version.Commit=$(git rev-parse --short HEAD)" \
+  -ldflags "-X github.com/djbu/corral/internal/version.Version=0.6.0 -X github.com/djbu/corral/internal/version.Commit=$(git rev-parse --short HEAD)" \
   -o "$HOME/.local/bin/corral" ./cmd/corral
 ```
 

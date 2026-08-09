@@ -23,8 +23,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/api/client"
-	"github.com/danielbecerra/corral/internal/session"
+	"github.com/djbu/corral/internal/api/client"
+	"github.com/djbu/corral/internal/session"
 )
 
 // Expectations is the shared, driver-agnostic contract for one case. Every
@@ -169,11 +169,11 @@ var contractCases = []Case{
 // so an assertion cannot ask "am I looking at the fake?".
 type Observation struct {
 	Events      []client.EventInfo
-	Hooks       []string             // hook.received event names, in table order
-	Kinds       []string             // every event kind, in table order
-	FinalState  session.AgentState   // SessionInfo.AgentState at the terminal condition
-	BlockedKind string               // SessionInfo.BlockedReason.kind, "" if not blocked
-	PermOutcome string               // RECORDED, NEVER ASSERTED (A.7)
+	Hooks       []string           // hook.received event names, in table order
+	Kinds       []string           // every event kind, in table order
+	FinalState  session.AgentState // SessionInfo.AgentState at the terminal condition
+	BlockedKind string             // SessionInfo.BlockedReason.kind, "" if not blocked
+	PermOutcome string             // RECORDED, NEVER ASSERTED (A.7)
 }
 
 func observe(evs []client.EventInfo, sess client.SessionInfo) Observation {

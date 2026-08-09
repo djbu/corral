@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/api/client"
+	"github.com/djbu/corral/internal/api/client"
 )
 
 // buildFakeClaudeE2E builds test/fakeclaude once per test into dir/fakeclaude,
@@ -22,7 +22,7 @@ import (
 func buildFakeClaudeE2E(t *testing.T, dir string) string {
 	t.Helper()
 	bin := filepath.Join(dir, "fakeclaude-e2e")
-	build := exec.Command("go", "build", "-o", bin, "github.com/danielbecerra/corral/test/fakeclaude")
+	build := exec.Command("go", "build", "-o", bin, "github.com/djbu/corral/test/fakeclaude")
 	build.Dir = mustGetwd(t)
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("go build fakeclaude: %v\n%s", err, out)

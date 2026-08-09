@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/apitoken"
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/store"
-	"github.com/danielbecerra/corral/internal/version"
+	"github.com/djbu/corral/internal/apitoken"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/store"
+	"github.com/djbu/corral/internal/version"
 )
 
 // recordedEvent is one call fakeAuthStore.AppendEvent captured.

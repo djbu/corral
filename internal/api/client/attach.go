@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/danielbecerra/corral/internal/version"
+	"github.com/djbu/corral/internal/version"
 )
 
 // Attach performs the attach-protocol HTTP upgrade (design doc §5.1) over a

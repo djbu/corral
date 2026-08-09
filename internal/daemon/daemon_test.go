@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/api/client"
-	"github.com/danielbecerra/corral/internal/config"
-	"github.com/danielbecerra/corral/internal/version"
+	"github.com/djbu/corral/internal/api/client"
+	"github.com/djbu/corral/internal/config"
+	"github.com/djbu/corral/internal/version"
 )
 
 // shortTempDir returns a freshly created directory with a short absolute

@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/clock"
-	"github.com/danielbecerra/corral/internal/clock/clocktest"
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/store"
-	"github.com/danielbecerra/corral/internal/supervisor"
+	"github.com/djbu/corral/internal/clock"
+	"github.com/djbu/corral/internal/clock/clocktest"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/store"
+	"github.com/djbu/corral/internal/supervisor"
 )
 
 func openTestStore(t *testing.T) (*store.Store, *clocktest.FakeClock) {

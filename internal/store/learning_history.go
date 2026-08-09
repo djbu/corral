@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/danielbecerra/corral/internal/session"
+	"github.com/djbu/corral/internal/session"
 )
 
 // PermissionHistory groups the immutable permission lifecycle events for one

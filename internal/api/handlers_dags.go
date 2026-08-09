@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/danielbecerra/corral/internal/orchestrator"
-	"github.com/danielbecerra/corral/internal/store"
+	"github.com/djbu/corral/internal/orchestrator"
+	"github.com/djbu/corral/internal/store"
 )
 
 // DagsDeps is everything handlers_dags.go's routes need. daemon.go

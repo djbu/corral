@@ -3,7 +3,7 @@ package state
 import (
 	"bytes"
 
-	"github.com/danielbecerra/corral/internal/hookrelay"
+	"github.com/djbu/corral/internal/hookrelay"
 )
 
 // PendingEntry is one in-flight tool call opened by PreToolUse and closed

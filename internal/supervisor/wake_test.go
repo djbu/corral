@@ -9,10 +9,10 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/danielbecerra/corral/internal/clock"
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/state"
-	"github.com/danielbecerra/corral/internal/store"
+	"github.com/djbu/corral/internal/clock"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/state"
+	"github.com/djbu/corral/internal/store"
 )
 
 // panicCheckpointer is a Checkpointer double whose every method panics —

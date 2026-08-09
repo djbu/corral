@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/clock/clocktest"
-	"github.com/danielbecerra/corral/internal/store"
-	"github.com/danielbecerra/corral/internal/version"
+	"github.com/djbu/corral/internal/clock/clocktest"
+	"github.com/djbu/corral/internal/store"
+	"github.com/djbu/corral/internal/version"
 )
 
 func newTestServer(t *testing.T, deps MetaDeps) *Server {

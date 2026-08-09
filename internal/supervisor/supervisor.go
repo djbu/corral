@@ -20,15 +20,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/claude/settings"
-	"github.com/danielbecerra/corral/internal/claude/streamjson"
-	"github.com/danielbecerra/corral/internal/clock"
-	corralgit "github.com/danielbecerra/corral/internal/git"
-	"github.com/danielbecerra/corral/internal/proto"
-	"github.com/danielbecerra/corral/internal/screen"
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/state"
-	"github.com/danielbecerra/corral/internal/store"
+	"github.com/djbu/corral/internal/claude/settings"
+	"github.com/djbu/corral/internal/claude/streamjson"
+	"github.com/djbu/corral/internal/clock"
+	corralgit "github.com/djbu/corral/internal/git"
+	"github.com/djbu/corral/internal/proto"
+	"github.com/djbu/corral/internal/screen"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/state"
+	"github.com/djbu/corral/internal/store"
 )
 
 // Checkpointer is the subset of checkpoint.Checkpointer this package needs.

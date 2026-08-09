@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/clock"
+	"github.com/djbu/corral/internal/clock"
 )
 
 // FakeClock is a deterministic clock.Clock for tests. All methods are safe
