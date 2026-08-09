@@ -373,7 +373,8 @@ func (d *Daemon) startup(ctx context.Context) error {
 		}
 	}
 	d.orchestrator = orchestrator.New(registry, d.store, d.clk, d.log, orchestrator.Config{
-		StateDir: d.cfg.StateDir,
+		StateDir:   d.cfg.StateDir,
+		ClaudeHome: claudeHome,
 	}, orchClaudeBin)
 	d.orchestrator.Start()
 

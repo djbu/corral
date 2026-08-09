@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/danielbecerra/corral/internal/claude/sessions"
 	"github.com/danielbecerra/corral/internal/clock"
 	"github.com/danielbecerra/corral/internal/clock/clocktest"
 	"github.com/danielbecerra/corral/internal/session"
@@ -516,6 +517,169 @@ func TestOrchestrator_Reconciliation_OrphanedRunningTaskRespawned(t *testing.T) 
 	}
 	if got.SessionID == "stale-session-id" {
 		t.Fatalf("task still points at the stale orphaned session_id after respawn")
+	}
+}
+
+// writeTranscript writes a claude-style JSONL transcript at path,
+// creating its parent directory (claude's <claudeHome>/projects/<slug>/
+// layout) first.
+func writeTranscript(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%s): %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile(%s): %v", path, err)
+	}
+}
+
+// TestOrchestrator_OrphanCompletedTurn_HarvestsNoRespawn is design doc §9's
+// headroom case: a daemon restart orphaned a "running" task whose child
+// had actually already finished its turn before corral lost the pipe.
+// classifyOrphan's transcript check must find the completed end_turn and
+// harvest the task as succeeded WITHOUT spawning a second child — the
+// no-double-run guarantee that makes harvest safe at all.
+func TestOrchestrator_OrphanCompletedTurn_HarvestsNoRespawn(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := clocktest.NewFake(start)
+	st := newTestStore(t, clk)
+	reg := &fakeRegistry{}
+	repo := t.TempDir()
+	claudeHome := t.TempDir()
+	ctx := context.Background()
+
+	tsk := mkTask(t, st, "dag-harvest", "task-h", "h", repo, 3)
+
+	const claudeSessionID = "sess-1"
+	if _, err := st.CreateSession(ctx, store.CreateSessionParams{
+		ID:              "sess-1",
+		Name:            "h-a1",
+		Mode:            session.ModeHeadless,
+		Cwd:             repo,
+		ClaudeBin:       "/usr/bin/true",
+		ClaudeSessionID: claudeSessionID,
+		DesiredState:    session.DesiredRunning,
+		Status:          session.StatusRunning,
+	}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	// Transcript ends at a completed assistant turn — the child's work
+	// landed before corral lost the pipe.
+	writeTranscript(t, sessions.TranscriptPath(claudeHome, repo, claudeSessionID),
+		`{"type":"user","isSidechain":false,"message":{"role":"user","content":"do the thing"}}`+"\n"+
+			`{"type":"assistant","isSidechain":false,"message":{"role":"assistant","content":"done","stop_reason":"end_turn"}}`+"\n")
+
+	if _, err := st.UpdateTask(ctx, tsk.ID, func(task *store.Task) {
+		task.Status = store.TaskRunning
+		task.Attempts = 1
+		task.SessionID = "sess-1"
+	}); err != nil {
+		t.Fatalf("UpdateTask: %v", err)
+	}
+
+	orch := New(reg, st, clk, nil, Config{
+		TaskTimeout:   time.Hour,
+		MaxConcurrent: 4,
+		StateDir:      t.TempDir(),
+		ClaudeHome:    claudeHome,
+	}, "/usr/bin/true")
+
+	orch.tickOnce(ctx)
+
+	// Advance well past any retry backoff a WRONG (respawn) verdict would
+	// have set via applyOutcome(false) -> nextAttemptAt = now+2s, then tick
+	// again. Without this, spawnCount()==0 would also hold on the buggy
+	// respawn path (backoff not yet elapsed) and the assertion below would
+	// prove nothing.
+	clk.Advance(5 * time.Second)
+	orch.tickOnce(ctx) // harvest must stay terminal, never re-launch
+
+	got, err := st.GetTask(ctx, tsk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != store.TaskSucceeded {
+		t.Fatalf("status after harvest = %s, want succeeded", got.Status)
+	}
+	if spawns := reg.spawnCount(); spawns != 0 {
+		t.Fatalf("spawn count after harvest = %d, want 0 (no double-run)", spawns)
+	}
+}
+
+// TestOrchestrator_OrphanMidTurn_Respawns is design doc §9's other half:
+// a daemon restart orphaned a "running" task whose child crashed mid-turn
+// (the last main-thread record is not a completed assistant end_turn).
+// classifyOrphan must err toward respawn, and the task must go through
+// the ordinary retry path (fresh session, fresh worktree) rather than
+// being harvested.
+func TestOrchestrator_OrphanMidTurn_Respawns(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := clocktest.NewFake(start)
+	st := newTestStore(t, clk)
+	reg := &fakeRegistry{}
+	repo := t.TempDir()
+	claudeHome := t.TempDir()
+	ctx := context.Background()
+
+	tsk := mkTask(t, st, "dag-midcrash", "task-m", "m", repo, 3)
+
+	const claudeSessionID = "sess-1"
+	if _, err := st.CreateSession(ctx, store.CreateSessionParams{
+		ID:              "sess-1",
+		Name:            "m-a1",
+		Mode:            session.ModeHeadless,
+		Cwd:             repo,
+		ClaudeBin:       "/usr/bin/true",
+		ClaudeSessionID: claudeSessionID,
+		DesiredState:    session.DesiredRunning,
+		Status:          session.StatusRunning,
+	}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	// Transcript's last main-thread record is a user record (mid-turn
+	// crash: the assistant never got to finish, let alone end_turn).
+	writeTranscript(t, sessions.TranscriptPath(claudeHome, repo, claudeSessionID),
+		`{"type":"user","isSidechain":false,"message":{"role":"user","content":"do the thing"}}`+"\n")
+
+	if _, err := st.UpdateTask(ctx, tsk.ID, func(task *store.Task) {
+		task.Status = store.TaskRunning
+		task.Attempts = 1
+		task.SessionID = "sess-1"
+	}); err != nil {
+		t.Fatalf("UpdateTask: %v", err)
+	}
+
+	orch := New(reg, st, clk, nil, Config{
+		TaskTimeout:   time.Hour,
+		MaxConcurrent: 4,
+		StateDir:      t.TempDir(),
+		ClaudeHome:    claudeHome,
+	}, "/usr/bin/true")
+
+	orch.tickOnce(ctx) // reconciliation classifies the orphan and respawns (=> failure => retry)
+
+	got, err := st.GetTask(ctx, tsk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != store.TaskPending {
+		t.Fatalf("status after orphan reconciliation = %s, want pending", got.Status)
+	}
+
+	clk.Advance(2 * time.Second) // 1st retry backoff
+	orch.tickOnce(ctx)
+
+	got, err = st.GetTask(ctx, tsk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status == store.TaskSucceeded {
+		t.Fatalf("status after respawn = succeeded, want NOT succeeded (mid-turn crash must not be harvested)")
+	}
+	if spawns := reg.spawnCount(); spawns < 1 {
+		t.Fatalf("spawn count after backoff elapses = %d, want >= 1 (fresh respawn)", spawns)
 	}
 }
 

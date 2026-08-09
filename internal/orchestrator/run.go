@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/danielbecerra/corral/internal/checkpoint"
+	"github.com/danielbecerra/corral/internal/claude/sessions"
 	"github.com/danielbecerra/corral/internal/claude/streamjson"
 	"github.com/danielbecerra/corral/internal/clock"
 	"github.com/danielbecerra/corral/internal/git"
@@ -66,6 +68,11 @@ type Config struct {
 	// StateDir is the daemon's state directory (§6.2): worktrees are
 	// created under <StateDir>/worktrees/<dagID>/<name>-a<N>.
 	StateDir string
+	// ClaudeHome is <claudeHome> for resolving an orphan's transcript path
+	// during recovery (§9). Injected at daemon construction, not TOML-exposed
+	// (config-trust-boundary posture, §8.2). "" disables the harvest check —
+	// classifyOrphan then always respawns (err-toward-respawn).
+	ClaudeHome string
 }
 
 func (c Config) withDefaults() Config {
@@ -205,13 +212,46 @@ const (
 
 // classifyOrphan decides what to do with a task the store says is
 // "running" but that this process has no in-flight record for (i.e. it was
-// left running by a daemon restart, design doc §9). Step 21 always
-// respawns: step 23 replaces ONLY this function's body with a
-// transcript-completeness check that can instead choose orphanHarvest
-// (resume the previous attempt's claude session with --resume rather than
-// starting a fresh one). Kept as its own seam — never inlined into
-// reconcileOrphans — so that swap is the only thing step 23 has to touch.
-func (o *Orchestrator) classifyOrphan(task *store.Task) orphanAction {
+// left running by a daemon restart, design doc §9).
+//
+// It inspects the orphaned attempt's transcript to see whether the work
+// actually landed before corral lost the pipe: if the last main-thread
+// record is a completed assistant turn (stop_reason=="end_turn"), the
+// child finished its work even though corral never observed the `result`
+// line, so the task is harvested as succeeded rather than re-run (no
+// double-run). Otherwise (mid-turn crash) it respawns a fresh attempt —
+// fresh session, fresh worktree, never --resume (§9: a resumed transcript
+// would reference edits that don't exist on the fresh worktree's disk).
+//
+// Err toward orphanRespawn on EVERY uncertainty (§9 — load-bearing,
+// nil-trap severity: a wrong harvest marks unfinished work succeeded and
+// releases dependents on a lie, whereas a wrong respawn merely re-runs
+// completed work). orphanHarvest requires a positive, fully-resolved
+// completed-end_turn verdict and nothing less.
+func (o *Orchestrator) classifyOrphan(ctx context.Context, task *store.Task) orphanAction {
+	if o.cfg.ClaudeHome == "" {
+		return orphanRespawn
+	}
+
+	sess, err := o.store.GetSession(ctx, task.SessionID)
+	if err != nil {
+		o.log.Debug("orchestrator: reconciliation: loading orphan's session for transcript check, defaulting to respawn", "task_id", task.ID, "session_id", task.SessionID, "err", err)
+		return orphanRespawn
+	}
+	if sess == nil || sess.ClaudeSessionID == "" {
+		o.log.Debug("orchestrator: reconciliation: orphan's session missing claude_session_id, defaulting to respawn", "task_id", task.ID, "session_id", task.SessionID)
+		return orphanRespawn
+	}
+
+	path := sessions.TranscriptPath(o.cfg.ClaudeHome, sess.Cwd, sess.ClaudeSessionID)
+	done, err := checkpoint.LastRecordIsCompletedTurn(path)
+	if err != nil {
+		o.log.Info("orchestrator: reconciliation: reading orphan's transcript, defaulting to respawn", "task_id", task.ID, "path", path, "err", err)
+		return orphanRespawn
+	}
+	if done {
+		return orphanHarvest
+	}
 	return orphanRespawn
 }
 
@@ -242,7 +282,7 @@ func (o *Orchestrator) reconcileOrphans(ctx context.Context) {
 
 	verdicts := make([]orphanAction, len(orphans))
 	for i, t := range orphans {
-		verdicts[i] = o.classifyOrphan(t)
+		verdicts[i] = o.classifyOrphan(ctx, t)
 	}
 
 	for i, t := range orphans {
@@ -254,7 +294,11 @@ func (o *Orchestrator) reconcileOrphans(ctx context.Context) {
 				o.log.Error("orchestrator: reconciliation: applying orphan outcome", "task_id", t.ID, "err", err)
 			}
 		case orphanHarvest:
-			// Not reachable in step 21; reserved for step 23.
+			o.log.Info("orchestrator: reconciliation: orphaned attempt completed its turn, harvesting",
+				"task_id", t.ID, "session_id", t.SessionID)
+			if err := o.applyOutcome(ctx, t, true, false); err != nil {
+				o.log.Error("orchestrator: reconciliation: applying orphan harvest outcome", "task_id", t.ID, "err", err)
+			}
 		}
 	}
 }
