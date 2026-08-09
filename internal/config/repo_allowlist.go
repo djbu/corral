@@ -202,5 +202,26 @@ func filterRepoLayer(file string, l *layer) (*layer, []Rejection) {
 		reject("client.cacert")
 	}
 
+	// [learn] controls evidence thresholds and adoption policy. A cloned
+	// repository must not be able to weaken those operator-owned gates.
+	if l.Learn.Window != nil {
+		reject("learn.window")
+	}
+	if l.Learn.MinApprovals != nil {
+		reject("learn.min_approvals")
+	}
+	if l.Learn.TTL != nil {
+		reject("learn.ttl")
+	}
+	if l.Learn.MinSessions != nil {
+		reject("learn.min_sessions")
+	}
+	if l.Learn.MinTerminalTasks != nil {
+		reject("learn.min_terminal_tasks")
+	}
+	if l.Learn.CostRegressionTolerance != nil {
+		reject("learn.cost_regression_tolerance")
+	}
+
 	return out, rej
 }

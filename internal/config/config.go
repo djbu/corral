@@ -131,6 +131,17 @@ type Client struct {
 	CACert string
 }
 
+// Learn controls M6's verified learning loop. It is operator policy, so it
+// is resolved only from defaults, the user config, and environment variables.
+type Learn struct {
+	Window                  time.Duration
+	MinApprovals            int
+	TTL                     time.Duration
+	MinSessions             int
+	MinTerminalTasks        int
+	CostRegressionTolerance float64
+}
+
 // Rejection records one key found in a repo .corral.toml that was not
 // applied because the key is not on the repo-file allowlist (§8.2). File is
 // the absolute path of the repo file; Key is "section.key".

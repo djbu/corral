@@ -34,6 +34,10 @@ func Effective(cwd string) (EffectiveResult, error) {
 	if err != nil {
 		return EffectiveResult{}, err
 	}
+	learn, learnSources, err := LoadLearn()
+	if err != nil {
+		return EffectiveResult{}, err
+	}
 
 	values := map[string]string{
 		"daemon.socket":                 daemon.Socket,
@@ -68,11 +72,17 @@ func Effective(cwd string) (EffectiveResult, error) {
 		// client.token is deliberately NOT included here (design doc m5.md
 		// §7, rule 2): it is a secret, and this map is what both `corral
 		// config` and GET /v1/config render verbatim.
-		"client.host":   clientCfg.Host,
-		"client.cacert": clientCfg.CACert,
+		"client.host":                     clientCfg.Host,
+		"client.cacert":                   clientCfg.CACert,
+		"learn.window":                    learn.Window.String(),
+		"learn.min_approvals":             fmt.Sprintf("%d", learn.MinApprovals),
+		"learn.ttl":                       learn.TTL.String(),
+		"learn.min_sessions":              fmt.Sprintf("%d", learn.MinSessions),
+		"learn.min_terminal_tasks":        fmt.Sprintf("%d", learn.MinTerminalTasks),
+		"learn.cost_regression_tolerance": fmt.Sprintf("%g", learn.CostRegressionTolerance),
 	}
 
-	sources := make(map[string]string, len(daemonSources)+len(sessionSources)+len(stateSources)+len(clientSources))
+	sources := make(map[string]string, len(daemonSources)+len(sessionSources)+len(stateSources)+len(clientSources)+len(learnSources))
 	for k, v := range daemonSources {
 		sources[k] = v
 	}
@@ -90,6 +100,9 @@ func Effective(cwd string) (EffectiveResult, error) {
 		if k == "client.token" {
 			continue
 		}
+		sources[k] = v
+	}
+	for k, v := range learnSources {
 		sources[k] = v
 	}
 

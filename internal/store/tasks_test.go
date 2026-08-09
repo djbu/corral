@@ -27,8 +27,8 @@ func TestMigration0004_AppliesCleanly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	if v != 5 {
-		t.Fatalf("SchemaVersion = %d, want 5 (0004_tasks.sql and later applied)", v)
+	if v != 6 {
+		t.Fatalf("SchemaVersion = %d, want 6 (0004_tasks.sql and later applied)", v)
 	}
 
 	for _, table := range []string{"tasks", "task_deps", "dag_budgets"} {

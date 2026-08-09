@@ -13,6 +13,7 @@ type layer struct {
 	State   stateLayer   `toml:"state"`
 	Notify  notifyLayer  `toml:"notify"`
 	Client  clientLayer  `toml:"client"`
+	Learn   learnLayer   `toml:"learn"`
 }
 
 type daemonLayer struct {
@@ -117,6 +118,15 @@ type clientLayer struct {
 	CACert *string `toml:"cacert"`
 }
 
+type learnLayer struct {
+	Window                  *string  `toml:"window"`
+	MinApprovals            *int     `toml:"min_approvals"`
+	TTL                     *string  `toml:"ttl"`
+	MinSessions             *int     `toml:"min_sessions"`
+	MinTerminalTasks        *int     `toml:"min_terminal_tasks"`
+	CostRegressionTolerance *float64 `toml:"cost_regression_tolerance"`
+}
+
 // newLayer returns an all-nil layer, ready to be merged into.
 func newLayer() *layer {
 	return &layer{}
@@ -125,6 +135,7 @@ func newLayer() *layer {
 func strPtr(s string) *string      { return &s }
 func intPtr(n int) *int            { return &n }
 func boolPtr(b bool) *bool         { return &b }
+func floatPtr(n float64) *float64  { return &n }
 func strsPtr(s []string) *[]string { return &s }
 
 // sourceFunc returns the source label to record for a given "section.key"
@@ -397,5 +408,32 @@ func mergeClient(dst, src *clientLayer, srcSource sourceFunc, sources map[string
 	if src.CACert != nil {
 		dst.CACert = src.CACert
 		sources["client.cacert"] = srcSource("client.cacert")
+	}
+}
+
+func mergeLearn(dst, src *learnLayer, srcSource sourceFunc, sources map[string]string) {
+	if src.Window != nil {
+		dst.Window = src.Window
+		sources["learn.window"] = srcSource("learn.window")
+	}
+	if src.MinApprovals != nil {
+		dst.MinApprovals = src.MinApprovals
+		sources["learn.min_approvals"] = srcSource("learn.min_approvals")
+	}
+	if src.TTL != nil {
+		dst.TTL = src.TTL
+		sources["learn.ttl"] = srcSource("learn.ttl")
+	}
+	if src.MinSessions != nil {
+		dst.MinSessions = src.MinSessions
+		sources["learn.min_sessions"] = srcSource("learn.min_sessions")
+	}
+	if src.MinTerminalTasks != nil {
+		dst.MinTerminalTasks = src.MinTerminalTasks
+		sources["learn.min_terminal_tasks"] = srcSource("learn.min_terminal_tasks")
+	}
+	if src.CostRegressionTolerance != nil {
+		dst.CostRegressionTolerance = src.CostRegressionTolerance
+		sources["learn.cost_regression_tolerance"] = srcSource("learn.cost_regression_tolerance")
 	}
 }

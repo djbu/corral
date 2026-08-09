@@ -16,8 +16,8 @@ func TestMigration0005_AppliesCleanly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	if v != 5 {
-		t.Fatalf("SchemaVersion = %d, want 5 (0005_api_tokens.sql applied)", v)
+	if v != 6 {
+		t.Fatalf("SchemaVersion = %d, want 6 (0005_api_tokens.sql and later applied)", v)
 	}
 
 	var n int

@@ -104,6 +104,17 @@ func defaultsClientLayer() *clientLayer {
 	}
 }
 
+func defaultsLearnLayer() *learnLayer {
+	return &learnLayer{
+		Window:                  strPtr("336h"),
+		MinApprovals:            intPtr(3),
+		TTL:                     strPtr("2160h"),
+		MinSessions:             intPtr(5),
+		MinTerminalTasks:        intPtr(3),
+		CostRegressionTolerance: floatPtr(0.10),
+	}
+}
+
 // userConfigPath returns ~/.corral/config.toml.
 func userConfigPath() (string, error) {
 	home, err := os.UserHomeDir()
@@ -531,6 +542,76 @@ func LoadClient() (Client, map[string]string, error) {
 	return cl, sources, nil
 }
 
+// LoadLearn resolves [learn]-scope policy: defaults -> user file -> env.
+// Learning policy is never read from a repository file or API request.
+func LoadLearn() (Learn, map[string]string, error) {
+	merged := newLayer()
+	sources := make(map[string]string)
+	mergeLearn(&merged.Learn, defaultsLearnLayer(), uniformSource(sourceDefault), sources)
+
+	userPath, err := userConfigPath()
+	if err != nil {
+		return Learn{}, nil, err
+	}
+	userLayer, err := decodeTOMLLayerIfExists(userPath)
+	if err != nil {
+		return Learn{}, nil, err
+	}
+	if userLayer != nil {
+		mergeLearn(&merged.Learn, &userLayer.Learn, uniformSource(userPath), sources)
+	}
+
+	envLayer, envSources, err := layerFromEnv(osLookup)
+	if err != nil {
+		return Learn{}, nil, err
+	}
+	mergeLearn(&merged.Learn, &envLayer.Learn, mapSource(envSources), sources)
+
+	learn, err := resolveLearn(&merged.Learn)
+	if err != nil {
+		return Learn{}, nil, err
+	}
+	return learn, sources, nil
+}
+
+func resolveLearn(l *learnLayer) (Learn, error) {
+	window, err := time.ParseDuration(derefStr(l.Window))
+	if err != nil {
+		return Learn{}, fmt.Errorf("config: learn.window=%q: %w", derefStr(l.Window), err)
+	}
+	ttl, err := time.ParseDuration(derefStr(l.TTL))
+	if err != nil {
+		return Learn{}, fmt.Errorf("config: learn.ttl=%q: %w", derefStr(l.TTL), err)
+	}
+	learn := Learn{
+		Window:                  window,
+		MinApprovals:            derefInt(l.MinApprovals),
+		TTL:                     ttl,
+		MinSessions:             derefInt(l.MinSessions),
+		MinTerminalTasks:        derefInt(l.MinTerminalTasks),
+		CostRegressionTolerance: derefFloat(l.CostRegressionTolerance),
+	}
+	if learn.Window <= 0 {
+		return Learn{}, fmt.Errorf("config: learn.window must be positive")
+	}
+	if learn.TTL <= 0 {
+		return Learn{}, fmt.Errorf("config: learn.ttl must be positive")
+	}
+	if learn.MinApprovals <= 0 {
+		return Learn{}, fmt.Errorf("config: learn.min_approvals must be positive")
+	}
+	if learn.MinSessions <= 0 {
+		return Learn{}, fmt.Errorf("config: learn.min_sessions must be positive")
+	}
+	if learn.MinTerminalTasks <= 0 {
+		return Learn{}, fmt.Errorf("config: learn.min_terminal_tasks must be positive")
+	}
+	if learn.CostRegressionTolerance < 0 {
+		return Learn{}, fmt.Errorf("config: learn.cost_regression_tolerance must be non-negative")
+	}
+	return learn, nil
+}
+
 func resolveAttach(l *attachLayer) (Attach, error) {
 	interval, err := time.ParseDuration(derefStr(l.PingInterval))
 	if err != nil {
@@ -565,6 +646,13 @@ func derefInt(p *int) int {
 func derefBool(p *bool) bool {
 	if p == nil {
 		return false
+	}
+	return *p
+}
+
+func derefFloat(p *float64) float64 {
+	if p == nil {
+		return 0
 	}
 	return *p
 }

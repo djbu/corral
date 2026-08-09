@@ -245,6 +245,47 @@ var envSpecs = []envSpec{
 		l.Client.CACert = strPtr(v)
 		return nil
 	}},
+
+	{"learn.window", "CORRAL_LEARN_WINDOW", func(l *layer, v string) error {
+		l.Learn.Window = strPtr(v)
+		return nil
+	}},
+	{"learn.min_approvals", "CORRAL_LEARN_MIN_APPROVALS", func(l *layer, v string) error {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("config: CORRAL_LEARN_MIN_APPROVALS=%q: %w", v, err)
+		}
+		l.Learn.MinApprovals = intPtr(n)
+		return nil
+	}},
+	{"learn.ttl", "CORRAL_LEARN_TTL", func(l *layer, v string) error {
+		l.Learn.TTL = strPtr(v)
+		return nil
+	}},
+	{"learn.min_sessions", "CORRAL_LEARN_MIN_SESSIONS", func(l *layer, v string) error {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("config: CORRAL_LEARN_MIN_SESSIONS=%q: %w", v, err)
+		}
+		l.Learn.MinSessions = intPtr(n)
+		return nil
+	}},
+	{"learn.min_terminal_tasks", "CORRAL_LEARN_MIN_TERMINAL_TASKS", func(l *layer, v string) error {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("config: CORRAL_LEARN_MIN_TERMINAL_TASKS=%q: %w", v, err)
+		}
+		l.Learn.MinTerminalTasks = intPtr(n)
+		return nil
+	}},
+	{"learn.cost_regression_tolerance", "CORRAL_LEARN_COST_REGRESSION_TOLERANCE", func(l *layer, v string) error {
+		n, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("config: CORRAL_LEARN_COST_REGRESSION_TOLERANCE=%q: %w", v, err)
+		}
+		l.Learn.CostRegressionTolerance = floatPtr(n)
+		return nil
+	}},
 }
 
 func splitCommaList(v string) []string {
