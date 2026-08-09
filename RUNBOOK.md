@@ -174,7 +174,7 @@ Prove the two risky primitives before building anything real:
 
 **Exit criteria:** manage a session on a home server from a phone browser.
 
-### M6 — Learning loop (working name: hermes) — in progress
+### M6 — Learning loop (working name: hermes) — implementation complete; real 14-day dogfood gate pending
 
 Thesis: every supervised session is an experiment; the runtime that observes all of them can compound their lessons into durable per-repo artifacts. Generating skills with an LLM is table stakes (`headroom learn`, skill-creator already exist) — the differentiator is **closing the loop with verification and measured adoption**, which only the runtime owner can do: corral sees full trajectories (hooks + stream-json + task outcomes + cost + corrections), can spawn cheap headless sessions to verify candidates, and can measure effect after adoption.
 
@@ -197,6 +197,12 @@ Attack order (hardest ground truth first):
 Explicitly out of scope: fine-tuning, unsupervised self-modification, cross-user telemetry. Team-shared learnings ("fleet memory sync") is the natural paid tier; single-user OSS stays complete.
 
 **Exit criteria:** on a dogfooded repo over 2 weeks, measurable reduction in blocked-events and cost versus the prior 2 weeks, with zero unapproved repo writes.
+
+Implementation steps 36–45 and deterministic/fake-clock E2E are complete. The
+release remains deliberately untagged until the real-time evidence recorded in
+`docs/dogfood/m6.md` covers a full post-adoption 14-day window and satisfies
+the denominators above. Backdated fixtures prove the window math but never
+substitute for this gate.
 
 ### Post-M6 backlog (unordered)
 Windows support, multi-user/team mode (shared fleet learnings — the paid tier), Slack/Telegram notifier, session templates, Agent-SDK-based runner as alternative to CLI subprocess, claude version pinning per repo (`corral doctor` flags drift).
