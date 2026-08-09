@@ -68,6 +68,20 @@ func (r *Registry) recoverOne(ctx context.Context, pc procChecker, grace time.Du
 		r.appendEvent(ctx, rec.ID, session.EventSessionOrphanReaped, map[string]any{"pid": rec.PID, "pgid": rec.PGID})
 	}
 
+	if rec.Mode == session.ModeHeadless {
+		// design doc §5.2/§9 (decided): a headless task session's owner is
+		// the orchestrator loop (§8.2), which does not survive a daemon
+		// restart. A blind --resume relaunch here would produce a
+		// `--resume <id> -p ""` child (Spec.Prompt is never persisted) with
+		// no timeout authority and a tasks row that never advances. Recover
+		// owns only interactive TUIs; the orchestrator rebuilds its own
+		// in-flight set from `tasks WHERE status='running'` on daemon start
+		// and re-sends with the real task.prompt (§9) — it, not Recover,
+		// decides this row's fate.
+		r.log.Info("supervisor: recovery: skipping headless session (owned by orchestrator)", "session_id", rec.ID)
+		return
+	}
+
 	ok, why := r.checkpointer.Resumable(*rec)
 	if !ok {
 		if _, err := r.store.UpdateSession(ctx, rec.ID, func(sess *session.Session) {

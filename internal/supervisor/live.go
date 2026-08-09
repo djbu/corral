@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/danielbecerra/corral/internal/claude/streamjson"
 	"github.com/danielbecerra/corral/internal/screen"
 )
 
@@ -43,4 +44,20 @@ type LiveSession struct {
 	// a hook payload as genuinely coming from this session's own claude
 	// child (via the relay).
 	Secret string
+
+	// Headless is true for a session spawned via SpawnHeadless (design doc
+	// §5.2): a one-shot `claude -p --output-format stream-json` invocation
+	// with no PTY. When true, both PTYMaster and Screen above are nil, and
+	// WriteInput/Attach on this session return an error rather than
+	// dereferencing them.
+	Headless bool
+
+	// Result is the decoded body of the terminal stream-json `result` line
+	// (design doc §5.2/§8.1), stashed here the instant the headless reader
+	// parses it. nil until then, and forever nil for an interactive session
+	// or a headless one that never produced a result line (e.g. killed
+	// mid-turn — §8.1 rule 3, "no result captured"). Guarded by
+	// Registry.mu, same discipline as Attachment above: readers/writers
+	// must hold it.
+	Result *streamjson.Result
 }

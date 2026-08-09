@@ -5,6 +5,8 @@
 package supervisor
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,12 +14,14 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/danielbecerra/corral/internal/claude/settings"
+	"github.com/danielbecerra/corral/internal/claude/streamjson"
 	"github.com/danielbecerra/corral/internal/clock"
 	"github.com/danielbecerra/corral/internal/proto"
 	"github.com/danielbecerra/corral/internal/screen"
@@ -287,6 +291,14 @@ func (r *Registry) Spawn(ctx context.Context, spec session.Spec) (*session.Sessi
 	}
 	spec.Env = BuildEnv(spec, r.cfg.EnvSnapshot, r.cfg.EnvPassthrough, r.cfg.Term, r.cfg.SockPath, secret)
 
+	// Shared prologue ends here (secret, settings.Pin, BuildEnv all ran
+	// against spec above — headless keeps settings.Pin deliberately, per
+	// design doc §8.2, so the hooks relay callback still works). Dispatch
+	// on Mode for the rest: ModeHeadless has no PTY/Screen at all (§5.2).
+	if spec.Mode == session.ModeHeadless {
+		return r.spawnHeadless(ctx, spec, pinned, secret)
+	}
+
 	scr := screen.New(int(rows), int(cols), r.log)
 	if ol, err := screen.OpenOutputLog(pinned.OutputLogPath, r.cfg.OutputLogMaxBytes, r.log); err != nil {
 		r.log.Warn("supervisor: opening output log", "session_id", spec.ID, "err", err)
@@ -326,7 +338,7 @@ func (r *Registry) Spawn(ctx context.Context, spec session.Spec) (*session.Sessi
 		sess.Cols = int(info.Cols)
 		sess.Status = session.StatusRunning
 		sess.StartedAtMs = &startedAtMs
-		sess.Argv = BuildArgv(spec)
+		sess.Argv = BuildArgv(spec, true)
 		sess.EnvKeys = envKeyNames(spec.Env)
 	})
 	if err != nil {
@@ -349,6 +361,92 @@ func (r *Registry) Spawn(ctx context.Context, spec session.Spec) (*session.Sessi
 
 	return updated, nil
 }
+
+// spawnHeadless is Spawn's fork for spec.Mode == session.ModeHeadless
+// (design doc §5.2), called only from Spawn after the prologue both paths
+// share (secret generation, settings.Pin, BuildEnv) has already run against
+// spec. There is no PTY, no Screen, and no output.log — stdout/stderr are
+// captured off pipes and parsed as stream-json rather than fed to a
+// terminal emulator; the tee targets are stream.jsonl and stderr.log inside
+// this session's already-pinned directory (pinned.Dir).
+func (r *Registry) spawnHeadless(ctx context.Context, spec session.Spec, pinned *settings.Pinned, secret string) (*session.Session, error) {
+	stdout, stderr, cmd, info, err := SpawnHeadless(spec)
+	if err != nil {
+		if _, uerr := r.store.UpdateSession(ctx, spec.ID, func(sess *session.Session) {
+			sess.Status = session.StatusFailed
+		}); uerr != nil {
+			r.log.Error("supervisor: recording headless spawn failure", "session_id", spec.ID, "err", uerr)
+		}
+		r.appendEvent(ctx, spec.ID, session.EventSessionSpawnFailed, map[string]any{"error": err.Error()})
+		return nil, fmt.Errorf("supervisor: spawning headless %s: %w", spec.ID, err)
+	}
+
+	ls := &LiveSession{
+		SessionID: spec.ID,
+		PGID:      info.PGID,
+		Cmd:       cmd,
+		Secret:    secret,
+		Headless:  true,
+	}
+	r.register(ls, spec.Name)
+
+	streamLog := r.openHeadlessLogOrDiscard(filepath.Join(pinned.Dir, "stream.jsonl"), spec.ID)
+	stderrLog := r.openHeadlessLogOrDiscard(filepath.Join(pinned.Dir, "stderr.log"), spec.ID)
+
+	startedAtMs := r.clock.Now().UnixMilli()
+	updated, err := r.store.UpdateSession(ctx, spec.ID, func(sess *session.Session) {
+		sess.ClaudeSessionID = spec.ID
+		sess.PID = info.PID
+		sess.PGID = info.PGID
+		sess.ProcStartNs = info.ProcStartNs
+		sess.Rows = int(info.Rows)
+		sess.Cols = int(info.Cols)
+		sess.Status = session.StatusRunning
+		sess.StartedAtMs = &startedAtMs
+		sess.Argv = BuildArgv(spec, true)
+		sess.EnvKeys = envKeyNames(spec.Env)
+	})
+	if err != nil {
+		// Same rationale as the interactive persist-failure path above: a
+		// live, untracked child is worse than killing it and surfacing the
+		// error.
+		r.deregister(spec.ID, spec.Name)
+		_ = syscallKillGroupBestEffort(info.PGID)
+		_ = stdout.Close()
+		_ = stderr.Close()
+		_ = streamLog.Close()
+		_ = stderrLog.Close()
+		return nil, fmt.Errorf("supervisor: persisting headless spawn of %s: %w", spec.ID, err)
+	}
+
+	r.appendEvent(ctx, spec.ID, session.EventSessionSpawned, map[string]any{"pid": info.PID, "pgid": info.PGID})
+	if err := r.engine.OnLifecycle(ctx, spec.ID, session.EventSessionSpawned, nil); err != nil {
+		r.log.Warn("supervisor: engine.OnLifecycle spawned", "session_id", spec.ID, "err", err)
+	}
+
+	r.runHeadlessGoroutines(ls, stdout, stderr, streamLog, stderrLog, spec.ID, spec.Name)
+
+	return updated, nil
+}
+
+// openHeadlessLogOrDiscard opens a capped log at path (screen.OutputLog is
+// a generic size-capped io.Writer, not PTY-specific — reused here exactly
+// as the interactive path reuses it for output.log), falling back to a
+// no-op writer on failure rather than failing the whole spawn: losing a
+// diagnostic tee is not worth tearing down an otherwise-healthy child for.
+func (r *Registry) openHeadlessLogOrDiscard(path, sessionID string) io.WriteCloser {
+	ol, err := screen.OpenOutputLog(path, r.cfg.OutputLogMaxBytes, r.log)
+	if err != nil {
+		r.log.Warn("supervisor: opening headless log; continuing without it", "session_id", sessionID, "path", path, "err", err)
+		return nopWriteCloser{}
+	}
+	return ol
+}
+
+type nopWriteCloser struct{}
+
+func (nopWriteCloser) Write(p []byte) (int, error) { return len(p), nil }
+func (nopWriteCloser) Close() error                { return nil }
 
 // syscallKillGroupBestEffort is used only on the persist-after-spawn failure
 // path above, which is expected to be vanishingly rare (a store write
@@ -432,6 +530,145 @@ func (r *Registry) runGoroutines(ls *LiveSession, id, name string) {
 		r.deregister(id, name)
 		r.reap(ls, id)
 	}()
+}
+
+// runHeadlessGoroutines starts the I/O and reaper goroutines a headless
+// session needs (design doc §5.2): a stdout reader that parses stream-json
+// and tees it to streamLog, a stderr drainer that tees to stderrLog, and a
+// reaper. The ordering here is the deliberate inverse of runGoroutines'
+// PTY-path reaper: a sync.WaitGroup holds cmd.Wait() until BOTH readers
+// have reached EOF, because cmd.Wait() closes the StdoutPipe/StderrPipe fds
+// the instant it returns — calling it earlier races whichever reader is
+// still in flight and can silently drop the tail of the stream, including
+// the terminal `result` line. (The PTY path does the opposite — Wait()
+// first, then closing the master unblocks the reader — because closing a
+// PTY master is what makes the reader's Read return; do not copy that
+// order here.)
+func (r *Registry) runHeadlessGoroutines(ls *LiveSession, stdout, stderr io.ReadCloser, streamLog, stderrLog io.WriteCloser, id, name string) {
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		defer streamLog.Close()
+		r.readHeadlessStdout(ls, stdout, streamLog, id)
+	}()
+
+	go func() {
+		defer wg.Done()
+		defer stderrLog.Close()
+		// Drain to EOF unconditionally, even though stderrLog silently caps
+		// (screen.OutputLog.Write never returns a non-nil error) — a full,
+		// unread stderr pipe would otherwise block the child (§5.2).
+		_, _ = io.Copy(stderrLog, stderr)
+	}()
+
+	go func() {
+		wg.Wait()
+		_ = ls.Cmd.Wait()
+
+		r.deregister(id, name)
+		r.reapHeadless(ls, id)
+	}()
+}
+
+// readHeadlessStdout consumes stdout line-by-line via
+// bufio.Reader.ReadBytes('\n') — deliberately NOT bufio.Scanner, whose
+// 64KB MaxScanTokenSize a system:init line's tools array, or a big
+// tool_use input, routinely exceeds. Scanner would then return
+// bufio.ErrTooLong and stop, silently truncating the rest of the child's
+// stream — including the terminal `result` line (§5.2's "lost-result"
+// failure, which masquerades as a mid-turn crash under §8.1 rule 3).
+// ReadBytes has no such cap.
+func (r *Registry) readHeadlessStdout(ls *LiveSession, stdout io.Reader, streamLog io.Writer, id string) {
+	br := bufio.NewReader(stdout)
+	for {
+		line, err := br.ReadBytes('\n')
+		if len(line) > 0 {
+			// A non-nil err here means this is the final, unterminated
+			// chunk before EOF (the child was killed mid-line): still hand
+			// it to handleHeadlessLine, which parses it if it happens to be
+			// valid JSON on its own and drops it otherwise via ParseLine's
+			// tolerant-decode contract — never treated as this loop's error
+			// exit.
+			r.handleHeadlessLine(ls, line, streamLog, id)
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+// handleHeadlessLine parses one stream-json line and, per §5.2: (a) tees
+// its raw bytes to streamLog — the authoritative in-flight record, and the
+// full record of tool_use/denial lines in v0.4.0 (no separate per-tool
+// event kinds), and (b) on a terminal `result` line, stashes the parsed
+// Result on ls (guarded by r.mu, same discipline as Attachment) and emits
+// the durable session.result event. A blank line is skipped (ParseLine
+// errors on "" by design — a line with no type cannot be classified); a
+// malformed non-blank line is logged and dropped, never fatal to the
+// reader loop.
+func (r *Registry) handleHeadlessLine(ls *LiveSession, line []byte, streamLog io.Writer, id string) {
+	trimmed := bytes.TrimSpace(line)
+	if len(trimmed) == 0 {
+		return
+	}
+
+	ev, err := streamjson.ParseLine(trimmed)
+	if err != nil {
+		r.log.Warn("supervisor: headless stream: dropping malformed line", "session_id", id, "err", err)
+		return
+	}
+
+	if _, err := streamLog.Write(ev.Raw); err != nil {
+		r.log.Warn("supervisor: headless stream: writing stream log", "session_id", id, "err", err)
+	}
+	_, _ = streamLog.Write([]byte("\n"))
+
+	if ev.Type != "result" || ev.Result == nil {
+		return
+	}
+
+	r.mu.Lock()
+	ls.Result = ev.Result
+	r.mu.Unlock()
+
+	r.appendEvent(context.Background(), id, session.EventSessionResult, map[string]any{
+		"is_error":       ev.Result.IsError,
+		"total_cost_usd": ev.Result.TotalCostUSD,
+		"stop_reason":    ev.Result.StopReason,
+		"num_turns":      ev.Result.NumTurns,
+	})
+}
+
+// HeadlessOutcome applies design doc §8.1's attempt-outcome authority rule
+// to a headless attempt's captured terminal Result: the parsed result
+// line is authoritative over the process exit code — result+success ==
+// true, result+error == false, and no result captured at all (result ==
+// nil: the child was killed or crashed mid-turn) == false regardless of
+// exit code. Exported so step 21's orchestrator applies this exact mapping
+// rather than inventing a second one (§8.1: "do not invent a second
+// mapping in run.go").
+func HeadlessOutcome(result *streamjson.Result) bool {
+	return result != nil && !result.IsError
+}
+
+// reapHeadless is spawnHeadless's counterpart to runGoroutines' PTY
+// reaper: it runs after cmd.Wait() has returned AND both of runHeadless
+// Goroutines' readers have drained to EOF, logs the §8.1 outcome for
+// observability, then defers to the same session-row bookkeeping the PTY
+// path uses. reap (below) reads only ls.Cmd.ProcessState — never
+// ls.PTYMaster/ls.Screen — so it is exactly correct for a headless
+// LiveSession too, with no changes.
+func (r *Registry) reapHeadless(ls *LiveSession, id string) {
+	r.mu.Lock()
+	result := ls.Result
+	r.mu.Unlock()
+
+	r.log.Info("supervisor: headless attempt finished",
+		"session_id", id, "result_captured", result != nil, "success", HeadlessOutcome(result))
+
+	r.reap(ls, id)
 }
 
 // reap runs after cmd.Wait() returns and both of a session's I/O goroutines
@@ -615,6 +852,9 @@ func (r *Registry) WriteInput(ctx context.Context, idOrName string, b []byte) er
 	if !ok {
 		return ErrNotLive
 	}
+	if ls.Headless {
+		return ErrHeadlessNoInput
+	}
 	_, err := ls.PTYMaster.Write(b)
 	if err != nil {
 		return err
@@ -640,3 +880,10 @@ var ErrNotResumable = errors.New("supervisor: session not resumable")
 // the sessions_name_active partial index and collide — a client-resolvable
 // condition (rename or kill the other session), not a server fault.
 var ErrNameTaken = errors.New("supervisor: session name held by an active session")
+
+// ErrHeadlessNoInput is returned by WriteInput when idOrName names a
+// headless session (design doc §5.2): a `-p` invocation is one-shot and
+// exits at `result` — there is no live input channel to write into, and
+// ls.PTYMaster is nil for a headless LiveSession, so this guard exists
+// specifically to avoid a nil-pointer panic on that field.
+var ErrHeadlessNoInput = errors.New("supervisor: headless session accepts no input (one-shot)")

@@ -34,7 +34,12 @@ import (
 )
 
 // fakeSpec is fakeclaude's own parsed view of the flags it was invoked
-// with — design doc §10.1 item 1's exact M1 flag surface.
+// with — design doc §10.1 item 1's exact M1 flag surface, extended by M4
+// step 19 with the headless flag surface (§5.1): Prompt/OutputFormat/
+// PermissionMode. OutputFormat == "stream-json" is main()'s
+// headless-vs-interactive detector — real invocations always pair -p with
+// --output-format stream-json, and OutputFormat is the more distinctive
+// of the two to key off.
 type fakeSpec struct {
 	SessionID      string
 	Resume         string
@@ -42,6 +47,9 @@ type fakeSpec struct {
 	SettingSources string
 	Model          string
 	Name           string
+	Prompt         string
+	OutputFormat   string
+	PermissionMode string
 }
 
 // parseArgs scans argv (excluding argv[0]) for the known M1 flags,
@@ -64,6 +72,9 @@ func parseArgs(argv []string) fakeSpec {
 		"--model":           &spec.Model,
 		"-n":                &spec.Name,
 		"--name":            &spec.Name,
+		"-p":                &spec.Prompt,
+		"--output-format":   &spec.OutputFormat,
+		"--permission-mode": &spec.PermissionMode,
 	}
 	for i := 0; i < len(argv); i++ {
 		target, ok := targets[argv[i]]
@@ -124,6 +135,17 @@ func main() {
 		if _, err := recordInvocation(fakeState, sessionID, inv); err != nil {
 			fatalf("%v", err)
 		}
+	}
+
+	// M4 step 19 (design doc §5): a headless invocation is `-p
+	// --output-format stream-json`, over plain pipes, not a PTY. Branch
+	// out before any of the interactive machinery below — disableEcho,
+	// the alt-screen banner, --resume transcript replay — none of which
+	// applies to a one-shot, no-terminal invocation. runHeadless exits the
+	// process itself.
+	if spec.OutputFormat == "stream-json" {
+		runHeadless(spec, sessionID, cwd)
+		return
 	}
 
 	// Real claude disables local echo when it takes over the terminal;

@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -31,7 +32,7 @@ func baseSpec() session.Spec {
 
 func TestBuildArgvFreshNoModel(t *testing.T) {
 	spec := baseSpec()
-	got := BuildArgv(spec)
+	got := BuildArgv(spec, false)
 	want := []string{
 		spec.ClaudeBin,
 		"--session-id", spec.ID,
@@ -47,7 +48,7 @@ func TestBuildArgvFreshNoModel(t *testing.T) {
 func TestBuildArgvFreshWithModel(t *testing.T) {
 	spec := baseSpec()
 	spec.Model = "opus"
-	got := BuildArgv(spec)
+	got := BuildArgv(spec, false)
 	want := []string{
 		spec.ClaudeBin,
 		"--session-id", spec.ID,
@@ -64,7 +65,7 @@ func TestBuildArgvFreshWithModel(t *testing.T) {
 func TestBuildArgvResume(t *testing.T) {
 	spec := baseSpec()
 	spec.ResumeFrom = "22222222-2222-2222-2222-222222222222"
-	got := BuildArgv(spec)
+	got := BuildArgv(spec, false)
 	want := []string{
 		spec.ClaudeBin,
 		"--resume", spec.ResumeFrom,
@@ -86,7 +87,7 @@ func TestBuildArgvResumeWithModel(t *testing.T) {
 	spec := baseSpec()
 	spec.ResumeFrom = "22222222-2222-2222-2222-222222222222"
 	spec.Model = "haiku"
-	got := BuildArgv(spec)
+	got := BuildArgv(spec, false)
 	want := []string{
 		spec.ClaudeBin,
 		"--resume", spec.ResumeFrom,
@@ -97,6 +98,127 @@ func TestBuildArgvResumeWithModel(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("BuildArgv(resume, model) =\n%v\nwant\n%v", got, want)
+	}
+}
+
+func headlessSpec() session.Spec {
+	spec := baseSpec()
+	spec.Mode = session.ModeHeadless
+	spec.Prompt = "fix the bug in main.go"
+	return spec
+}
+
+// TestBuildArgvHeadlessExecCarriesRealPrompt is design doc §5.1's exec
+// copy: redact=false must carry the literal prompt text, in the exact
+// order the doc specifies (-p, --output-format stream-json, --verbose),
+// and never emit --input-format.
+func TestBuildArgvHeadlessExecCarriesRealPrompt(t *testing.T) {
+	spec := headlessSpec()
+	got := BuildArgv(spec, false)
+	want := []string{
+		spec.ClaudeBin,
+		"--session-id", spec.ID,
+		"--settings", spec.SettingsPath,
+		"--setting-sources", spec.SettingSources,
+		"--name", spec.Name,
+		"-p", spec.Prompt,
+		"--output-format", "stream-json",
+		"--verbose",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("BuildArgv(headless, exec) =\n%v\nwant\n%v", got, want)
+	}
+	for _, a := range got {
+		if a == "--input-format" {
+			t.Fatal("headless argv must never contain --input-format (§5.1: no live child to inject a frame into)")
+		}
+	}
+}
+
+// TestBuildArgvHeadlessRedactedCarriesPlaceholder is §5.1's persisted copy:
+// redact=true must replace the prompt value with a byte-count placeholder,
+// never the real text, so the sessions.argv column never carries the full
+// prompt.
+func TestBuildArgvHeadlessRedactedCarriesPlaceholder(t *testing.T) {
+	spec := headlessSpec()
+	got := BuildArgv(spec, true)
+
+	found := false
+	for i, a := range got {
+		if a == "-p" {
+			found = true
+			if i+1 >= len(got) {
+				t.Fatal("-p has no following value")
+			}
+			want := fmt.Sprintf("<prompt:%d bytes>", len(spec.Prompt))
+			if got[i+1] != want {
+				t.Fatalf("-p value = %q, want placeholder %q", got[i+1], want)
+			}
+			if got[i+1] == spec.Prompt {
+				t.Fatal("redacted argv must not carry the real prompt text")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("redacted headless argv missing -p")
+	}
+}
+
+// TestBuildArgvHeadlessWithPermissionMode checks --permission-mode is
+// appended last, after --verbose, only when Spec.PermissionMode is
+// non-empty (§5.1/§5.3).
+func TestBuildArgvHeadlessWithPermissionMode(t *testing.T) {
+	spec := headlessSpec()
+	spec.PermissionMode = "acceptEdits"
+	got := BuildArgv(spec, false)
+	want := []string{
+		spec.ClaudeBin,
+		"--session-id", spec.ID,
+		"--settings", spec.SettingsPath,
+		"--setting-sources", spec.SettingSources,
+		"--name", spec.Name,
+		"-p", spec.Prompt,
+		"--output-format", "stream-json",
+		"--verbose",
+		"--permission-mode", "acceptEdits",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("BuildArgv(headless, permission-mode) =\n%v\nwant\n%v", got, want)
+	}
+}
+
+// TestBuildArgvHeadlessWithModel checks --model still slots in before the
+// headless-only flags, same position as the interactive case.
+func TestBuildArgvHeadlessWithModel(t *testing.T) {
+	spec := headlessSpec()
+	spec.Model = "opus"
+	got := BuildArgv(spec, false)
+	want := []string{
+		spec.ClaudeBin,
+		"--session-id", spec.ID,
+		"--settings", spec.SettingsPath,
+		"--setting-sources", spec.SettingSources,
+		"--name", spec.Name,
+		"--model", "opus",
+		"-p", spec.Prompt,
+		"--output-format", "stream-json",
+		"--verbose",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("BuildArgv(headless, model) =\n%v\nwant\n%v", got, want)
+	}
+}
+
+// TestBuildArgvHeadlessNoPermissionModeOmitsFlag checks the empty-string
+// case explicitly (Spec.PermissionMode's zero value must never render as
+// `--permission-mode ""`).
+func TestBuildArgvHeadlessNoPermissionModeOmitsFlag(t *testing.T) {
+	spec := headlessSpec()
+	got := BuildArgv(spec, false)
+	for _, a := range got {
+		if a == "--permission-mode" {
+			t.Fatal("--permission-mode must be omitted when Spec.PermissionMode is empty")
+		}
 	}
 }
 

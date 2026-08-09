@@ -206,6 +206,18 @@ func (r *Registry) pingTimeout() time.Duration {
 func (r *Registry) Attach(ls *LiveSession, conn net.Conn, br *bufio.Reader) error {
 	ctx := context.Background()
 
+	if ls.Headless {
+		// design doc §5.2: a headless LiveSession carries no PTYMaster and
+		// no Screen (both nil) — there is nothing to attach a terminal
+		// client to. Reject before even reading Hello, same as the
+		// already_attached case below.
+		_ = proto.WriteFrame(conn, proto.Frame{Type: proto.TypeError, Payload: mustEncode(proto.ErrorPayload{
+			Code:    "headless_no_attach",
+			Message: "headless sessions have no PTY to attach to",
+		})})
+		return nil
+	}
+
 	f, err := proto.ReadFrame(br)
 	if err != nil {
 		return fmt.Errorf("supervisor: attach: reading Hello: %w", err)

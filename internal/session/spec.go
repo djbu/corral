@@ -5,8 +5,11 @@
 // types without depending on each other (design doc §1).
 package session
 
-// Mode is how a session's PTY is being used. M1 only ever spawns
-// ModeInteractive; ModeHeadless is reserved for a later milestone.
+// Mode is how a session's PTY is being used. ModeInteractive spawns claude
+// under a PTY (M1); ModeHeadless is real as of M4 (design doc §5): a
+// one-shot `claude -p` invocation captured via plain pipes, no PTY, no
+// Screen. supervisor.Registry.Spawn and BuildArgv both dispatch on this
+// field.
 type Mode string
 
 const (
@@ -29,6 +32,21 @@ type Spec struct {
 	SettingsPath   string            // pinned settings file (written before spawn)
 	ExtraArgs      []string          // reserved; empty in M1
 	Env            map[string]string // the complete child environment. Nothing else is inherited.
-	Rows, Cols     uint16            // initial PTY size (default 40x120 when nothing is attached)
+	Rows, Cols     uint16            // initial PTY size (default 40x120 when nothing is attached); unused for ModeHeadless
 	ResumeFrom     string            // "" = fresh (--session-id); else --resume <this>
+
+	// Prompt is the one-shot -p prompt (design doc §5.1). Meaningful only
+	// for ModeHeadless; empty for ModeInteractive. BuildArgv's persisted
+	// (redact=true) copy replaces this with a byte-count placeholder
+	// rather than the real text — not because it is secret, but to avoid
+	// putting an arbitrarily large prompt into the sessions.argv column.
+	Prompt string
+
+	// PermissionMode is the value for --permission-mode; "" omits the flag
+	// entirely (design doc §5.3). Headless-only. This is the flag that
+	// makes bypassPermissions reachable, so it must only ever be populated
+	// from a user- or env-file-resolved setting (config.Session.
+	// PermissionMode / repo_allowlist.go's rule) — never from anything
+	// repo-controlled.
+	PermissionMode string
 }

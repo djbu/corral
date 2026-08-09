@@ -24,6 +24,12 @@ const (
 	EventSessionAnswered      EventKind = "session.answered"    // corral answer wrote input to the PTY
 	EventSessionIdleReaped    EventKind = "session.idle_reaped" // idle reaper checkpointed a session past state.idle_timeout
 
+	// New in M4 step 19 (design doc §5.2/§8.1) — headless-only: the
+	// terminal stream-json `result` line's outcome, carrying
+	// is_error/total_cost_usd/stop_reason/num_turns. Never emitted for an
+	// interactive session.
+	EventSessionResult EventKind = "session.result"
+
 	EventHookReceived     EventKind = "hook.received"
 	EventHookDropped      EventKind = "hook.dropped"
 	EventHookUnauthorized EventKind = "hook.unauthorized"

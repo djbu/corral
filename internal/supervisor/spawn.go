@@ -34,7 +34,7 @@ var envWhitelist = []string{
 }
 
 // BuildArgv returns the exact argv corral execs claude with (design doc
-// §7.3), as a full command line including the binary itself as argv[0]:
+// §7.3/§5.1), as a full command line including the binary itself as argv[0]:
 //
 //	<claude_bin>
 //	  --session-id <ID>            (fresh spawn)   |   --resume <ResumeFrom>   (restore)
@@ -42,9 +42,24 @@ var envWhitelist = []string{
 //	  --setting-sources <SettingSources>
 //	  --name <Name>
 //	  [--model <Model>]            (omitted when empty)
+//	  -p "<Prompt>"                (Mode==ModeHeadless only)
+//	  --output-format stream-json  (Mode==ModeHeadless only)
+//	  --verbose                    (Mode==ModeHeadless only — stream-json requires it for full records)
+//	  [--permission-mode <PermissionMode>]  (Mode==ModeHeadless only, omitted when empty)
 //
-// No -p, no --output-format — M1 is interactive TUI only (§7.3).
-func BuildArgv(spec session.Spec) []string {
+// No --input-format, ever (§5.1): `-p` is a one-shot invocation with no live
+// child to inject a follow-up frame into; re-send (§9) is a fresh --resume
+// -p invocation, not frame injection.
+//
+// redact controls only the -p value, and only for a headless spec: the
+// caller that execs the child (spawn.go's Spawn/SpawnHeadless) must pass
+// false so the real prompt reaches argv[0]'s process; the caller that
+// persists argv to the sessions.argv column (Registry.Spawn) must pass true
+// so the stored copy carries a byte-count placeholder instead — not because
+// the prompt is secret (it is corral-owned cleartext, task.prompt), but to
+// avoid landing an arbitrarily large prompt in that column (§5.1, "decided").
+// Interactive specs never carry a prompt, so redact is a no-op there.
+func BuildArgv(spec session.Spec, redact bool) []string {
 	argv := []string{spec.ClaudeBin}
 	if spec.ResumeFrom != "" {
 		argv = append(argv, "--resume", spec.ResumeFrom)
@@ -57,6 +72,20 @@ func BuildArgv(spec session.Spec) []string {
 	if spec.Model != "" {
 		argv = append(argv, "--model", spec.Model)
 	}
+
+	if spec.Mode == session.ModeHeadless {
+		prompt := spec.Prompt
+		if redact {
+			prompt = fmt.Sprintf("<prompt:%d bytes>", len(spec.Prompt))
+		}
+		argv = append(argv, "-p", prompt)
+		argv = append(argv, "--output-format", "stream-json")
+		argv = append(argv, "--verbose")
+		if spec.PermissionMode != "" {
+			argv = append(argv, "--permission-mode", spec.PermissionMode)
+		}
+	}
+
 	return argv
 }
 
@@ -220,7 +249,7 @@ func Spawn(spec session.Spec) (master *os.File, cmd *exec.Cmd, info Info, err er
 		return nil, nil, Info{}, err
 	}
 
-	argv := BuildArgv(spec)
+	argv := BuildArgv(spec, false)
 	c := exec.Command(argv[0], argv[1:]...)
 	c.Dir = spec.Cwd
 	c.Env = envMapToSlice(spec.Env)
