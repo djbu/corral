@@ -70,6 +70,7 @@ type dagTaskResponse struct {
 	Attempts    int     `json:"attempts"`
 	MaxAttempts int     `json:"max_attempts"`
 	SessionID   string  `json:"session_id,omitempty"`
+	Repo        string  `json:"repo,omitempty"`
 }
 
 // dagEdgeResponse is one dependency edge in a dagDetailResponse, by task ID
@@ -115,6 +116,7 @@ func toDagTaskResponse(t *store.Task) dagTaskResponse {
 		Attempts:    t.Attempts,
 		MaxAttempts: t.MaxAttempts,
 		SessionID:   t.SessionID,
+		Repo:        t.Repo,
 	}
 }
 

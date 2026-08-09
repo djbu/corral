@@ -38,6 +38,8 @@ var commands = map[string]cmdFunc{
 	"answer":     cmdAnswer,
 	"attach":     cmdAttach,
 	"hook-relay": cmdHookRelay,
+	"run":        cmdRun,
+	"review":     cmdReview,
 }
 
 // hiddenCommands are dispatchable but never listed by printCommands.
