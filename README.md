@@ -4,7 +4,7 @@
 
 A daemon that supervises Claude Code sessions: knows their exact state via hooks (never terminal scraping), checkpoints idle sessions to disk and resumes them on demand, orchestrates task DAGs with per-task model tiering and budgets, and answers you on your phone when an agent is blocked.
 
-**Status: pre-alpha — M6 release candidate; real dogfood report passed**. corral now includes supervised interactive sessions, checkpoint/resume and idle reaping, headless task-DAG orchestration, opt-in remote access through TLS + bearer tokens, and a verified per-repository permission-learning loop. See [RUNBOOK.md](RUNBOOK.md) for the roadmap, [docs/design/m6.md](docs/design/m6.md) for the implementation contract, and [docs/dogfood/m6.md](docs/dogfood/m6.md) for the release evidence.
+**Status: pre-alpha — M6 complete (`v0.6.0`)**. corral now includes supervised interactive sessions, checkpoint/resume and idle reaping, headless task-DAG orchestration, opt-in remote access through TLS + bearer tokens, and a verified per-repository permission-learning loop. See [RUNBOOK.md](RUNBOOK.md) for the roadmap, [docs/design/m6.md](docs/design/m6.md) for the implementation contract, and [docs/dogfood/m6.md](docs/dogfood/m6.md) for the release evidence.
 
 ## Try it
 
