@@ -483,6 +483,38 @@ func (s *Store) GetDAGBudget(ctx context.Context, dagID string) (*DAGBudget, err
 	return &b, nil
 }
 
+// ListDAGBudgets returns every dag_budgets row (one per submitted dag),
+// ordered by dag_id, for `corral review` with no argument: all dags with
+// their denormalized cost rollup, never re-summed (m4.md §7, §10).
+func (s *Store) ListDAGBudgets(ctx context.Context) ([]DAGBudget, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT dag_id, budget_usd, cost_usd FROM dag_budgets ORDER BY dag_id`)
+	if err != nil {
+		return nil, fmt.Errorf("store: listing dag budgets: %w", err)
+	}
+	defer rows.Close()
+
+	var out []DAGBudget
+	for rows.Next() {
+		var (
+			b         DAGBudget
+			budgetUSD sql.NullFloat64
+		)
+		if err := rows.Scan(&b.DAGID, &budgetUSD, &b.CostUSD); err != nil {
+			return nil, fmt.Errorf("store: scanning dag budget: %w", err)
+		}
+		if budgetUSD.Valid {
+			v := budgetUSD.Float64
+			b.BudgetUSD = &v
+		}
+		out = append(out, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: listing dag budgets: %w", err)
+	}
+	return out, nil
+}
+
 // createDAGBudgetTx inserts dagID's dag_budgets row against q, the
 // tx-scoped counterpart of CreateDAGBudget used by SubmitDAG so the budget
 // row lands in the same transaction as the tasks and deps around it.

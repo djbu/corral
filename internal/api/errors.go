@@ -28,6 +28,8 @@ const (
 	CodeUnauthorized        Code = "unauthorized"
 	CodeSessionNotLive      Code = "session_not_live"
 	CodeSessionNotResumable Code = "session_not_resumable"
+	CodeDAGNotFound         Code = "dag_not_found"
+	CodeDAGCycle            Code = "dag_cycle"
 )
 
 // errorBody is the "error" object inside the envelope.

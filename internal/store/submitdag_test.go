@@ -192,3 +192,57 @@ func TestStore_SubmitDAG_BudgetRowLandsBeforeAnyCost(t *testing.T) {
 		t.Fatalf("AddCost: err = %v, want nil (budget row must already exist)", err)
 	}
 }
+
+// TestStore_ListDAGBudgets proves ListDAGBudgets returns every submitted
+// dag's budget row, ordered by dag_id, with the denormalized cost rollup
+// (never re-summed from tasks).
+func TestStore_ListDAGBudgets(t *testing.T) {
+	st, _ := openTestStore(t)
+	ctx := context.Background()
+
+	budget1 := 5.0
+	sub1 := DAGSubmission{
+		DAGID:     "dag1",
+		BudgetUSD: &budget1,
+		Tasks:     []CreateTaskParams{sampleCreateTaskParams("t1", "dag1", "plan")},
+	}
+	if err := st.SubmitDAG(ctx, sub1); err != nil {
+		t.Fatalf("SubmitDAG(dag1): %v", err)
+	}
+
+	sub2 := DAGSubmission{
+		DAGID: "dag2",
+		Tasks: []CreateTaskParams{sampleCreateTaskParams("t2", "dag2", "plan")},
+	}
+	if err := st.SubmitDAG(ctx, sub2); err != nil {
+		t.Fatalf("SubmitDAG(dag2): %v", err)
+	}
+
+	got, err := st.ListDAGBudgets(ctx)
+	if err != nil {
+		t.Fatalf("ListDAGBudgets: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("ListDAGBudgets = %+v, want 2 rows", got)
+	}
+
+	if got[0].DAGID != "dag1" {
+		t.Fatalf("got[0].DAGID = %q, want dag1", got[0].DAGID)
+	}
+	if got[0].BudgetUSD == nil || *got[0].BudgetUSD != 5.0 {
+		t.Fatalf("got[0].BudgetUSD = %v, want 5.0", got[0].BudgetUSD)
+	}
+	if got[0].CostUSD != 0 {
+		t.Fatalf("got[0].CostUSD = %v, want 0", got[0].CostUSD)
+	}
+
+	if got[1].DAGID != "dag2" {
+		t.Fatalf("got[1].DAGID = %q, want dag2", got[1].DAGID)
+	}
+	if got[1].BudgetUSD != nil {
+		t.Fatalf("got[1].BudgetUSD = %v, want nil (unbounded)", got[1].BudgetUSD)
+	}
+	if got[1].CostUSD != 0 {
+		t.Fatalf("got[1].CostUSD = %v, want 0", got[1].CostUSD)
+	}
+}
