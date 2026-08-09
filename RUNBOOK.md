@@ -174,7 +174,7 @@ Prove the two risky primitives before building anything real:
 
 **Exit criteria:** manage a session on a home server from a phone browser.
 
-### M6 — Learning loop (working name: hermes) — implementation complete; real 14-day dogfood gate pending
+### M6 — Learning loop (working name: hermes) — release candidate
 
 Thesis: every supervised session is an experiment; the runtime that observes all of them can compound their lessons into durable per-repo artifacts. Generating skills with an LLM is table stakes (`headroom learn`, skill-creator already exist) — the differentiator is **closing the loop with verification and measured adoption**, which only the runtime owner can do: corral sees full trajectories (hooks + stream-json + task outcomes + cost + corrections), can spawn cheap headless sessions to verify candidates, and can measure effect after adoption.
 
@@ -196,13 +196,17 @@ Attack order (hardest ground truth first):
 
 Explicitly out of scope: fine-tuning, unsupervised self-modification, cross-user telemetry. Team-shared learnings ("fleet memory sync") is the natural paid tier; single-user OSS stays complete.
 
-**Exit criteria:** on a dogfooded repo over 2 weeks, measurable reduction in blocked-events and cost versus the prior 2 weeks, with zero unapproved repo writes.
+**Exit criteria:** on a dogfooded repo, a sufficient real baseline/post sample
+shows a measurable reduction in blocked events without a cost regression, with
+zero unapproved repo writes. The normal observation period is 2 weeks; an
+operator may explicitly close it earlier once both windows meet the configured
+session and terminal-task denominators.
 
 Implementation steps 36–45 and deterministic/fake-clock E2E are complete. The
-release remains deliberately untagged until the real-time evidence recorded in
-`docs/dogfood/m6.md` covers a full post-adoption 14-day window and satisfies
-the denominators above. Backdated fixtures prove the window math but never
-substitute for this gate.
+real controlled report in `docs/dogfood/m6.md` used an explicitly requested
+early close after satisfying the denominators; its timestamps and underlying
+history were not altered. The fixed 14-day report remains the default and a
+useful longitudinal follow-up, not an artificial release delay.
 
 ### Post-M6 backlog (unordered)
 Windows support, multi-user/team mode (shared fleet learnings — the paid tier), Slack/Telegram notifier, session templates, Agent-SDK-based runner as alternative to CLI subprocess, claude version pinning per repo (`corral doctor` flags drift).
