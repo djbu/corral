@@ -43,7 +43,8 @@ type Spec struct {
 	Prompt string
 
 	// PermissionMode is the value for --permission-mode; "" omits the flag
-	// entirely (design doc §5.3). Headless-only. This is the flag that
+	// entirely (design doc §5.3). It applies to both interactive and
+	// headless sessions. This is the flag that
 	// makes bypassPermissions reachable, so it must only ever be populated
 	// from a user- or env-file-resolved setting (config.Session.
 	// PermissionMode / repo_allowlist.go's rule) — never from anything

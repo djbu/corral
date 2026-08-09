@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"testing"
 	"time"
@@ -375,6 +376,33 @@ func TestHandleCreateSession_DefaultNameSequence(t *testing.T) {
 	want2 := base + "-2"
 	if _, err := deps.Store.GetSessionByName(t.Context(), want2); err != nil {
 		t.Fatalf("GetSessionByName(%q) after second create: %v, want the row to exist with the default name", want2, err)
+	}
+}
+
+func TestHandleCreateSession_AppliesInteractivePermissionMode(t *testing.T) {
+	deps := newSessionsTestDeps(t)
+	srv := newSessionsTestServer(t, deps)
+	cwd := t.TempDir()
+
+	fakeClaude := filepath.Join(t.TempDir(), "fake-claude")
+	if err := os.WriteFile(fakeClaude, []byte("#!/bin/sh\nsleep 1\n"), 0o700); err != nil {
+		t.Fatalf("writing fake claude: %v", err)
+	}
+	t.Setenv("CORRAL_SESSION_CLAUDE_BIN", fakeClaude)
+	t.Setenv("CORRAL_SESSION_PERMISSION_MODE", "manual")
+
+	rec := doVersioned(t, srv.Handler(), http.MethodPost, "/v1/sessions", mustJSON(t, createSessionRequest{Name: "manual-mode", Cwd: cwd}))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+
+	sess, err := deps.Store.GetSessionByName(t.Context(), "manual-mode")
+	if err != nil {
+		t.Fatalf("GetSessionByName: %v", err)
+	}
+	wantTail := []string{"--permission-mode", "manual"}
+	if len(sess.Argv) < len(wantTail) || !reflect.DeepEqual(sess.Argv[len(sess.Argv)-len(wantTail):], wantTail) {
+		t.Fatalf("stored argv = %v, want suffix %v", sess.Argv, wantTail)
 	}
 }
 

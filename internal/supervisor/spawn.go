@@ -45,7 +45,7 @@ var envWhitelist = []string{
 //	  -p "<Prompt>"                (Mode==ModeHeadless only)
 //	  --output-format stream-json  (Mode==ModeHeadless only)
 //	  --verbose                    (Mode==ModeHeadless only — stream-json requires it for full records)
-//	  [--permission-mode <PermissionMode>]  (Mode==ModeHeadless only, omitted when empty)
+//	  [--permission-mode <PermissionMode>]  (all modes, omitted when empty)
 //
 // No --input-format, ever (§5.1): `-p` is a one-shot invocation with no live
 // child to inject a follow-up frame into; re-send (§9) is a fresh --resume
@@ -81,9 +81,9 @@ func BuildArgv(spec session.Spec, redact bool) []string {
 		argv = append(argv, "-p", prompt)
 		argv = append(argv, "--output-format", "stream-json")
 		argv = append(argv, "--verbose")
-		if spec.PermissionMode != "" {
-			argv = append(argv, "--permission-mode", spec.PermissionMode)
-		}
+	}
+	if spec.PermissionMode != "" {
+		argv = append(argv, "--permission-mode", spec.PermissionMode)
 	}
 
 	return argv

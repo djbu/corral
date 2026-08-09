@@ -406,6 +406,7 @@ func (d SessionsDeps) handleCreate(w http.ResponseWriter, r *http.Request) {
 		Cwd:            body.Cwd,
 		ClaudeBin:      claudeBin,
 		Model:          model,
+		PermissionMode: sessCfg.PermissionMode,
 		SettingSources: sessCfg.SettingSources,
 		Rows:           body.Rows,
 		Cols:           body.Cols,

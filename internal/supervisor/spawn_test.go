@@ -62,6 +62,23 @@ func TestBuildArgvFreshWithModel(t *testing.T) {
 	}
 }
 
+func TestBuildArgvInteractiveWithPermissionMode(t *testing.T) {
+	spec := baseSpec()
+	spec.PermissionMode = "manual"
+	got := BuildArgv(spec, false)
+	want := []string{
+		spec.ClaudeBin,
+		"--session-id", spec.ID,
+		"--settings", spec.SettingsPath,
+		"--setting-sources", spec.SettingSources,
+		"--name", spec.Name,
+		"--permission-mode", "manual",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("BuildArgv(interactive, permission-mode) =\n%v\nwant\n%v", got, want)
+	}
+}
+
 func TestBuildArgvResume(t *testing.T) {
 	spec := baseSpec()
 	spec.ResumeFrom = "22222222-2222-2222-2222-222222222222"
@@ -165,8 +182,8 @@ func TestBuildArgvHeadlessRedactedCarriesPlaceholder(t *testing.T) {
 }
 
 // TestBuildArgvHeadlessWithPermissionMode checks --permission-mode is
-// appended last, after --verbose, only when Spec.PermissionMode is
-// non-empty (§5.1/§5.3).
+// appended last, after --verbose, when Spec.PermissionMode is non-empty
+// (§5.1/§5.3).
 func TestBuildArgvHeadlessWithPermissionMode(t *testing.T) {
 	spec := headlessSpec()
 	spec.PermissionMode = "acceptEdits"
