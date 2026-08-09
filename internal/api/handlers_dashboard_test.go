@@ -15,6 +15,7 @@ import (
 	"github.com/danielbecerra/corral/internal/api/dashboard"
 	"github.com/danielbecerra/corral/internal/clock"
 	"github.com/danielbecerra/corral/internal/clock/clocktest"
+	corralgit "github.com/danielbecerra/corral/internal/git"
 	"github.com/danielbecerra/corral/internal/session"
 	"github.com/danielbecerra/corral/internal/state"
 	"github.com/danielbecerra/corral/internal/store"
@@ -108,6 +109,21 @@ func TestHandleSnapshot_HappyPath(t *testing.T) {
 
 	seedDashboardSession(t, st, "sess-blocked")
 	seedDashboardSession(t, st, "sess-normal")
+	l, err := st.UpsertLearningCandidate(context.Background(), store.UpsertLearningParams{
+		ID: "proposal", Repo: "/repo", Kind: store.LearningPermissionRule, Fingerprint: "fp-dashboard",
+		ContentJSON:  `{"tool":"Bash","command":"npm test","rule":"Bash(npm test)"}`,
+		BaselineJSON: `{}`, EvidenceCount: 3, ExpiresMs: fc.Now().Add(90 * 24 * time.Hour).UnixMilli(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, err = st.TransitionLearning(context.Background(), l.ID, store.LearningTransition{From: store.LearningCandidate, To: store.LearningVerified})
+	if err == nil {
+		l, err = st.TransitionLearning(context.Background(), l.ID, store.LearningTransition{From: store.LearningVerified, To: store.LearningProposed})
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Give sess-blocked an actual blocked_reason payload so the response
 	// field the dashboard's blocked-card UI renders (sessionResponse's
@@ -188,6 +204,36 @@ func TestHandleSnapshot_HappyPath(t *testing.T) {
 	}
 	if got.Dags[0].DAGID != created.DAGID {
 		t.Fatalf("dags[0].dag_id = %q, want %q", got.Dags[0].DAGID, created.DAGID)
+	}
+	if len(got.Learnings) != 1 || got.Learnings[0].Rule != "Bash(npm test)" || got.Learnings[0].Status != "proposed" {
+		t.Fatalf("learnings = %+v", got.Learnings)
+	}
+}
+
+func TestDashboardLearningSummariesRespectSessionRepoScope(t *testing.T) {
+	fc := clocktest.NewFake(time.Now())
+	st := openDashboardTestStore(t, fc)
+	repoA, repoB := t.TempDir(), t.TempDir()
+	createLearningSession(t, st, "root-learning", repoA)
+	canonicalA, _ := corralgit.CanonicalPath(repoA)
+	canonicalB, _ := corralgit.CanonicalPath(repoB)
+	for _, item := range []struct{ id, repo, fp string }{{"a", canonicalA, "fa"}, {"b", canonicalB, "fb"}} {
+		l, err := st.UpsertLearningCandidate(context.Background(), store.UpsertLearningParams{
+			ID: item.id, Repo: item.repo, Kind: store.LearningPermissionRule, Fingerprint: item.fp,
+			ContentJSON:  `{"tool":"Bash","command":"npm test","rule":"Bash(npm test)"}`,
+			BaselineJSON: `{}`, ExpiresMs: fc.Now().Add(time.Hour).UnixMilli(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		l, _ = st.TransitionLearning(context.Background(), l.ID, store.LearningTransition{From: store.LearningCandidate, To: store.LearningVerified})
+		_, _ = st.TransitionLearning(context.Background(), l.ID, store.LearningTransition{From: store.LearningVerified, To: store.LearningProposed})
+	}
+	req := httptest.NewRequest(http.MethodGet, "/v1/dashboard", nil)
+	req = req.WithContext(contextWithToken(req.Context(), store.TokenRow{Scope: "session", SessionID: "root-learning"}))
+	rows, err := (DashboardDeps{Store: st}).learningSummaries(req)
+	if err != nil || len(rows) != 1 || rows[0].ID != "a" {
+		t.Fatalf("scoped learning summaries = (%+v,%v)", rows, err)
 	}
 }
 

@@ -36,6 +36,14 @@ func TestHandler_ServesAppJS(t *testing.T) {
 	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/javascript") {
 		t.Fatalf("Content-Type = %q, want text/javascript prefix", ct)
 	}
+	for _, required := range []string{
+		"/v1/learnings/", "Pinned settings diff", "learningActionButton('Adopt', 'adopt')",
+		"learningActionButton('Reject', 'reject')", "learningActionButton('Retire', 'retire')",
+	} {
+		if !strings.Contains(rec.Body.String(), required) {
+			t.Errorf("app.js missing learning dashboard contract %q", required)
+		}
+	}
 }
 
 func TestHandler_ServesAppCSS(t *testing.T) {

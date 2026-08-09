@@ -1,8 +1,10 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 
+	"github.com/danielbecerra/corral/internal/config"
 	"github.com/danielbecerra/corral/internal/state"
 	"github.com/danielbecerra/corral/internal/store"
 	"github.com/danielbecerra/corral/internal/supervisor"
@@ -16,6 +18,7 @@ type DashboardDeps struct {
 	Store    *store.Store
 	Engine   state.Engine
 	Registry *supervisor.Registry
+	Learn    config.Learn
 }
 
 // RegisterDashboard registers GET /v1/dashboard on s. It is a plain /v1/
@@ -35,8 +38,20 @@ func (s *Server) RegisterDashboard(deps DashboardDeps) {
 // /v1/dags/{id} on demand only once an operator opens a specific dag, so
 // this snapshot stays cheap regardless of how many tasks a dag has.
 type dashboardResponse struct {
-	Sessions []sessionResponse    `json:"sessions"`
-	Dags     []dagSummaryResponse `json:"dags"`
+	Sessions  []sessionResponse           `json:"sessions"`
+	Dags      []dagSummaryResponse        `json:"dags"`
+	Learnings []dashboardLearningResponse `json:"learnings"`
+}
+
+type dashboardLearningResponse struct {
+	ID             string `json:"id"`
+	Repo           string `json:"repo"`
+	Status         string `json:"status"`
+	Rule           string `json:"rule"`
+	EvidenceCount  int    `json:"evidence_count"`
+	ExpiresMs      int64  `json:"expires_ms"`
+	PostEligibleMs int64  `json:"post_eligible_ms,omitempty"`
+	Verdict        string `json:"verdict,omitempty"`
 }
 
 // handleSnapshot serves GET /v1/dashboard. Its session list MUST be built
@@ -64,6 +79,56 @@ func (d DashboardDeps) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
 		return
 	}
+	learnings, err := d.learningSummaries(r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
+		return
+	}
 
-	writeJSON(w, http.StatusOK, dashboardResponse{Sessions: sessions, Dags: dags})
+	writeJSON(w, http.StatusOK, dashboardResponse{Sessions: sessions, Dags: dags, Learnings: learnings})
+}
+
+func (d DashboardDeps) learningSummaries(r *http.Request) ([]dashboardLearningResponse, error) {
+	repo := ""
+	if scopedRepo, scoped := scopedLearningRepo(r.Context(), d.Store); scoped {
+		repo = scopedRepo
+		if repo == "" {
+			return []dashboardLearningResponse{}, nil
+		}
+	}
+	rows, err := d.Store.ListLearnings(r.Context(), repo, "")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]dashboardLearningResponse, 0, len(rows))
+	for _, l := range rows {
+		if l.Status == store.LearningRejected || l.Status == store.LearningRetired ||
+			l.Status == store.LearningCandidate || l.Status == store.LearningVerified {
+			continue
+		}
+		var content struct {
+			Rule string `json:"rule"`
+		}
+		if json.Unmarshal([]byte(l.ContentJSON), &content) != nil {
+			continue
+		}
+		summary := dashboardLearningResponse{
+			ID: l.ID, Repo: l.Repo, Status: string(l.Status), Rule: content.Rule,
+			EvidenceCount: l.EvidenceCount, ExpiresMs: l.ExpiresMs,
+		}
+		if l.AdoptedMs != nil {
+			summary.PostEligibleMs = *l.AdoptedMs + d.Learn.Window.Milliseconds()
+		}
+		measurements, err := d.Store.ListLearningMeasurements(r.Context(), l.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, measurement := range measurements {
+			if measurement.Phase == "post" {
+				summary.Verdict = measurement.Verdict
+			}
+		}
+		out = append(out, summary)
+	}
+	return out, nil
 }

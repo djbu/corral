@@ -21,6 +21,10 @@
   let openDagID = null;
   let dagDetail = null;
   let dagError = null;
+  let openLearningID = null;
+  let learningDetail = null;
+  let learningReport = null;
+  let learningError = null;
 
   // answerDrafts holds in-progress, not-yet-sent answer text per session id
   // across re-renders. render() rebuilds the whole #app subtree on every
@@ -118,6 +122,9 @@
         if (openDagID) {
           loadDag(openDagID);
         }
+        if (openLearningID) {
+          loadLearning(openLearningID);
+        }
       })
       .catch(function (err) {
         // A 401 already routed to promptForToken() above; anything else is
@@ -146,6 +153,35 @@
         dagError = String(err && err.message ? err.message : err);
         renderDags();
       });
+  }
+
+  function loadLearning(id) {
+    learningError = null;
+    return Promise.all([
+      apiFetch('/v1/learnings/' + encodeURIComponent(id)).then(readAPIJSON),
+      apiFetch('/v1/learnings/' + encodeURIComponent(id) + '/report').then(function (res) {
+        if (res.status === 403) return null;
+        return readAPIJSON(res);
+      }),
+    ]).then(function (parts) {
+      learningDetail = parts[0];
+      learningReport = parts[1];
+      renderLearnings();
+    }).catch(function (err) {
+      learningDetail = null;
+      learningReport = null;
+      learningError = String(err && err.message ? err.message : err);
+      renderLearnings();
+    });
+  }
+
+  function readAPIJSON(res) {
+    return res.json().catch(function () { return null; }).then(function (body) {
+      if (!res.ok) {
+        throw new Error(body && body.error ? body.error.message : ('HTTP ' + res.status));
+      }
+      return body;
+    });
   }
 
   // openStream subscribes to the daemon's SSE broker. EventSource cannot
@@ -279,11 +315,146 @@
     }
     app.appendChild(renderSessionsSection(snapshot.sessions));
 
+    const learningsSection = document.createElement('section');
+    learningsSection.id = 'learnings-section';
+    learningsSection.className = 'section';
+    app.appendChild(learningsSection);
+    renderLearnings();
+
     const dagsSection = document.createElement('section');
     dagsSection.id = 'dags-section';
     dagsSection.className = 'section';
     app.appendChild(dagsSection);
     renderDags();
+  }
+
+  function renderLearnings() {
+    const section = document.getElementById('learnings-section');
+    if (!section || !snapshot) return;
+    section.innerHTML = '';
+    const rows = snapshot.learnings || [];
+    const h = document.createElement('h2');
+    h.textContent = 'Learnings (' + rows.length + ')';
+    section.appendChild(h);
+    if (rows.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'empty';
+      empty.textContent = 'No active proposals.';
+      section.appendChild(empty);
+      return;
+    }
+    rows.forEach(function (l) {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'card learning-row' + (openLearningID === l.id ? ' learning-row-open' : '');
+      const title = document.createElement('div');
+      title.className = 'learning-title';
+      title.textContent = l.rule;
+      card.appendChild(title);
+      const meta = document.createElement('div');
+      meta.className = 'learning-meta';
+      meta.textContent = l.status + ' · evidence ' + l.evidence_count + (l.verdict ? ' · ' + l.verdict : '') + ' · ' + l.repo;
+      card.appendChild(meta);
+      card.addEventListener('click', function () {
+        if (openLearningID === l.id) {
+          openLearningID = null;
+          learningDetail = null;
+          learningReport = null;
+          learningError = null;
+          renderLearnings();
+          return;
+        }
+        openLearningID = l.id;
+        learningDetail = null;
+        learningReport = null;
+        loadLearning(l.id);
+        renderLearnings();
+      });
+      section.appendChild(card);
+    });
+    if (openLearningID) section.appendChild(renderLearningDetail());
+  }
+
+  function renderLearningDetail() {
+    const box = document.createElement('div');
+    box.className = 'learning-detail card';
+    if (learningError) {
+      const err = document.createElement('p');
+      err.className = 'error-text';
+      err.textContent = learningError;
+      box.appendChild(err);
+      return box;
+    }
+    if (!learningDetail) {
+      const loading = document.createElement('p');
+      loading.className = 'empty';
+      loading.textContent = 'Loading…';
+      box.appendChild(loading);
+      return box;
+    }
+    const verification = learningDetail.verification || {};
+    if (verification.before_settings_json && verification.after_settings_json) {
+      const diffTitle = document.createElement('h3');
+      diffTitle.textContent = 'Pinned settings diff';
+      box.appendChild(diffTitle);
+      const diff = document.createElement('pre');
+      diff.className = 'learning-diff';
+      diff.textContent = '--- before\n' + JSON.stringify(verification.before_settings_json, null, 2) +
+        '\n+++ after\n' + JSON.stringify(verification.after_settings_json, null, 2);
+      box.appendChild(diff);
+    }
+    const evidence = document.createElement('p');
+    evidence.className = 'learning-meta';
+    evidence.textContent = 'Evidence rows: ' + ((learningDetail.evidence || []).length);
+    box.appendChild(evidence);
+    if (learningReport && learningReport.measurements) {
+      const report = document.createElement('pre');
+      report.className = 'learning-report';
+      report.textContent = JSON.stringify(learningReport.measurements, null, 2);
+      box.appendChild(report);
+    }
+    const actions = document.createElement('div');
+    actions.className = 'learning-actions';
+    if (learningDetail.status === 'proposed') {
+      actions.appendChild(learningActionButton('Adopt', 'adopt'));
+      actions.appendChild(learningActionButton('Reject', 'reject'));
+    }
+    if (learningDetail.status === 'stale' || learningDetail.status === 'regression_flagged') {
+      actions.appendChild(learningActionButton('Retire', 'retire'));
+    }
+    box.appendChild(actions);
+    return box;
+  }
+
+  function learningActionButton(label, action) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    button.addEventListener('click', function () {
+      let body = null;
+      if (action === 'reject') {
+        const reason = window.prompt('Reason for rejection (optional):', '');
+        if (reason === null) return;
+        body = JSON.stringify({ reason: reason });
+      }
+      button.disabled = true;
+      apiFetch('/v1/learnings/' + encodeURIComponent(openLearningID) + '/' + action, {
+        method: 'POST',
+        headers: body ? { 'Content-Type': 'application/json' } : {},
+        body: body,
+      }).then(readAPIJSON).then(function () {
+        openLearningID = null;
+        learningDetail = null;
+        learningReport = null;
+        return loadSnapshot();
+      }).catch(function (err) {
+        learningError = String(err && err.message ? err.message : err);
+        renderLearnings();
+      }).finally(function () {
+        button.disabled = false;
+      });
+    });
+    return button;
   }
 
   function renderBlockedSection(blocked) {

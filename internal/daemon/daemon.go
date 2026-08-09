@@ -485,6 +485,7 @@ func (d *Daemon) startup(ctx context.Context) error {
 		Store:    d.store,
 		Engine:   d.engine,
 		Registry: registry,
+		Learn:    learnCfg,
 	})
 	srv.RegisterTokens(api.TokensDeps{Store: d.store})
 	srv.RegisterLearnings(api.LearningsDeps{Store: d.store, Clock: d.clk, Config: learnCfg})
