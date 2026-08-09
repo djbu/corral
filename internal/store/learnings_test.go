@@ -90,6 +90,10 @@ func TestLearningStoreLifecycleAndProvenance(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateLearningMeasurement: %v", err)
 	}
+	measurements, err := st.ListLearningMeasurements(ctx, l.ID)
+	if err != nil || len(measurements) != 1 || measurements[0].ID != "m1" || measurements[0].CreatedMs == 0 {
+		t.Fatalf("ListLearningMeasurements = (%+v,%v)", measurements, err)
+	}
 }
 
 func TestLearningStoreRejectsInvalidJSONAndForeignEvidence(t *testing.T) {

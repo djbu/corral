@@ -282,6 +282,10 @@ func (d *Daemon) startup(ctx context.Context) error {
 	if stateErr != nil {
 		d.log.Warn("using default [state] config; load failed", "err", stateErr)
 	}
+	learnCfg, _, err := config.LoadLearn()
+	if err != nil {
+		return fmt.Errorf("daemon: loading [learn] config: %w", err)
+	}
 
 	// [notify] (step 8): build the blocked-notification Dispatcher from the
 	// resolved config and hand it to the engine as its Notifier seam. Same
@@ -483,6 +487,7 @@ func (d *Daemon) startup(ctx context.Context) error {
 		Registry: registry,
 	})
 	srv.RegisterTokens(api.TokensDeps{Store: d.store})
+	srv.RegisterLearnings(api.LearningsDeps{Store: d.store, Clock: d.clk, Config: learnCfg})
 	srv.RegisterHooks(api.HooksDeps{
 		Store:   d.store,
 		Engine:  d.engine,

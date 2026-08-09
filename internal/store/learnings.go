@@ -25,6 +25,19 @@ const (
 	LearningRetired           LearningStatus = "retired"
 )
 
+func ValidLearningStatus(status LearningStatus) bool {
+	if status == "" {
+		return true
+	}
+	switch status {
+	case LearningCandidate, LearningVerified, LearningProposed, LearningAdopted,
+		LearningRejected, LearningRegressionFlagged, LearningStale, LearningRetired:
+		return true
+	default:
+		return false
+	}
+}
+
 var (
 	ErrInvalidLearning           = errors.New("store: invalid learning")
 	ErrInvalidLearningTransition = errors.New("store: invalid learning transition")
@@ -140,6 +153,9 @@ func (s *Store) GetLearningByFingerprint(ctx context.Context, repo string, kind 
 }
 
 func (s *Store) ListLearnings(ctx context.Context, repo string, status LearningStatus) ([]*Learning, error) {
+	if !ValidLearningStatus(status) {
+		return nil, ErrInvalidLearning
+	}
 	query := learningColumns + ` WHERE (?='' OR repo=?) AND (?='' OR status=?) ORDER BY updated_ms DESC,id ASC`
 	rows, err := s.db.QueryContext(ctx, query, repo, repo, string(status), string(status))
 	if err != nil {
@@ -243,6 +259,26 @@ func (s *Store) CreateLearningMeasurement(ctx context.Context, m LearningMeasure
 		return fmt.Errorf("store: creating learning measurement: %w", err)
 	}
 	return nil
+}
+
+func (s *Store) ListLearningMeasurements(ctx context.Context, learningID string) ([]LearningMeasurement, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id,learning_id,phase,metrics_json,verdict,
+		window_start_ms,window_end_ms,created_ms FROM learning_measurements
+		WHERE learning_id=? ORDER BY window_start_ms,phase,id`, learningID)
+	if err != nil {
+		return nil, fmt.Errorf("store: listing learning measurements: %w", err)
+	}
+	defer rows.Close()
+	var out []LearningMeasurement
+	for rows.Next() {
+		var m LearningMeasurement
+		if err := rows.Scan(&m.ID, &m.LearningID, &m.Phase, &m.MetricsJSON, &m.Verdict,
+			&m.WindowStartMs, &m.WindowEndMs, &m.CreatedMs); err != nil {
+			return nil, fmt.Errorf("store: scanning learning measurement: %w", err)
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
 }
 
 func scanLearning(row interface{ Scan(...any) error }) (*Learning, error) {
