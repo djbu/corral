@@ -411,6 +411,7 @@ func (d *Daemon) startup(ctx context.Context) error {
 		Registry: registry,
 	})
 	srv.RegisterDags(api.DagsDeps{Store: d.store})
+	srv.RegisterTokens(api.TokensDeps{Store: d.store})
 	srv.RegisterHooks(api.HooksDeps{
 		Store:   d.store,
 		Engine:  d.engine,
