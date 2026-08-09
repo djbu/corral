@@ -263,7 +263,9 @@ La línea funcional M0–M6 está cerrada en `v0.6.0`: sesiones interactivas,
 hooks, notificaciones, checkpoint/recovery, DAGs, acceso remoto, dashboard y el
 primer learning loop verificado.
 
-El proyecto continúa en pre-alpha. Los pendientes principales son:
+El proyecto continúa en pre-alpha. El orden, dependencias y gates están en el
+[plan ejecutable post-M6](../roadmap/POST_M6.md). Los pendientes principales
+son:
 
 1. empaquetado de releases para macOS/Linux, instalador, Homebrew, firma y
    notarización;

@@ -208,8 +208,13 @@ early close after satisfying the denominators; its timestamps and underlying
 history were not altered. The fixed 14-day report remains the default and a
 useful longitudinal follow-up, not an artificial release delay.
 
-### Post-M6 backlog (unordered)
-Windows support, multi-user/team mode (shared fleet learnings — the paid tier), Slack/Telegram notifier, session templates, Agent-SDK-based runner as alternative to CLI subprocess, claude version pinning per repo (`corral doctor` flags drift).
+### Post-M6 execution plan
+
+The former unordered backlog is now sequenced in
+[`docs/roadmap/POST_M6.md`](docs/roadmap/POST_M6.md). M7 is release engineering
+and operability; only after corral is installable, upgradable, recoverable, and
+covered by normal CI do review completion, fleet reliability, collaboration,
+additional learning kinds, Windows, and alternate runners begin.
 
 ---
 
