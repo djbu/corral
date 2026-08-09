@@ -174,7 +174,7 @@ Prove the two risky primitives before building anything real:
 
 **Exit criteria:** manage a session on a home server from a phone browser.
 
-### M6 — Learning loop (working name: hermes)
+### M6 — Learning loop (working name: hermes) — in progress
 
 Thesis: every supervised session is an experiment; the runtime that observes all of them can compound their lessons into durable per-repo artifacts. Generating skills with an LLM is table stakes (`headroom learn`, skill-creator already exist) — the differentiator is **closing the loop with verification and measured adoption**, which only the runtime owner can do: corral sees full trajectories (hooks + stream-json + task outcomes + cost + corrections), can spawn cheap headless sessions to verify candidates, and can measure effect after adoption.
 
