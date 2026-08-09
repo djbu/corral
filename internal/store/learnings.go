@@ -246,6 +246,46 @@ type LearningMeasurement struct {
 	WindowStartMs, WindowEndMs, CreatedMs       int64
 }
 
+type AdoptLearningParams struct {
+	LearningID    string
+	AdoptedMs     int64
+	ExpiresMs     int64
+	MeasurementID string
+	WindowStartMs int64
+	MetricsJSON   string
+}
+
+func (s *Store) AdoptLearning(ctx context.Context, p AdoptLearningParams) (*Learning, error) {
+	if p.LearningID == "" || p.AdoptedMs <= p.WindowStartMs || p.ExpiresMs <= p.AdoptedMs ||
+		p.MeasurementID == "" || !json.Valid([]byte(p.MetricsJSON)) {
+		return nil, ErrInvalidLearning
+	}
+	err := s.withTx(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `UPDATE learnings SET status=?,updated_ms=?,adopted_ms=?,expires_ms=?
+			WHERE id=? AND status=?`, string(LearningAdopted), p.AdoptedMs, p.AdoptedMs,
+			p.ExpiresMs, p.LearningID, string(LearningProposed))
+		if err != nil {
+			return fmt.Errorf("store: adopting learning: %w", err)
+		}
+		n, _ := res.RowsAffected()
+		if n != 1 {
+			return ErrInvalidLearningTransition
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO learning_measurements
+			(id,learning_id,phase,window_start_ms,window_end_ms,metrics_json,verdict,created_ms)
+			VALUES (?,?,?,?,?,?,?,?)`, p.MeasurementID, p.LearningID, "baseline",
+			p.WindowStartMs, p.AdoptedMs, p.MetricsJSON, "baseline", p.AdoptedMs)
+		if err != nil {
+			return fmt.Errorf("store: recording adoption baseline: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return s.GetLearning(ctx, p.LearningID)
+}
+
 func (s *Store) CreateLearningMeasurement(ctx context.Context, m LearningMeasurement) error {
 	if m.ID == "" || m.LearningID == "" || m.Phase == "" || m.Verdict == "" ||
 		m.WindowEndMs <= m.WindowStartMs || !json.Valid([]byte(m.MetricsJSON)) {
@@ -253,7 +293,8 @@ func (s *Store) CreateLearningMeasurement(ctx context.Context, m LearningMeasure
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO learning_measurements
 		(id,learning_id,phase,window_start_ms,window_end_ms,metrics_json,verdict,created_ms)
-		VALUES (?,?,?,?,?,?,?,?)`, m.ID, m.LearningID, m.Phase, m.WindowStartMs,
+		VALUES (?,?,?,?,?,?,?,?)
+		ON CONFLICT(learning_id,phase,window_start_ms,window_end_ms) DO NOTHING`, m.ID, m.LearningID, m.Phase, m.WindowStartMs,
 		m.WindowEndMs, m.MetricsJSON, m.Verdict, s.clk.Now().UnixMilli())
 	if err != nil {
 		return fmt.Errorf("store: creating learning measurement: %w", err)

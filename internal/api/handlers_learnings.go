@@ -198,20 +198,25 @@ type measurementResponse struct {
 type learningReportResponse struct {
 	Learning     learningResponse      `json:"learning"`
 	Measurements []measurementResponse `json:"measurements"`
+	EligibleAtMs int64                 `json:"eligible_at_ms,omitempty"`
 }
 
 func (d LearningsDeps) handleLearningReport(w http.ResponseWriter, r *http.Request) {
+	if _, scoped := scopedLearningRepo(r.Context(), d.Store); scoped {
+		writeError(w, http.StatusForbidden, CodeForbidden, "session-scoped tokens may only list or show learnings", nil)
+		return
+	}
 	l, ok := d.authorizedLearning(w, r)
 	if !ok {
 		return
 	}
-	rows, err := d.Store.ListLearningMeasurements(r.Context(), l.ID)
+	report, err := learning.NewReporter(d.Store, d.Clock, d.Config).Generate(r.Context(), l.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
 		return
 	}
-	out := learningReportResponse{Learning: toLearningResponse(l), Measurements: make([]measurementResponse, 0, len(rows))}
-	for _, m := range rows {
+	out := learningReportResponse{Learning: toLearningResponse(report.Learning), Measurements: make([]measurementResponse, 0, len(report.Measurements)), EligibleAtMs: report.EligibleAtMs}
+	for _, m := range report.Measurements {
 		out.Measurements = append(out.Measurements, measurementResponse{
 			ID: m.ID, Phase: m.Phase, WindowStartMs: m.WindowStartMs,
 			WindowEndMs: m.WindowEndMs, Metrics: json.RawMessage(m.MetricsJSON),
@@ -269,9 +274,7 @@ func (d LearningsDeps) handleAdoptLearning(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
-	updated, err := d.Store.TransitionLearning(r.Context(), l.ID, store.LearningTransition{
-		From: store.LearningProposed, To: store.LearningAdopted,
-	})
+	updated, err := learning.NewReporter(d.Store, d.Clock, d.Config).Adopt(r.Context(), l.ID)
 	if errors.Is(err, store.ErrInvalidLearningTransition) {
 		writeError(w, http.StatusConflict, CodeLearningConflict, "only a proposed learning may be adopted", nil)
 		return

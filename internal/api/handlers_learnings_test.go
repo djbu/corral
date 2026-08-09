@@ -114,6 +114,10 @@ func TestLearningsAPI_SessionTokenScope(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("scoped reject status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	rec = scopedVersionedRequest(t, srv.Handler(), tokenCtx, http.MethodGet, "/v1/learnings/a/report", nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("scoped report status=%d body=%s", rec.Code, rec.Body.String())
+	}
 }
 
 func TestLearningsAPI_RejectRedactsOperatorReason(t *testing.T) {

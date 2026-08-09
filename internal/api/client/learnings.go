@@ -55,6 +55,7 @@ type LearningMeasurementInfo struct {
 type LearningReport struct {
 	Learning     LearningInfo              `json:"learning"`
 	Measurements []LearningMeasurementInfo `json:"measurements"`
+	EligibleAtMs int64                     `json:"eligible_at_ms"`
 }
 
 func (c *Client) ScanLearnings(ctx context.Context, repo string) (ScanLearningsResult, error) {
