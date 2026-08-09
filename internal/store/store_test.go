@@ -126,6 +126,28 @@ func TestStore_CreateSession_DuplicateNameIsTypedError(t *testing.T) {
 	}
 }
 
+func TestStore_CreateSession_DuplicateIDIsNotDuplicateNameError(t *testing.T) {
+	st, _ := openTestStore(t)
+	ctx := context.Background()
+
+	if _, err := st.CreateSession(ctx, sampleCreateParams("dup-id", "name-a")); err != nil {
+		t.Fatalf("first CreateSession: %v", err)
+	}
+	// Same id, different name: only the id PRIMARY KEY collides, not the
+	// sessions_name_active partial unique index. isUniqueConstraintError
+	// must not fire here (it only recognizes SQLITE_CONSTRAINT_UNIQUE,
+	// code 2067) — a PRIMARY KEY collision (code 1555) is a distinct,
+	// unhandled-by-CreateSession failure mode, so this must NOT be
+	// reported as ErrDuplicateName.
+	_, err := st.CreateSession(ctx, sampleCreateParams("dup-id", "name-b"))
+	if err == nil {
+		t.Fatal("second CreateSession with duplicate id: want error, got nil")
+	}
+	if errors.Is(err, ErrDuplicateName) {
+		t.Fatalf("second CreateSession: err = %v, want anything but ErrDuplicateName (id collision, not name collision)", err)
+	}
+}
+
 func TestStore_ListSessions_OrderedByCreation(t *testing.T) {
 	st, fc := openTestStore(t)
 	ctx := context.Background()

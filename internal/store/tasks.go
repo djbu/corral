@@ -1,0 +1,413 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+)
+
+// TaskStatus mirrors the session.Status string-enum convention (design doc
+// m4.md §3.2 "sharp edges"): tasks.status has no CHECK constraint, so
+// validity is enforced in Go, not SQLite.
+type TaskStatus string
+
+const (
+	TaskPending   TaskStatus = "pending"
+	TaskReady     TaskStatus = "ready"
+	TaskRunning   TaskStatus = "running"
+	TaskSucceeded TaskStatus = "succeeded"
+	TaskFailed    TaskStatus = "failed"
+	TaskCancelled TaskStatus = "cancelled"
+	TaskBlocked   TaskStatus = "blocked"
+)
+
+// ErrBudgetRowMissing is returned by AddCost when taskID's dag has no
+// dag_budgets row. CreateDAGBudget is the sole writer of that row, and
+// `corral run` submission (m4.md §13 step 24) always calls it once before
+// inserting any task belonging to the dag, so this should be unreachable
+// in normal operation. AddCost deliberately refuses to paper over it by
+// inserting the missing row itself — that would hide a submission-ordering
+// bug (tasks landing before their dag's budget row) instead of surfacing
+// it.
+var ErrBudgetRowMissing = errors.New("store: dag_budgets row missing for task's dag")
+
+// ErrDAGBudgetExists is returned by CreateDAGBudget when dagID already has
+// a budget row. CreateDAGBudget is the sole writer of dag_budgets rows
+// (m4.md §3.3) and errors on a duplicate insert rather than silently
+// no-op'ing, so a caller that races or retries submission notices instead
+// of assuming its budget_usd value won. A caller that wants idempotent
+// resubmission should check GetTask/ListTasks (or catch this error) rather
+// than rely on a soft no-op here.
+var ErrDAGBudgetExists = errors.New("store: dag budget already exists")
+
+// Task is the persisted view of a row in the tasks table (m4.md §3.2).
+// Nullable DB columns map to "" (string columns) or a nil pointer
+// (BudgetUSD), matching the session.Session convention in sessions.go.
+type Task struct {
+	ID             string
+	DAGID          string
+	Name           string
+	Prompt         string
+	Repo           string
+	Cwd            string
+	Worktree       string
+	Branch         string
+	Model          string
+	PermissionMode string
+	Status         TaskStatus
+	Attempts       int
+	MaxAttempts    int
+	SessionID      string
+	CostUSD        float64
+	BudgetUSD      *float64
+	CreatedMs      int64
+	UpdatedMs      int64
+}
+
+// CreateTaskParams is everything CreateTask needs to insert a new row.
+// Attempts always starts at 0 and cost_usd at 0 — CreateTask hardcodes
+// both rather than taking them as fields, since a freshly created task has
+// made no attempts and accrued no cost. Timestamps are stamped by
+// CreateTask from the Store's Clock, never passed in.
+type CreateTaskParams struct {
+	ID             string
+	DAGID          string
+	Name           string
+	Prompt         string
+	Repo           string
+	Cwd            string
+	Worktree       string
+	Branch         string
+	Model          string
+	PermissionMode string
+	Status         TaskStatus
+	MaxAttempts    int // <= 0 defaults to 1, matching the column's DEFAULT 1
+	BudgetUSD      *float64
+}
+
+// CreateTask inserts a new task row and returns it persisted (i.e.
+// re-fetched, matching CreateSession's pattern).
+func (s *Store) CreateTask(ctx context.Context, p CreateTaskParams) (*Task, error) {
+	maxAttempts := p.MaxAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = 1
+	}
+	status := p.Status
+	if status == "" {
+		// A task with no explicit status is newly created and has no
+		// deps resolved yet either way — default to pending rather than
+		// writing "" into a NOT NULL, non-CHECK-constrained column.
+		// Leaving it "" would silently exclude the row from every status
+		// filter (ReadyTasks' `status IN ('pending','ready')`,
+		// RunningTasks' `status = 'running'`), making the task
+		// permanently unschedulable with no error anywhere.
+		status = TaskPending
+	}
+	now := s.clk.Now().UnixMilli()
+
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO tasks (
+			id, dag_id, name, prompt, repo, cwd, worktree, branch, model,
+			permission_mode, status, attempts, max_attempts, session_id,
+			cost_usd, budget_usd, created_ms, updated_ms
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, 0, ?, ?, ?)
+	`,
+		p.ID, p.DAGID, p.Name, p.Prompt, p.Repo, p.Cwd, nullableStr(p.Worktree),
+		nullableStr(p.Branch), nullableStr(p.Model), nullableStr(p.PermissionMode),
+		string(status), maxAttempts, nullableFloatPtr(p.BudgetUSD), now, now,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: creating task %s: %w", p.Name, err)
+	}
+	return s.GetTask(ctx, p.ID)
+}
+
+// GetTask returns the task with the given id, or ErrNotFound.
+func (s *Store) GetTask(ctx context.Context, id string) (*Task, error) {
+	row := s.db.QueryRowContext(ctx, taskSelectColumns+" FROM tasks WHERE id = ?", id)
+	return scanTask(row)
+}
+
+// ListTasks returns every task belonging to dagID, ordered by created_ms
+// ascending (i.e. creation order) for deterministic output.
+func (s *Store) ListTasks(ctx context.Context, dagID string) ([]*Task, error) {
+	rows, err := s.db.QueryContext(ctx,
+		taskSelectColumns+" FROM tasks WHERE dag_id = ? ORDER BY created_ms ASC, id ASC", dagID)
+	if err != nil {
+		return nil, fmt.Errorf("store: listing tasks for dag %s: %w", dagID, err)
+	}
+	defer rows.Close()
+
+	var out []*Task
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: listing tasks for dag %s: %w", dagID, err)
+	}
+	return out, nil
+}
+
+// UpdateTask loads the task with id, applies mutate to it, and writes
+// every mutable column back — all inside one transaction, mirroring
+// UpdateSession's read-modify-write pattern exactly. updated_ms is always
+// bumped to the Store's current clock time. mutate must not change ID,
+// DAGID, or CreatedMs; if it does, those changes are discarded (id is the
+// WHERE key, CreatedMs is immutable by design, and DAGID must stay stable
+// because AddCost's dag rollup and ReadyTasks' dep-graph queries are both
+// keyed on it).
+func (s *Store) UpdateTask(ctx context.Context, id string, mutate func(*Task)) (*Task, error) {
+	var updated *Task
+	err := s.withTx(ctx, func(tx *sql.Tx) error {
+		row := tx.QueryRowContext(ctx, taskSelectColumns+" FROM tasks WHERE id = ?", id)
+		t, err := scanTask(row)
+		if err != nil {
+			return err
+		}
+
+		originalID, originalDAGID, originalCreated := t.ID, t.DAGID, t.CreatedMs
+		mutate(t)
+		t.ID = originalID
+		t.DAGID = originalDAGID
+		t.CreatedMs = originalCreated
+		t.UpdatedMs = s.clk.Now().UnixMilli()
+
+		_, err = tx.ExecContext(ctx, `
+			UPDATE tasks SET
+				name = ?, prompt = ?, repo = ?, cwd = ?, worktree = ?, branch = ?,
+				model = ?, permission_mode = ?, status = ?, attempts = ?,
+				max_attempts = ?, session_id = ?, cost_usd = ?, budget_usd = ?,
+				updated_ms = ?
+			WHERE id = ?
+		`,
+			t.Name, t.Prompt, t.Repo, t.Cwd, nullableStr(t.Worktree), nullableStr(t.Branch),
+			nullableStr(t.Model), nullableStr(t.PermissionMode), string(t.Status), t.Attempts,
+			t.MaxAttempts, nullableStr(t.SessionID), t.CostUSD, nullableFloatPtr(t.BudgetUSD),
+			t.UpdatedMs, t.ID,
+		)
+		if err != nil {
+			return fmt.Errorf("store: updating task %s: %w", t.ID, err)
+		}
+		updated = t
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+// AddDep records that taskID depends on dependsOn (task_deps, m4.md §3.2):
+// taskID cannot become ready until dependsOn reaches status='succeeded'.
+// Both ids must already exist — the ON DELETE CASCADE foreign keys enforce
+// that at runtime (the long-lived connection runs with foreign_keys ON) and
+// a violation surfaces as a wrapped error here. Cycle detection is the
+// orchestrator's job (m4.md §8.1), not the store's.
+func (s *Store) AddDep(ctx context.Context, taskID, dependsOn string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO task_deps (task_id, depends_on) VALUES (?, ?)`,
+		taskID, dependsOn,
+	)
+	if err != nil {
+		return fmt.Errorf("store: adding dep %s -> %s: %w", taskID, dependsOn, err)
+	}
+	return nil
+}
+
+// ReadyTasks returns dagID's tasks that are ready to run: status is
+// 'pending' or 'ready', and every dependency (if any) has reached
+// status='succeeded'. A task with no deps at all is ready by definition —
+// the NOT EXISTS subquery is vacuously true for it.
+func (s *Store) ReadyTasks(ctx context.Context, dagID string) ([]*Task, error) {
+	rows, err := s.db.QueryContext(ctx,
+		taskSelectColumns+`
+		FROM tasks
+		WHERE dag_id = ?
+		AND status IN ('pending', 'ready')
+		AND NOT EXISTS (
+			SELECT 1 FROM task_deps d
+			JOIN tasks dep ON dep.id = d.depends_on
+			WHERE d.task_id = tasks.id AND dep.status != 'succeeded'
+		)
+		ORDER BY created_ms ASC, id ASC
+	`, dagID)
+	if err != nil {
+		return nil, fmt.Errorf("store: listing ready tasks for dag %s: %w", dagID, err)
+	}
+	defer rows.Close()
+
+	var out []*Task
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: listing ready tasks for dag %s: %w", dagID, err)
+	}
+	return out, nil
+}
+
+// RunningTasks returns every task with status='running' across ALL dags,
+// for the orchestrator's daemon-start reconciliation (m4.md §9): on
+// restart it rebuilds its in-flight set from this rather than trusting
+// anything held in memory before the crash/restart.
+func (s *Store) RunningTasks(ctx context.Context) ([]*Task, error) {
+	rows, err := s.db.QueryContext(ctx,
+		taskSelectColumns+" FROM tasks WHERE status = ? ORDER BY dag_id ASC, created_ms ASC, id ASC",
+		string(TaskRunning),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: listing running tasks: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*Task
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: listing running tasks: %w", err)
+	}
+	return out, nil
+}
+
+// SetTaskSession points taskID at the session (or the current attempt's
+// session) by id. Pass "" to clear it back to NULL. Returns ErrNotFound if
+// taskID doesn't exist.
+func (s *Store) SetTaskSession(ctx context.Context, taskID, sessionID string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE tasks SET session_id = ?, updated_ms = ? WHERE id = ?`,
+		nullableStr(sessionID), s.clk.Now().UnixMilli(), taskID,
+	)
+	if err != nil {
+		return fmt.Errorf("store: setting session for task %s: %w", taskID, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("store: checking task %s update: %w", taskID, err)
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// AddCost adds usd to both taskID's cost_usd and its dag's dag_budgets
+// row, in one transaction (m4.md §3.3, §7). It only UPDATEs — it never
+// inserts the dag_budgets row — so if that row is missing (CreateDAGBudget
+// was never called for this dag) it returns ErrBudgetRowMissing and rolls
+// back the task-side update too, rather than silently leaving the task's
+// cost updated but the dag's rollup untouched.
+func (s *Store) AddCost(ctx context.Context, taskID string, usd float64) error {
+	return s.withTx(ctx, func(tx *sql.Tx) error {
+		var dagID string
+		err := tx.QueryRowContext(ctx, `SELECT dag_id FROM tasks WHERE id = ?`, taskID).Scan(&dagID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("store: looking up dag for task %s: %w", taskID, err)
+		}
+
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE tasks SET cost_usd = cost_usd + ?, updated_ms = ? WHERE id = ?`,
+			usd, s.clk.Now().UnixMilli(), taskID,
+		); err != nil {
+			return fmt.Errorf("store: adding cost to task %s: %w", taskID, err)
+		}
+
+		res, err := tx.ExecContext(ctx,
+			`UPDATE dag_budgets SET cost_usd = cost_usd + ? WHERE dag_id = ?`,
+			usd, dagID,
+		)
+		if err != nil {
+			return fmt.Errorf("store: adding cost to dag %s budget: %w", dagID, err)
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("store: checking dag %s budget update: %w", dagID, err)
+		}
+		if n == 0 {
+			return fmt.Errorf("%w: dag %s (task %s)", ErrBudgetRowMissing, dagID, taskID)
+		}
+		return nil
+	})
+}
+
+// CreateDAGBudget inserts dagID's dag_budgets row (cost_usd starts at 0).
+// It is the SOLE writer of that row — AddCost only ever UPDATEs it and
+// assumes it already exists (m4.md §3.3). Calling this twice for the same
+// dagID returns ErrDAGBudgetExists rather than silently no-op'ing or
+// clobbering an in-progress rollup: callers that want idempotent
+// resubmission must check first, not rely on a soft second call.
+func (s *Store) CreateDAGBudget(ctx context.Context, dagID string, budgetUSD *float64) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO dag_budgets (dag_id, budget_usd, cost_usd) VALUES (?, ?, 0)`,
+		dagID, nullableFloatPtr(budgetUSD),
+	)
+	if err != nil {
+		if isPrimaryKeyConstraintError(err) {
+			return fmt.Errorf("%w: %s", ErrDAGBudgetExists, dagID)
+		}
+		return fmt.Errorf("store: creating dag budget for %s: %w", dagID, err)
+	}
+	return nil
+}
+
+const taskSelectColumns = `SELECT
+	id, dag_id, name, prompt, repo, cwd, worktree, branch, model,
+	permission_mode, status, attempts, max_attempts, session_id,
+	cost_usd, budget_usd, created_ms, updated_ms`
+
+func scanTask(row rowScanner) (*Task, error) {
+	var (
+		t                                       Task
+		status                                  string
+		worktree, branch, model, permMode, sess sql.NullString
+		budgetUSD                               sql.NullFloat64
+	)
+
+	err := row.Scan(
+		&t.ID, &t.DAGID, &t.Name, &t.Prompt, &t.Repo, &t.Cwd, &worktree, &branch,
+		&model, &permMode, &status, &t.Attempts, &t.MaxAttempts, &sess,
+		&t.CostUSD, &budgetUSD, &t.CreatedMs, &t.UpdatedMs,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: scanning task: %w", err)
+	}
+
+	t.Status = TaskStatus(status)
+	t.Worktree = worktree.String
+	t.Branch = branch.String
+	t.Model = model.String
+	t.PermissionMode = permMode.String
+	t.SessionID = sess.String
+	if budgetUSD.Valid {
+		v := budgetUSD.Float64
+		t.BudgetUSD = &v
+	}
+
+	return &t, nil
+}
+
+func nullableFloatPtr(p *float64) any {
+	if p == nil {
+		return nil
+	}
+	return *p
+}

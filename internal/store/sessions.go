@@ -40,6 +40,32 @@ func isUniqueConstraintError(err error) bool {
 	return strings.Contains(err.Error(), "UNIQUE constraint failed")
 }
 
+// sqliteConstraintPrimaryKey is SQLITE_CONSTRAINT_PRIMARYKEY (sqlite3.h),
+// the extended result code for a duplicate insert against a PRIMARY KEY
+// column (as opposed to sqliteConstraintUnique above, which fires for a
+// separate UNIQUE index/constraint such as sessions_name_active). tasks.go
+// uses this for dag_budgets.dag_id, whose only uniqueness comes from being
+// the table's PRIMARY KEY. Kept as its own helper — rather than folding
+// into isUniqueConstraintError — because widening that shared helper would
+// silently change CreateSession/UpdateSession's duplicate-name detection
+// to also fire on an id collision, misreporting it as ErrDuplicateName.
+const sqliteConstraintPrimaryKey = 1555
+
+func isPrimaryKeyConstraintError(err error) bool {
+	var serr *sqlite.Error
+	if errors.As(err, &serr) {
+		return serr.Code() == sqliteConstraintPrimaryKey
+	}
+	// Fallback in case the error was wrapped by something that doesn't
+	// preserve the concrete type through errors.As. modernc.org/sqlite's
+	// message text says "UNIQUE constraint failed" even for a PRIMARYKEY
+	// violation (verified: "UNIQUE constraint failed: dag_budgets.dag_id
+	// (1555)", 1555 being the PRIMARYKEY code) — check both wordings.
+	msg := err.Error()
+	return strings.Contains(msg, "PRIMARY KEY constraint failed") ||
+		strings.Contains(msg, "UNIQUE constraint failed")
+}
+
 // CreateSessionParams is everything CreateSession needs to insert a new
 // row. Timestamps are never passed in — CreateSession stamps
 // created_at_ms/updated_at_ms/last_activity_ms itself from the Store's
