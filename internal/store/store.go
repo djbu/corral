@@ -40,6 +40,11 @@ func migrationsFS() fs.FS {
 type Store struct {
 	db  *sql.DB
 	clk clock.Clock
+	// pub is step 32's SSE fan-out seam (see events.go's EventPublisher). Set
+	// once at daemon startup via SetEventPublisher, before any goroutine can
+	// call AppendEvent, so a plain field needs no lock/atomic to be safe for
+	// concurrent readers thereafter.
+	pub EventPublisher
 }
 
 // dbtx is the subset of *sql.DB / *sql.Tx that CRUD methods need. Every

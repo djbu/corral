@@ -113,6 +113,14 @@ type Daemon struct {
 	tcpListener net.Listener
 	tcpSrv      *http.Server
 
+	// broker is step 32's SSE fan-out: GET /v1/events/stream subscribes to
+	// it, and store.Store publishes every AppendEvent to it (wired via
+	// SetEventPublisher right after d.store is opened, below). Closed in
+	// shutdown.go immediately after the daemon.stopping event is appended,
+	// so every live stream ends promptly instead of hanging on
+	// srv.Shutdown's wait for in-flight handlers to return.
+	broker *api.Broker
+
 	sockPath string
 	pidPath  string
 
@@ -222,6 +230,8 @@ func (d *Daemon) startup(ctx context.Context) error {
 		return err
 	}
 	d.store = st
+	d.broker = api.NewBroker()
+	d.store.SetEventPublisher(d.broker)
 	schemaVersion, err := d.store.SchemaVersion(ctx)
 	if err != nil {
 		return err
@@ -472,6 +482,7 @@ func (d *Daemon) startup(ctx context.Context) error {
 		Secrets: registry,
 	})
 	srv.RegisterAttach(registry, d.log)
+	srv.RegisterEvents(api.EventsDeps{Broker: d.broker, Clock: d.clk, Log: d.log})
 	d.srv = &http.Server{Handler: srv.Handler()}
 	go func() {
 		if err := d.srv.Serve(ln); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {

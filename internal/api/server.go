@@ -60,6 +60,19 @@ func versionMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Corral-Api-Version", strconv.Itoa(version.APIVersion))
 		w.Header().Set("Corral-Daemon-Version", version.Version)
 
+		// Step 32: browser EventSource cannot set custom request headers, so
+		// GET /v1/events/stream alone is exempt from the handshake — its
+		// version is instead settled by these two response headers, already
+		// set above. This is auth-safe, not an auth bypass: on the
+		// network-facing (TCP) listener this middleware only runs inside
+		// bearerAuth (Server.AuthenticatedHandler wraps versionMiddleware,
+		// not the reverse), so an unauthenticated caller still never reaches
+		// this handler at all.
+		if r.URL.Path == "/v1/events/stream" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		raw := r.Header.Get("Corral-Api-Version")
 		if raw == "" {
 			writeError(w, http.StatusBadRequest, CodeVersionMismatch,

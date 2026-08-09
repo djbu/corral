@@ -13,6 +13,27 @@ import (
 // UpdateEvent, no DeleteEvent, no generic Exec escape hatch — nothing else
 // in this package writes to the events table.
 
+// EventPublisher receives a copy of every event as it's durably appended.
+// Step 32's api.Broker implements this so GET /v1/events/stream can fan out
+// live events without this package importing api (which would cycle back
+// through api -> store). PublishEvent must not block: AppendEvent holds no
+// lock while calling it, but a slow/blocking implementation would still
+// stall every caller of AppendEvent, corral-wide. api.Broker's
+// implementation is non-blocking by construction (buffered channel + a
+// drop-and-flag-resync default case).
+type EventPublisher interface {
+	PublishEvent(ev session.Event)
+}
+
+// SetEventPublisher wires p to receive every event AppendEvent durably
+// commits, from this call onward (events already committed are not
+// replayed — callers needing history use ListEvents). Call this once at
+// startup, before any goroutine can call AppendEvent; Store does not
+// synchronize access to pub itself.
+func (s *Store) SetEventPublisher(p EventPublisher) {
+	s.pub = p
+}
+
 // AppendEvent inserts a new event and returns it with its assigned Seq and
 // TsMs populated. sessionID is "" for a daemon-scoped event (persisted as
 // NULL). dataJSON must be valid JSON; "" is treated as "{}" (the column
@@ -36,13 +57,17 @@ func (s *Store) AppendEvent(ctx context.Context, sessionID string, kind session.
 		return nil, fmt.Errorf("store: reading appended event seq: %w", err)
 	}
 
-	return &session.Event{
+	ev := &session.Event{
 		Seq:       seq,
 		SessionID: sessionID,
 		TsMs:      now,
 		Kind:      kind,
 		DataJSON:  dataJSON,
-	}, nil
+	}
+	if s.pub != nil {
+		s.pub.PublishEvent(*ev)
+	}
+	return ev, nil
 }
 
 // ListEvents returns every event for sessionID, ordered by seq ascending

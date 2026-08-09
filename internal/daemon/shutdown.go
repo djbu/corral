@@ -23,6 +23,19 @@ func (d *Daemon) shutdown(ctx context.Context, grace time.Duration) error {
 		d.log.Warn("recording daemon.stopping event", "err", err)
 	}
 
+	// Close the SSE broker before anything else below: closing it unblocks
+	// every GET /v1/events/stream handler's select loop (broker.Done())
+	// immediately, so those long-lived handlers return well before we get
+	// to srv.Shutdown/tcpSrv.Shutdown further down — otherwise Shutdown's
+	// wait for in-flight handlers to finish would hang on a stream that has
+	// no other reason to end (its request context only cancels once the
+	// underlying connection drops, which a live client may never do on its
+	// own). No delivery ordering is promised by this: a subscriber may or
+	// may not see this event stopping frame before its stream ends.
+	if d.broker != nil {
+		d.broker.Close()
+	}
+
 	// Stop the idle reaper before checkpointing live sessions, so it can't
 	// launch a reap that races the shutdown checkpoint. Close joins the
 	// goroutine; after it returns no reap is in flight. It writes to the store

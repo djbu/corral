@@ -69,14 +69,27 @@ func bearerAuth(next http.Handler, auth tokenAuthStore, log *slog.Logger) http.H
 		log = slog.Default()
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		presented, headerOK := bearerToken(r.Header.Get("Authorization"))
+		presented, haveToken := bearerToken(r.Header.Get("Authorization"))
+
+		// Step 32: GET /v1/events/stream is consumed by browser EventSource,
+		// which cannot set custom headers, so it alone may also present its
+		// token as ?token=... . The Authorization header always wins when
+		// present — the query-string fallback only applies when the header
+		// yielded nothing at all — and this path is the only one exempted;
+		// every other route still requires the header. Never logged: the
+		// token only ever flows into VerifyToken below.
+		if !haveToken && r.URL.Path == "/v1/events/stream" {
+			if q := r.URL.Query().Get("token"); q != "" {
+				presented, haveToken = q, true
+			}
+		}
 
 		var (
 			row store.TokenRow
 			ok  bool
 			err error
 		)
-		if headerOK {
+		if haveToken {
 			row, ok, err = auth.VerifyToken(r.Context(), presented)
 		}
 		if err != nil {
@@ -87,7 +100,7 @@ func bearerAuth(next http.Handler, auth tokenAuthStore, log *slog.Logger) http.H
 			writeError(w, http.StatusInternalServerError, CodeInternal, "internal error", nil)
 			return
 		}
-		if !headerOK || !ok {
+		if !haveToken || !ok {
 			// Always run the constant-time compare, even when
 			// VerifyToken was never called (missing/malformed header),
 			// so the 401's timing cannot be used to distinguish "no

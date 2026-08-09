@@ -296,6 +296,189 @@ func TestForeground_TCPListener_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestForeground_SSEStream_ClosesOnShutdown is step 32's regression test for
+// the shutdown ordering in shutdown.go: broker.Close() must run before
+// tcpSrv.Shutdown, because http.Server.Shutdown(context.Background()) has no
+// deadline of its own and only returns once every in-flight handler
+// returns — and a live GET /v1/events/stream handler never returns on its
+// own (its request context only cancels when the underlying connection
+// drops, which a well-behaved EventSource client never does). Without
+// broker.Close() unblocking that handler's select loop first, this test's
+// call to stop() would hang until its own internal 5s safety-net fires,
+// instead of completing promptly.
+//
+// This also exercises both EventSource-only exemptions end to end on the
+// real network-facing TCP+TLS listener (not just the internal/api unit
+// tests): no Corral-Api-Version header, and a ?token=... query param
+// instead of an Authorization header.
+func TestForeground_SSEStream_ClosesOnShutdown(t *testing.T) {
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen (free port probe): %v", err)
+	}
+	addr := probe.Addr().String()
+	probe.Close()
+
+	// Points session spawning at a binary that can't exist, so
+	// POST /v1/sessions's session.created event (handlers_sessions.go)
+	// still gets durably appended — and published to the SSE broker —
+	// before the subsequent Registry.Spawn call fails. That failure
+	// surfaces as a 500 to the client, which this test ignores: only the
+	// broker-published event matters here, not whether a real session ever
+	// starts running.
+	t.Setenv("CORRAL_SESSION_CLAUDE_BIN", filepath.Join(t.TempDir(), "no-such-claude-binary"))
+
+	cfg := testConfig(t)
+	cfg.Listen = addr
+
+	c, stop := startForTest(t, cfg)
+	// stop() is not safe to call twice (its second call would block on an
+	// already-drained runErr channel until its own 5s Fatal fires), so any
+	// t.Fatalf between here and the deliberate stop() call below — over TLS
+	// cert loading, CreateToken, the stream request, or reading frames off
+	// it — must still tear the daemon down, or it keeps the flock and TCP
+	// port held for the rest of this test binary's other daemon tests.
+	stopped := false
+	defer func() {
+		if !stopped {
+			stop()
+		}
+	}()
+
+	certPEM, err := os.ReadFile(filepath.Join(cfg.StateDir, "tls", "cert.pem"))
+	if err != nil {
+		t.Fatalf("reading generated cert: %v", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(certPEM) {
+		t.Fatalf("AppendCertsFromPEM: failed to parse the generated cert")
+	}
+	// Deliberately no Timeout: a real EventSource keeps its connection open
+	// indefinitely and relies on the server (or the user) to end it, which
+	// is exactly what this test needs to prove — that server-side shutdown
+	// ends it promptly, not that the client eventually gives up on its own.
+	httpClient := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{RootCAs: pool},
+		},
+	}
+
+	created, err := c.CreateToken(context.Background(), client.CreateTokenRequest{Label: "sse-shutdown-test"})
+	if err != nil {
+		t.Fatalf("CreateToken (over unix socket): %v", err)
+	}
+
+	// No Authorization header, no Corral-Api-Version header: exactly what a
+	// browser EventSource can send.
+	req, err := http.NewRequest(http.MethodGet, "https://"+addr+"/v1/events/stream?token="+created.Token, nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET https://%s/v1/events/stream: %v", addr, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d (both EventSource exemptions must apply here)", resp.StatusCode, http.StatusOK)
+	}
+
+	r := bufio.NewReader(resp.Body)
+
+	// Trigger an event: CreateSession's AppendEvent happens before the
+	// (here, doomed) spawn attempt, so this call may well return an error —
+	// that's expected and ignored. Called synchronously (not concurrently
+	// with the c.Shutdown call below): *client.Client's checkDaemonVersion
+	// mutates unsynchronized state on c, so two calls in flight on the same
+	// Client at once is a data race in the test, not something the product
+	// needs to support — exec.LookPath failing on a nonexistent binary is
+	// fast, so there's no risk of this blocking the test.
+	cwd := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	_, _ = c.CreateSession(ctx, client.CreateSessionRequest{Cwd: cwd})
+	cancel()
+
+	type readResult struct {
+		line string
+		err  error
+	}
+	readLineAsync := func() <-chan readResult {
+		ch := make(chan readResult, 1)
+		go func() {
+			line, err := r.ReadString('\n')
+			ch <- readResult{line, err}
+		}()
+		return ch
+	}
+	readLine := func() (string, error) {
+		select {
+		case res := <-readLineAsync():
+			return res.line, res.err
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out reading a frame from the SSE stream")
+			return "", nil
+		}
+	}
+
+	// Skip past any heartbeat comments to the session.created data frame —
+	// heartbeatInterval is 20s in production, but this keeps the test
+	// robust regardless.
+	var dataLine string
+	for i := 0; i < 10; i++ {
+		line, err := readLine()
+		if err != nil {
+			t.Fatalf("reading SSE frame: %v", err)
+		}
+		if strings.HasPrefix(line, "data: ") {
+			dataLine = line
+			break
+		}
+	}
+	if dataLine == "" {
+		t.Fatal("never saw a data: frame on the SSE stream")
+	}
+	if !strings.Contains(dataLine, `"kind":"session.created"`) {
+		t.Fatalf("data frame = %q, want it to contain session.created", dataLine)
+	}
+	// Consume the blank line that terminates this "data: ...\n\n" frame,
+	// so the post-shutdown read below can't mistake it for evidence the
+	// connection is still open.
+	if line, err := readLine(); err != nil || strings.TrimRight(line, "\r\n") != "" {
+		t.Fatalf("expected the blank line terminating the data frame, got %q (err=%v)", line, err)
+	}
+
+	// Now shut the daemon down with the stream still open. stop() blocks
+	// until run() returns (with its own 5s safety-net Fatal if it doesn't);
+	// timing it independently here proves the real regression — that this
+	// stays close to ShutdownGrace (200ms) rather than silently eating that
+	// whole 5s budget every time because a live stream wedged Shutdown.
+	shutdownStart := time.Now()
+	stop()
+	stopped = true
+	if elapsed := time.Since(shutdownStart); elapsed > 2*time.Second {
+		t.Fatalf("shutdown with a live SSE stream open took %s, want well under 2s (broker.Close() should unblock it almost immediately)", elapsed)
+	}
+
+	// The connection itself must also have been torn down server-side, not
+	// just left dangling while run() happened to return. Keep draining:
+	// the doomed spawn also durably appends session.spawn_failed
+	// (supervisor.go), and whether that frame lands before or after
+	// shutdown begins is a genuine race unrelated to what this test is
+	// checking, so any number of already-buffered frames must be tolerated
+	// before the read that finally observes the closed connection.
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case res := <-readLineAsync():
+			if res.err != nil {
+				return // success: the connection closed, as required.
+			}
+		case <-deadline:
+			t.Fatal("SSE stream's underlying connection was not closed within 2s of shutdown completing")
+		}
+	}
+}
+
 // TestForeground_RemoteClient_RoundTrip is M5 step 31's exit criterion: the
 // client SDK's NewRemote constructor (internal/api/client/client.go), used
 // exactly as `corral --host` wires it up, against a real TCP+TLS listener
