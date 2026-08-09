@@ -162,7 +162,7 @@ func TestResumeCheckpointer_CheckpointStopsProcessGroupAndPersists(t *testing.T)
 		t.Fatalf("Token.ClaudeSessionID = %q, want %q", tok.ClaudeSessionID, "sess-1")
 	}
 	if tok.TurnBoundaryVerified {
-		t.Fatalf("Token.TurnBoundaryVerified = true, want false in M1")
+		t.Fatalf("Token.TurnBoundaryVerified = true, want false (no transcript file exists under ClaudeHome)")
 	}
 
 	waitErr := cmd.Wait()
@@ -180,6 +180,43 @@ func TestResumeCheckpointer_CheckpointStopsProcessGroupAndPersists(t *testing.T)
 	if got.Status != session.StatusExited {
 		t.Fatalf("persisted Status = %q, want %q", got.Status, session.StatusExited)
 	}
+}
+
+func TestResumeCheckpointer_CheckpointTurnBoundaryVerified(t *testing.T) {
+	st, _ := openTestStore(t)
+	cwd := "/tmp/work-turnboundary"
+	createTestSession(t, st, "sess-2", cwd, "")
+
+	claudeHome := t.TempDir()
+	// Write the transcript at exactly the path Checkpoint should compute:
+	// <claudeHome>/projects/<slug(cwd)>/<sessionID>.jsonl. This proves the
+	// wiring composes updated.Cwd (read back from the store, not the
+	// LiveSession the caller passed in) and s.SessionID correctly, not just
+	// that LastRecordIsCompletedTurn itself works.
+	dir := filepath.Join(claudeHome, "projects", pathSlug(cwd))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	transcript := "{\"type\":\"user\",\"isSidechain\":false,\"message\":{\"role\":\"user\",\"content\":\"hi\"}}\n" +
+		"{\"type\":\"assistant\",\"isSidechain\":false,\"message\":{\"role\":\"assistant\",\"content\":\"hi\",\"stop_reason\":\"end_turn\"}}\n"
+	if err := os.WriteFile(filepath.Join(dir, "sess-2.jsonl"), []byte(transcript), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cmd := spawnGroupLeader(t)
+	pgid := cmd.Process.Pid
+
+	c := NewResumeCheckpointer(st, clock.Real(), 200*time.Millisecond, claudeHome, map[string]string{"PATH": "/bin"}, nil, "xterm-256color", "/tmp/corral.sock")
+
+	tok, err := c.Checkpoint(context.Background(), &supervisor.LiveSession{SessionID: "sess-2", PGID: pgid}, "test")
+	if err != nil {
+		t.Fatalf("Checkpoint: %v", err)
+	}
+	if !tok.TurnBoundaryVerified {
+		t.Fatalf("Token.TurnBoundaryVerified = false, want true (transcript ends at a completed end_turn)")
+	}
+
+	_ = cmd.Wait()
 }
 
 func TestResumeCheckpointer_Restore(t *testing.T) {

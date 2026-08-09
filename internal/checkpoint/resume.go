@@ -74,13 +74,32 @@ func (c *ResumeCheckpointer) WithGrace(grace time.Duration) *ResumeCheckpointer 
 // injected Clock, then SIGKILL regardless of whether SIGTERM already
 // succeeded — ESRCH from either signal, meaning the group is already gone,
 // is not an error) and persists claude_session_id on the session row.
-// TurnBoundaryVerified is always false: M1 has no way to detect a flushed
-// turn boundary (that's M3's job).
+// TurnBoundaryVerified is computed by LastRecordIsCompletedTurn against the
+// live transcript BEFORE SIGTERM is sent (the grace window can cause claude
+// to flush an in-flight turn, which would make a post-signal read wrongly
+// report a clean boundary); it is false whenever the boundary cannot be
+// confirmed, e.g. a transcript that hasn't caught up with flush lag.
 func (c *ResumeCheckpointer) Checkpoint(ctx context.Context, s *supervisor.LiveSession, reason string) (Token, error) {
-	if _, err := c.store.UpdateSession(ctx, s.SessionID, func(sess *session.Session) {
+	updated, err := c.store.UpdateSession(ctx, s.SessionID, func(sess *session.Session) {
 		sess.Status = session.StatusStopping
-	}); err != nil {
+	})
+	if err != nil {
 		return Token{}, fmt.Errorf("checkpoint: marking %s stopping: %w", s.SessionID, err)
+	}
+
+	// Read the turn-boundary state as it was at the moment we decided to
+	// stop — BEFORE SIGTERM, since the grace window can flush an in-flight
+	// turn and make a later read wrongly report a clean boundary.
+	// claude_session_id == s.SessionID (corral assigns the session id
+	// before the child starts and passes it via --session-id), so the
+	// transcript is named by s.SessionID.
+	turnBoundaryVerified, tbErr := LastRecordIsCompletedTurn(
+		sessions.TranscriptPath(c.ClaudeHome, updated.Cwd, s.SessionID))
+	if tbErr != nil {
+		// Non-fatal: an unreadable transcript means we simply cannot
+		// confirm a boundary. Record false (honest) and proceed with the
+		// checkpoint.
+		turnBoundaryVerified = false
 	}
 
 	exitSignal := "SIGTERM"
@@ -108,7 +127,7 @@ func (c *ResumeCheckpointer) Checkpoint(ctx context.Context, s *supervisor.LiveS
 		return Token{}, fmt.Errorf("checkpoint: recording %s stopped: %w", s.SessionID, err)
 	}
 
-	return Token{ClaudeSessionID: s.SessionID, TurnBoundaryVerified: false, At: now}, nil
+	return Token{ClaudeSessionID: s.SessionID, TurnBoundaryVerified: turnBoundaryVerified, At: now}, nil
 }
 
 // killGroupTolerant calls procinfo.KillGroup, treating "the group is

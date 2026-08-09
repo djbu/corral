@@ -74,9 +74,9 @@ type fakeCheckpointer struct {
 	checkpoints  []string // session IDs Checkpoint was called with
 }
 
-func (f *fakeCheckpointer) Checkpoint(ctx context.Context, s *LiveSession, reason string) error {
+func (f *fakeCheckpointer) Checkpoint(ctx context.Context, s *LiveSession, reason string) (bool, error) {
 	f.checkpoints = append(f.checkpoints, s.SessionID)
-	return nil
+	return false, nil
 }
 
 func (f *fakeCheckpointer) Restore(ctx context.Context, rec session.Session) (session.Spec, error) {

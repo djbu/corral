@@ -23,11 +23,11 @@ import (
 // against a process that actually goes away.
 type killingCheckpointer struct{}
 
-func (killingCheckpointer) Checkpoint(ctx context.Context, s *LiveSession, reason string) error {
+func (killingCheckpointer) Checkpoint(ctx context.Context, s *LiveSession, reason string) (bool, error) {
 	if s.PGID > 1 {
 		_ = syscall.Kill(-s.PGID, syscall.SIGKILL)
 	}
-	return nil
+	return false, nil
 }
 
 func (killingCheckpointer) Restore(ctx context.Context, rec session.Session) (session.Spec, error) {

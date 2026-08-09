@@ -38,11 +38,11 @@ type restartResumeCheckpointer struct {
 	envPassthrough []string
 }
 
-func (c *restartResumeCheckpointer) Checkpoint(ctx context.Context, s *LiveSession, reason string) error {
+func (c *restartResumeCheckpointer) Checkpoint(ctx context.Context, s *LiveSession, reason string) (bool, error) {
 	if _, err := c.store.UpdateSession(ctx, s.SessionID, func(sess *session.Session) {
 		sess.Status = session.StatusStopping
 	}); err != nil {
-		return err
+		return false, err
 	}
 	exitSignal := "SIGTERM"
 	_ = killGroupTolerant(s.PGID, syscall.SIGTERM)
@@ -59,7 +59,7 @@ func (c *restartResumeCheckpointer) Checkpoint(ctx context.Context, s *LiveSessi
 		sess.ExitSignal = exitSignal
 		sess.EndedAtMs = &endedAtMs
 	})
-	return err
+	return false, err
 }
 
 func (c *restartResumeCheckpointer) Restore(ctx context.Context, rec session.Session) (session.Spec, error) {
@@ -185,7 +185,7 @@ func TestGracefulRestartResumes(t *testing.T) {
 	// as internal/daemon/shutdown.go's checkpointLive does via
 	// d.supervisor.ListLive().
 	for _, live := range reg1.ListLive() {
-		if err := cp.Checkpoint(context.Background(), live, "daemon_shutdown"); err != nil {
+		if _, err := cp.Checkpoint(context.Background(), live, "daemon_shutdown"); err != nil {
 			t.Fatalf("Checkpoint: %v", err)
 		}
 	}

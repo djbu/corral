@@ -420,18 +420,19 @@ func daemonCwd() string {
 }
 
 // checkpointerAdapter adapts *checkpoint.ResumeCheckpointer to
-// supervisor.Checkpointer, dropping the Token that supervisor never needs.
-// It exists only here (not in internal/supervisor) because
-// internal/checkpoint already imports internal/supervisor for
-// *supervisor.LiveSession — supervisor importing checkpoint back would be
-// a cycle; daemon imports both, so the adapter lives here.
+// supervisor.Checkpointer, forwarding the Token's TurnBoundaryVerified bool
+// (the rest of the Token, supervisor doesn't need). It exists only here (not
+// in internal/supervisor) because internal/checkpoint already imports
+// internal/supervisor for *supervisor.LiveSession — supervisor importing
+// checkpoint back would be a cycle; daemon imports both, so the adapter
+// lives here.
 type checkpointerAdapter struct {
 	c *checkpoint.ResumeCheckpointer
 }
 
-func (a checkpointerAdapter) Checkpoint(ctx context.Context, s *supervisor.LiveSession, reason string) error {
-	_, err := a.c.Checkpoint(ctx, s, reason)
-	return err
+func (a checkpointerAdapter) Checkpoint(ctx context.Context, s *supervisor.LiveSession, reason string) (bool, error) {
+	tok, err := a.c.Checkpoint(ctx, s, reason)
+	return tok.TurnBoundaryVerified, err
 }
 
 func (a checkpointerAdapter) Restore(ctx context.Context, rec session.Session) (session.Spec, error) {

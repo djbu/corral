@@ -20,7 +20,7 @@ import (
 // never touches the checkpointer at all.
 type panicCheckpointer struct{}
 
-func (panicCheckpointer) Checkpoint(ctx context.Context, s *LiveSession, reason string) error {
+func (panicCheckpointer) Checkpoint(ctx context.Context, s *LiveSession, reason string) (bool, error) {
 	panic("Checkpoint should not be called for an already-live Wake")
 }
 

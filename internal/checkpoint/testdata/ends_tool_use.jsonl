@@ -1,0 +1,2 @@
+{"type":"user","isSidechain":false,"message":{"role":"user","content":"run a command"}}
+{"type":"assistant","isSidechain":false,"message":{"role":"assistant","content":"invoking tool","stop_reason":"tool_use"}}

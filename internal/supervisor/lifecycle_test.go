@@ -154,7 +154,7 @@ type escalatingCheckpointer struct {
 	grace time.Duration
 }
 
-func (c escalatingCheckpointer) Checkpoint(ctx context.Context, s *LiveSession, reason string) error {
+func (c escalatingCheckpointer) Checkpoint(ctx context.Context, s *LiveSession, reason string) (bool, error) {
 	if s.PGID > 1 {
 		_ = killGroupTolerant(s.PGID, syscall.SIGTERM)
 	}
@@ -165,7 +165,7 @@ func (c escalatingCheckpointer) Checkpoint(ctx context.Context, s *LiveSession, 
 			_ = killGroupTolerant(s.PGID, syscall.SIGKILL)
 		}
 	}
-	return nil
+	return false, nil
 }
 
 func (c escalatingCheckpointer) Restore(ctx context.Context, rec session.Session) (session.Spec, error) {

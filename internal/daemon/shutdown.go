@@ -109,9 +109,12 @@ func (d *Daemon) checkpointLive(ctx context.Context, live []*supervisor.LiveSess
 		wg.Add(1)
 		go func(ls *supervisor.LiveSession) {
 			defer wg.Done()
-			if _, err := cp.Checkpoint(ctx, ls, "daemon_shutdown"); err != nil {
+			tok, err := cp.Checkpoint(ctx, ls, "daemon_shutdown")
+			if err != nil {
 				d.log.Error("checkpointing session at shutdown", "session_id", ls.SessionID, "err", err)
+				return
 			}
+			d.log.Info("checkpointed session at shutdown", "session_id", ls.SessionID, "turn_boundary_verified", tok.TurnBoundaryVerified)
 		}(ls)
 	}
 	wg.Wait()

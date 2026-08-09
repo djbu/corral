@@ -1,0 +1,4 @@
+{"type":"user","isSidechain":false,"message":{"role":"user","content":"hello"}}
+{"type":"assistant","isSidechain":false,"message":{"role":"assistant","content":"hi there","stop_reason":"end_turn"}}
+{"type":"assistant","isSidechain":true,"message":{"role":"assistant","content":"sidechain tool call","stop_reason":"tool_use"}}
+{"type":"user","isSidechain":true,"message":{"role":"user","content":"sidechain tool result"}}

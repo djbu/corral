@@ -35,9 +35,11 @@ import (
 // (see daemon/daemon.go's checkpointerAdapter).
 type Checkpointer interface {
 	// Checkpoint stops s's process group and persists its terminal state
-	// and claude_session_id. The token checkpoint.Checkpointer.Checkpoint
-	// returns is dropped by the adapter — nothing in this package needs it.
-	Checkpoint(ctx context.Context, s *LiveSession, reason string) error
+	// and claude_session_id. The bool reports whether the checkpoint
+	// captured a completed turn boundary (checkpoint.Token.
+	// TurnBoundaryVerified, forwarded by the adapter) — this package
+	// surfaces it into the lifecycle event payload rather than dropping it.
+	Checkpoint(ctx context.Context, s *LiveSession, reason string) (bool, error)
 	Restore(ctx context.Context, rec session.Session) (session.Spec, error)
 	Resumable(rec session.Session) (bool, string)
 }
@@ -556,11 +558,12 @@ func (r *Registry) Kill(ctx context.Context, idOrName string, grace *time.Durati
 			cp = wg.WithGrace(*grace)
 		}
 	}
-	if err := cp.Checkpoint(ctx, ls, "user_kill"); err != nil {
+	turnBoundary, err := cp.Checkpoint(ctx, ls, "user_kill")
+	if err != nil {
 		return nil, fmt.Errorf("supervisor: killing %s: %w", ls.SessionID, err)
 	}
 
-	r.appendEvent(ctx, ls.SessionID, session.EventSessionKilled, nil)
+	r.appendEvent(ctx, ls.SessionID, session.EventSessionKilled, map[string]any{"turn_boundary_verified": turnBoundary})
 	if err := r.engine.OnLifecycle(ctx, ls.SessionID, session.EventSessionKilled, nil); err != nil {
 		r.log.Warn("supervisor: engine.OnLifecycle killed", "session_id", ls.SessionID, "err", err)
 	}
@@ -586,12 +589,14 @@ func (r *Registry) CheckpointIdle(ctx context.Context, id string, idleFor time.D
 		return nil, fmt.Errorf("supervisor: marking %s stopped: %w", ls.SessionID, err)
 	}
 
-	if err := r.checkpointer.Checkpoint(ctx, ls, "idle_reap"); err != nil {
+	turnBoundary, err := r.checkpointer.Checkpoint(ctx, ls, "idle_reap")
+	if err != nil {
 		return nil, fmt.Errorf("supervisor: idle-reaping %s: %w", ls.SessionID, err)
 	}
 
 	r.appendEvent(ctx, ls.SessionID, session.EventSessionIdleReaped, map[string]any{
-		"idle_ms": idleFor.Milliseconds(),
+		"idle_ms":                idleFor.Milliseconds(),
+		"turn_boundary_verified": turnBoundary,
 	})
 	if err := r.engine.OnLifecycle(ctx, ls.SessionID, session.EventSessionIdleReaped, nil); err != nil {
 		r.log.Warn("supervisor: engine.OnLifecycle idle_reaped", "session_id", ls.SessionID, "err", err)

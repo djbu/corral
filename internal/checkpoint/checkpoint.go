@@ -17,9 +17,10 @@ import (
 )
 
 // Token is what Checkpoint returns and Restore consumes: enough to relaunch
-// a session later. TurnBoundaryVerified is always false in M1 — it exists
-// so M3 can start reporting true once it can actually detect a flushed
-// turn boundary, without changing this type's shape.
+// a session later. TurnBoundaryVerified reports whether Checkpoint could
+// confirm, via LastRecordIsCompletedTurn against the live transcript before
+// SIGTERM, that the session ended at a completed conversation turn; it is
+// false whenever that cannot be confirmed (e.g. transcript flush lag).
 type Token struct {
 	ClaudeSessionID      string
 	TurnBoundaryVerified bool
@@ -31,8 +32,9 @@ type Token struct {
 // later". M1's ResumeCheckpointer is the only implementation.
 type Checkpointer interface {
 	// Checkpoint durably records enough to bring s back later, then stops
-	// the live process. M3 adds flush-verified turn-boundary waiting; M1
-	// always returns TurnBoundaryVerified: false.
+	// the live process. TurnBoundaryVerified reflects a best-effort,
+	// pre-SIGTERM read of the live transcript (see ResumeCheckpointer.
+	// Checkpoint); M3 may still add flush-verified waiting on top of this.
 	Checkpoint(ctx context.Context, s *supervisor.LiveSession, reason string) (Token, error)
 	// Restore relaunches from a persisted session record. M1 builds a
 	// Spec with --resume <claude_session_id>.

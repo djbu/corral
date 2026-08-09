@@ -1,0 +1,2 @@
+{"type":"user","isSidechain":false,"message":{"role":"user","content":"hello"}}
+{"type":"assistant","isSidechain":false,"message":{"role":"assistant","content":"stopped early","stop_reason":"stop_sequence"}}
