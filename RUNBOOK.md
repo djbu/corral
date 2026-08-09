@@ -167,7 +167,7 @@ Prove the two risky primitives before building anything real:
 
 **Exit criteria:** a 3-node DAG (plan → implement → review) runs unattended with fakeclaude; with real claude behind an env-var gate.
 
-### M5 — Remote access + dashboard
+### M5 — Remote access + dashboard — complete (`v0.5.0`)
 - Opt-in TCP listener: bearer token, TLS (self-signed bootstrap or tailscale-friendly).
 - Minimal web dashboard: session list with live states, blocked-reason cards with answer box, task DAG view. Server-sent events for live updates.
 - `corral` client `--host` flag to drive a remote daemon.

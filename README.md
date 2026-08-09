@@ -4,7 +4,7 @@
 
 A daemon that supervises Claude Code sessions: knows their exact state via hooks (never terminal scraping), checkpoints idle sessions to disk and resumes them on demand, orchestrates task DAGs with per-task model tiering and budgets, and answers you on your phone when an agent is blocked.
 
-**Status: pre-alpha — M1 complete** (daemon, supervised interactive sessions, tmux-style attach/detach, survive daemon restart via `--resume`). See [RUNBOOK.md](RUNBOOK.md) for the full architecture, milestones, and test strategy; [docs/design/m1.md](docs/design/m1.md) for the M1 design.
+**Status: pre-alpha — M5 complete (`v0.5.0`)**. corral now includes supervised interactive sessions, checkpoint/resume and idle reaping, headless task-DAG orchestration, and opt-in remote access through TLS + bearer tokens with a live web dashboard. See [RUNBOOK.md](RUNBOOK.md) for the full architecture and roadmap; [docs/design/m5.md](docs/design/m5.md) for the completed M5 design.
 
 ## Try it
 
