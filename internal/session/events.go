@@ -58,6 +58,14 @@ const (
 	EventNotifyFailed     EventKind = "notify.failed"     // retries exhausted; carries backend + last error
 	EventNotifyDropped    EventKind = "notify.dropped"    // queue full; never blocked the state machine
 	EventNotifySuppressed EventKind = "notify.suppressed" // debounced duplicate within notify.debounce
+
+	// New in M5 step 28 (design doc §4) — the bearer-auth middleware's
+	// only event: any 401 (missing/malformed header, unknown token,
+	// revoked token). Always daemon-scoped (session_id ""), and its
+	// data JSON carries only {"remote_addr": ...} — never token bytes,
+	// prefix, or hash, since a failed-auth log that echoes the attempted
+	// secret would itself be a leak.
+	EventTokenUnauthorized EventKind = "token.unauthorized"
 )
 
 // Event is one row of the append-only events table. SessionID is "" for a

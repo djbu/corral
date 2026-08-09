@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -34,6 +35,17 @@ func (s *Server) Handle(pattern string, handler http.HandlerFunc) {
 // version-handshake middleware applied around every registered route.
 func (s *Server) Handler() http.Handler {
 	return versionMiddleware(s.mux)
+}
+
+// AuthenticatedHandler returns the complete http.Handler for a
+// network-facing (TCP) listener (design doc §4/§6, step 30): bearer-auth
+// wraps versionMiddleware, not the other way around, so an unauthenticated
+// remote caller learns nothing — not even whether its API version
+// matches — before proving a token. The unix-socket Handler() above is
+// unchanged and stays token-free: the socket's 0600 permission is that
+// transport's auth boundary (design doc §4).
+func (s *Server) AuthenticatedHandler(auth tokenAuthStore, log *slog.Logger) http.Handler {
+	return bearerAuth(versionMiddleware(s.mux), auth, log)
 }
 
 // versionMiddleware enforces the handshake in design doc §9.1: every
