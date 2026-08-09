@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/danielbecerra/corral/internal/version"
 )
@@ -44,8 +45,36 @@ func (s *Server) Handler() http.Handler {
 // matches — before proving a token. The unix-socket Handler() above is
 // unchanged and stays token-free: the socket's 0600 permission is that
 // transport's auth boundary (design doc §4).
-func (s *Server) AuthenticatedHandler(auth tokenAuthStore, log *slog.Logger) http.Handler {
-	return bearerAuth(versionMiddleware(s.mux), auth, log)
+//
+// shell (step 33, m5.md §13) is the dashboard's static, unauthenticated
+// asset shell — non-secret client code only, never session data — and is
+// deliberately taken as a parameter rather than stored on Server: that
+// keeps it structurally impossible to ever attach to the unix Handler()
+// above, which has no such parameter to accept it. shell may be nil, in
+// which case AuthenticatedHandler behaves exactly as before (no
+// unauthenticated surface at all).
+//
+// When shell is non-nil, an explicit allowlist of exactly two path shapes
+// — "/" and anything under "/dashboard/" (note the trailing slash: bare
+// "/dashboard" does NOT match) — is routed to shell before auth ever runs;
+// every other path, including unknown ones, falls through to the bearer
+// wall. This is deliberately phrased as an allowlist with auth as the
+// default, never as "authenticate /v1/, else serve files": that inverted
+// phrasing would make any future new route unauthenticated by default.
+// "/v1/dashboard" (the snapshot endpoint, handlers_dashboard.go) does not
+// start with "/dashboard/", so it never collides with this allowlist.
+func (s *Server) AuthenticatedHandler(auth tokenAuthStore, log *slog.Logger, shell http.Handler) http.Handler {
+	authed := bearerAuth(versionMiddleware(s.mux), auth, log)
+	if shell == nil {
+		return authed
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" || strings.HasPrefix(r.URL.Path, "/dashboard/") {
+			shell.ServeHTTP(w, r)
+			return
+		}
+		authed.ServeHTTP(w, r) // EVERYTHING else — including unknown paths — hits the wall
+	})
 }
 
 // versionMiddleware enforces the handshake in design doc §9.1: every

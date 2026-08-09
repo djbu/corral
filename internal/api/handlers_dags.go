@@ -266,17 +266,30 @@ func (d DagsDeps) handleCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, detail)
 }
 
-// handleList serves GET /v1/dags: every submitted dag's denormalized
-// budget/cost rollup, for `corral review` with no argument.
-func (d DagsDeps) handleList(w http.ResponseWriter, r *http.Request) {
-	budgets, err := d.Store.ListDAGBudgets(r.Context())
+// dagSummaries returns every submitted dag's denormalized budget/cost
+// rollup as wire shape. Shared verbatim by handleList (GET /v1/dags) and
+// GET /v1/dashboard (handlers_dashboard.go), since the two responses must
+// carry the same dagSummaryResponse slice — extracted here rather than
+// duplicated so that never drifts.
+func dagSummaries(ctx context.Context, st *store.Store) ([]dagSummaryResponse, error) {
+	budgets, err := st.ListDAGBudgets(ctx)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
-		return
+		return nil, err
 	}
 	out := make([]dagSummaryResponse, 0, len(budgets))
 	for _, b := range budgets {
 		out = append(out, dagSummaryResponse{DAGID: b.DAGID, BudgetUSD: b.BudgetUSD, CostUSD: b.CostUSD})
+	}
+	return out, nil
+}
+
+// handleList serves GET /v1/dags: every submitted dag's denormalized
+// budget/cost rollup, for `corral review` with no argument.
+func (d DagsDeps) handleList(w http.ResponseWriter, r *http.Request) {
+	out, err := dagSummaries(r.Context(), d.Store)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
+		return
 	}
 	writeJSON(w, http.StatusOK, listDagsResponse{Dags: out})
 }

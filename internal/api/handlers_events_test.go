@@ -291,7 +291,7 @@ func TestHandleStream_Auth_QueryTokenFallback(t *testing.T) {
 	fc := clocktest.NewFake(time.Now())
 	s := New()
 	s.RegisterEvents(EventsDeps{Broker: broker, Clock: fc})
-	srv := httptest.NewServer(s.AuthenticatedHandler(f, nil))
+	srv := httptest.NewServer(s.AuthenticatedHandler(f, nil, nil))
 	defer srv.Close()
 
 	client := &http.Client{}
@@ -357,7 +357,7 @@ func TestHandleStream_Auth_BogusQueryTokenNotLogged(t *testing.T) {
 	fc := clocktest.NewFake(time.Now())
 	s := New()
 	s.RegisterEvents(EventsDeps{Broker: broker, Clock: fc})
-	srv := httptest.NewServer(s.AuthenticatedHandler(f, nil))
+	srv := httptest.NewServer(s.AuthenticatedHandler(f, nil, nil))
 	defer srv.Close()
 
 	const bogus = "crl_definitely-not-a-real-token"

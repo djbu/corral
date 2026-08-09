@@ -103,7 +103,7 @@ func doAuthed(t *testing.T, h http.Handler, authHeader string) *httptest.Respons
 func newAuthTestHandler(auth tokenAuthStore) http.Handler {
 	s := New()
 	s.Handle("GET /v1/version", authProbe)
-	return s.AuthenticatedHandler(auth, nil)
+	return s.AuthenticatedHandler(auth, nil, nil)
 }
 
 // --- 1. valid token -------------------------------------------------------

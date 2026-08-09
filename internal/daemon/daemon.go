@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/danielbecerra/corral/internal/api"
+	"github.com/danielbecerra/corral/internal/api/dashboard"
 	"github.com/danielbecerra/corral/internal/checkpoint"
 	"github.com/danielbecerra/corral/internal/claude/automode"
 	"github.com/danielbecerra/corral/internal/clock"
@@ -475,6 +476,11 @@ func (d *Daemon) startup(ctx context.Context) error {
 		Registry: registry,
 	})
 	srv.RegisterDags(api.DagsDeps{Store: d.store})
+	srv.RegisterDashboard(api.DashboardDeps{
+		Store:    d.store,
+		Engine:   d.engine,
+		Registry: registry,
+	})
 	srv.RegisterTokens(api.TokensDeps{Store: d.store})
 	srv.RegisterHooks(api.HooksDeps{
 		Store:   d.store,
@@ -496,7 +502,7 @@ func (d *Daemon) startup(ctx context.Context) error {
 		// ReadHeaderTimeout guards against a slow-header DoS from an
 		// unauthenticated caller (bearerAuth runs only after headers are read).
 		d.tcpSrv = &http.Server{
-			Handler:           srv.AuthenticatedHandler(d.store, d.log),
+			Handler:           srv.AuthenticatedHandler(d.store, d.log, dashboard.Handler()),
 			ReadHeaderTimeout: 10 * time.Second,
 		}
 		go func() {

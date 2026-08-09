@@ -126,11 +126,14 @@ func toSessionResponse(sess *session.Session, attached bool) sessionResponse {
 	return resp
 }
 
-// staleFor reports render-time staleness (§4.5) via the optional Stale
-// interface — implemented by the real engine, absent on NoopEngine. The
-// type assertion keeps staleness out of the core Engine contract.
-func (d SessionsDeps) staleFor(id string) bool {
-	if s, ok := d.Engine.(interface{ Stale(string) bool }); ok {
+// staleForEngine reports render-time staleness (§4.5) via the optional
+// Stale interface — implemented by the real engine, absent on NoopEngine.
+// The type assertion keeps staleness out of the core Engine contract. A
+// free function (not a SessionsDeps method) so DashboardDeps
+// (handlers_dashboard.go) shares it verbatim without depending on
+// SessionsDeps.
+func staleForEngine(engine state.Engine, id string) bool {
+	if s, ok := engine.(interface{ Stale(string) bool }); ok {
 		return s.Stale(id)
 	}
 	return false
@@ -139,8 +142,29 @@ func (d SessionsDeps) staleFor(id string) bool {
 func (d SessionsDeps) writeSession(w http.ResponseWriter, status int, sess *session.Session) {
 	resp := toSessionResponse(sess, d.Registry.Attached(sess.ID))
 	resp.AgentState = string(d.Engine.State(sess.ID))
-	resp.Stale = d.staleFor(sess.ID)
+	resp.Stale = staleForEngine(d.Engine, sess.ID)
 	writeJSON(w, status, resp)
+}
+
+// buildSessionResponses lists every session and enriches each with its
+// current agent_state/stale fields via the IDENTICAL path GET
+// /v1/sessions uses (toSessionResponse + Engine.State + staleForEngine).
+// GET /v1/dashboard (handlers_dashboard.go) calls this exact function too,
+// so the two views can never disagree about what "blocked" means for a
+// given session — see that file's doc comment for why that matters.
+func buildSessionResponses(ctx context.Context, st *store.Store, engine state.Engine, registry *supervisor.Registry) ([]sessionResponse, error) {
+	sessions, err := st.ListSessions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]sessionResponse, 0, len(sessions))
+	for _, sess := range sessions {
+		resp := toSessionResponse(sess, registry.Attached(sess.ID))
+		resp.AgentState = string(engine.State(sess.ID))
+		resp.Stale = staleForEngine(engine, sess.ID)
+		out = append(out, resp)
+	}
+	return out, nil
 }
 
 // resolveSession looks up idOrName first as an ID, then as a name.
@@ -160,17 +184,10 @@ type listSessionsResponse struct {
 }
 
 func (d SessionsDeps) handleList(w http.ResponseWriter, r *http.Request) {
-	sessions, err := d.Store.ListSessions(r.Context())
+	out, err := buildSessionResponses(r.Context(), d.Store, d.Engine, d.Registry)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
 		return
-	}
-	out := make([]sessionResponse, 0, len(sessions))
-	for _, sess := range sessions {
-		resp := toSessionResponse(sess, d.Registry.Attached(sess.ID))
-		resp.AgentState = string(d.Engine.State(sess.ID))
-		resp.Stale = d.staleFor(sess.ID)
-		out = append(out, resp)
 	}
 	writeJSON(w, http.StatusOK, listSessionsResponse{Sessions: out})
 }

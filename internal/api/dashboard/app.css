@@ -1,0 +1,262 @@
+/* corral browser dashboard (m5.md §13 step 33). Mobile-first, no build
+   step, no framework: the exit criterion is "answer a blocked session from
+   a phone browser", so single-column layout and large tap targets take
+   priority over density. Per house style, containers use max-width, never
+   a fixed pixel width. */
+
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #1a1a1a;
+  --muted: #6b6b6b;
+  --border: #d9d9d9;
+  --card-bg: #f7f7f7;
+  --blocked-bg: #fff4e5;
+  --blocked-border: #e0922a;
+  --error: #b3261e;
+  --accent: #2f6feb;
+  --badge-bg: #e5e5e5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161a;
+    --fg: #eaeaea;
+    --muted: #9a9a9a;
+    --border: #3a3d42;
+    --card-bg: #1e2126;
+    --blocked-bg: #3a2c14;
+    --blocked-border: #d99a3d;
+    --error: #ff6b60;
+    --accent: #6ea8ff;
+    --badge-bg: #2a2d33;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+#app {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 12px 12px 48px;
+}
+
+h1, h2, h3 {
+  margin: 0 0 8px;
+}
+
+h2 {
+  font-size: 1.1rem;
+}
+
+.section {
+  margin-bottom: 24px;
+}
+
+.section-blocked {
+  margin-bottom: 28px;
+}
+
+.card {
+  width: 100%;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.card-blocked {
+  background: var(--blocked-bg);
+  border-color: var(--blocked-border);
+  border-width: 2px;
+}
+
+.card-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.blocked-headline {
+  margin: 4px 0;
+  font-weight: 500;
+}
+
+.blocked-raw {
+  width: 100%;
+  max-height: 160px;
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.answer-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.answer-form input {
+  flex: 1;
+  min-width: 0;
+}
+
+input, button {
+  font-size: 1rem;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+}
+
+button {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  cursor: pointer;
+  min-height: 44px;
+  min-width: 44px;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.session-list, .dag-list, .task-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.session-row-blocked {
+  border-color: var(--blocked-border);
+}
+
+.session-row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.session-name {
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.session-row-meta {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-top: 4px;
+}
+
+.badge {
+  display: inline-block;
+  background: var(--badge-bg);
+  color: var(--fg);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.badge-attached {
+  background: var(--accent);
+  color: #fff;
+}
+
+.dag-row {
+  display: block;
+  text-align: left;
+  background: var(--card-bg);
+  color: var(--fg);
+  border-color: var(--border);
+  font-family: inherit;
+}
+
+.dag-row-open {
+  border-color: var(--accent);
+}
+
+.dag-detail {
+  margin-top: 8px;
+}
+
+.task-row-top {
+  font-weight: 600;
+}
+
+.task-row-meta {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-top: 2px;
+}
+
+.edge-list {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.empty {
+  color: var(--muted);
+}
+
+.error-text {
+  color: var(--error);
+  font-size: 0.9rem;
+  margin: 6px 0 0;
+}
+
+.token-prompt {
+  width: 100%;
+  max-width: 360px;
+  margin: 15vh auto 0;
+  text-align: center;
+}
+
+.token-prompt form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+#connection-banner {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  width: 100%;
+  background: var(--error);
+  color: #fff;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 0.9rem;
+}
+
+#connection-banner button {
+  background: #fff;
+  color: var(--error);
+  border-color: #fff;
+  min-height: 32px;
+  padding: 4px 12px;
+}
