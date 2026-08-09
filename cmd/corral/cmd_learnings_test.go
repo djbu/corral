@@ -3,11 +3,53 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/danielbecerra/corral/internal/api/client"
 )
+
+func TestInterspersedFlagArgs(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       []string
+		valueFlags []string
+		want       []string
+	}{
+		{
+			name: "boolean after id",
+			args: []string{"learning-id", "--diff", "--json"},
+			want: []string{"--diff", "--json", "learning-id"},
+		},
+		{
+			name:       "value after id",
+			args:       []string{"learning-id", "--reason", "operator decision", "--json"},
+			valueFlags: []string{"reason"},
+			want:       []string{"--reason", "operator decision", "--json", "learning-id"},
+		},
+		{
+			name:       "answer documented order",
+			args:       []string{"session-name", "--key", "enter"},
+			valueFlags: []string{"key"},
+			want:       []string{"--key", "enter", "session-name"},
+		},
+		{
+			name:       "equals form",
+			args:       []string{"learning-id", "--host=example.test:443", "--json"},
+			valueFlags: []string{"host"},
+			want:       []string{"--host=example.test:443", "--json", "learning-id"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := interspersedFlagArgs(tt.args, tt.valueFlags...); !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("interspersedFlagArgs(%v) = %v, want %v", tt.args, got, tt.want)
+			}
+		})
+	}
+}
 
 func TestCmdLearningsUsage(t *testing.T) {
 	var stdout, stderr bytes.Buffer

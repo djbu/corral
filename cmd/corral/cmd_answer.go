@@ -22,7 +22,7 @@ func cmdAnswer(args []string, stdout, stderr io.Writer) int {
 	key := fs.String("key", "", "send a named key (enter, esc, up, down, tab, ctrl-c) instead of text")
 	noNewline := fs.Bool("no-newline", false, "do not append a trailing newline after text (ignored for --key)")
 	cf := addClientFlags(fs)
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(interspersedFlagArgs(args, "key", "host")); err != nil {
 		return exitUsage
 	}
 

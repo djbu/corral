@@ -120,7 +120,7 @@ func learningsShow(args []string, stdout, stderr io.Writer) int {
 	diff := fs.Bool("diff", false, "print verified settings before and after")
 	jsonOut := fs.Bool("json", false, "print stable JSON")
 	cf := addClientFlags(fs)
-	if err := fs.Parse(args); err != nil || fs.NArg() != 1 {
+	if err := fs.Parse(interspersedFlagArgs(args, "host")); err != nil || fs.NArg() != 1 {
 		return exitUsage
 	}
 	c, err := newClient(cf, stderr)
@@ -156,7 +156,7 @@ func learningsReport(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	jsonOut := fs.Bool("json", false, "print stable JSON")
 	cf := addClientFlags(fs)
-	if err := fs.Parse(args); err != nil || fs.NArg() != 1 {
+	if err := fs.Parse(interspersedFlagArgs(args, "host")); err != nil || fs.NArg() != 1 {
 		return exitUsage
 	}
 	c, err := newClient(cf, stderr)
@@ -189,7 +189,7 @@ func learningsDecision(args []string, stdout, stderr io.Writer, action string) i
 	reason := fs.String("reason", "", "operator reason (reject only; secrets are redacted)")
 	jsonOut := fs.Bool("json", false, "print stable JSON")
 	cf := addClientFlags(fs)
-	if err := fs.Parse(args); err != nil || fs.NArg() != 1 || (action != "reject" && *reason != "") {
+	if err := fs.Parse(interspersedFlagArgs(args, "reason", "host")); err != nil || fs.NArg() != 1 || (action != "reject" && *reason != "") {
 		return exitUsage
 	}
 	c, err := newClient(cf, stderr)
