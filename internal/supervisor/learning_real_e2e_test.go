@@ -2,12 +2,15 @@ package supervisor
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/danielbecerra/corral/internal/clock"
 	corralgit "github.com/danielbecerra/corral/internal/git"
@@ -47,7 +50,8 @@ func TestLearningRuleE2E_RealClaude(t *testing.T) {
 	if _, err := st.TransitionLearning(ctx, l.ID, store.LearningTransition{From: store.LearningProposed, To: store.LearningAdopted}); err != nil {
 		t.Fatal(err)
 	}
-	createLoopSession(t, st, "real-session", repo, claudeBin)
+	sessionID := uuid.NewString()
+	createLoopSession(t, st, sessionID, repo, claudeBin)
 	snapshot := make(map[string]string)
 	for _, key := range envWhitelist {
 		if value, ok := os.LookupEnv(key); ok {
@@ -57,11 +61,11 @@ func TestLearningRuleE2E_RealClaude(t *testing.T) {
 	stateDir := t.TempDir()
 	r := New(st, state.New(st), killingCheckpointer{}, clock.Real(), Config{
 		StateDir: stateDir, EnvSnapshot: snapshot, CorralVersion: "test", APIVersion: 1,
-		OutputLogMaxBytes: 1 << 20,
+		OutputLogMaxBytes: 1 << 20, RelayCommand: "/usr/bin/true",
 	}, nil)
 	spec := session.Spec{
-		ID: "real-session", Name: "real-session", Mode: session.ModeHeadless,
-		Cwd: repo, ClaudeBin: claudeBin, SettingSources: "user,project,local",
+		ID: sessionID, Name: "real-session", Mode: session.ModeHeadless,
+		Cwd: repo, ClaudeBin: claudeBin, SettingSources: "",
 		Prompt: "Use the Bash tool once with command exactly `printf corral-m6-ok` (no quotes or extra shell syntax), then report its output. Do not modify files.",
 	}
 	if _, err := r.Spawn(ctx, spec); err != nil {
@@ -74,12 +78,17 @@ func TestLearningRuleE2E_RealClaude(t *testing.T) {
 			t.Fatal(err)
 		}
 		if sess.Status == session.StatusExited || sess.Status == session.StatusFailed {
-			if sess.ExitCode == nil || *sess.ExitCode != 0 {
-				t.Fatalf("real Claude status=%s exit=%v", sess.Status, sess.ExitCode)
+			streamPath := filepath.Join(stateDir, "sessions", spec.ID, "stream.jsonl")
+			stream, readErr := os.ReadFile(streamPath)
+			if readErr != nil {
+				stream = []byte("<unavailable: " + readErr.Error() + ">")
 			}
-			stream, err := os.ReadFile(filepath.Join(stateDir, "sessions", spec.ID, "stream.jsonl"))
-			if err != nil {
-				t.Fatal(err)
+			if sess.ExitCode == nil || *sess.ExitCode != 0 {
+				exitCode := "nil"
+				if sess.ExitCode != nil {
+					exitCode = fmt.Sprintf("%d", *sess.ExitCode)
+				}
+				t.Fatalf("real Claude status=%s exit=%s stream:\n%s", sess.Status, exitCode, stream)
 			}
 			if !strings.Contains(string(stream), "printf corral-m6-ok") || !strings.Contains(string(stream), "corral-m6-ok") {
 				t.Fatalf("real Claude stream did not confirm exact Bash invocation:\n%s", stream)
