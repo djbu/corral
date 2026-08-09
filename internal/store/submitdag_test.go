@@ -1,0 +1,194 @@
+package store
+
+import (
+	"context"
+	"errors"
+	"testing"
+)
+
+func TestStore_SubmitDAG_HappyPath(t *testing.T) {
+	st, _ := openTestStore(t)
+	ctx := context.Background()
+
+	budget := 5.0
+	sub := DAGSubmission{
+		DAGID:     "dag1",
+		BudgetUSD: &budget,
+		Tasks: []CreateTaskParams{
+			sampleCreateTaskParams("plan", "dag1", "plan"),
+			sampleCreateTaskParams("implement", "dag1", "implement"),
+			sampleCreateTaskParams("review", "dag1", "review"),
+		},
+		Deps: []Dep{
+			{TaskID: "implement", DependsOn: "plan"},
+			{TaskID: "review", DependsOn: "implement"},
+		},
+	}
+
+	if err := st.SubmitDAG(ctx, sub); err != nil {
+		t.Fatalf("SubmitDAG: %v", err)
+	}
+
+	for _, id := range []string{"plan", "implement", "review"} {
+		tk, err := st.GetTask(ctx, id)
+		if err != nil {
+			t.Fatalf("GetTask(%s): %v", id, err)
+		}
+		if tk.DAGID != "dag1" {
+			t.Fatalf("task %s DAGID = %q, want dag1", id, tk.DAGID)
+		}
+	}
+
+	deps, err := st.TaskDeps(ctx, "dag1")
+	if err != nil {
+		t.Fatalf("TaskDeps: %v", err)
+	}
+	want := []Dep{
+		{TaskID: "implement", DependsOn: "plan"},
+		{TaskID: "review", DependsOn: "implement"},
+	}
+	if len(deps) != len(want) {
+		t.Fatalf("TaskDeps = %+v, want %+v", deps, want)
+	}
+	for i := range want {
+		if deps[i] != want[i] {
+			t.Fatalf("TaskDeps[%d] = %+v, want %+v", i, deps[i], want[i])
+		}
+	}
+
+	b, err := st.GetDAGBudget(ctx, "dag1")
+	if err != nil {
+		t.Fatalf("GetDAGBudget: %v", err)
+	}
+	if b == nil {
+		t.Fatalf("GetDAGBudget = nil, want a row")
+	}
+	if b.BudgetUSD == nil || *b.BudgetUSD != 5.0 {
+		t.Fatalf("GetDAGBudget.BudgetUSD = %v, want 5.0", b.BudgetUSD)
+	}
+	if b.CostUSD != 0 {
+		t.Fatalf("GetDAGBudget.CostUSD = %v, want 0", b.CostUSD)
+	}
+}
+
+// TestStore_SubmitDAG_FailureRollsBackEverything proves the whole submission
+// is one transaction: a duplicate task id within the batch fails the tasks
+// INSERT partway through, and nothing from the batch — including the
+// budget row inserted before it — must survive.
+func TestStore_SubmitDAG_FailureRollsBackEverything(t *testing.T) {
+	st, _ := openTestStore(t)
+	ctx := context.Background()
+
+	sub := DAGSubmission{
+		DAGID: "dag1",
+		Tasks: []CreateTaskParams{
+			sampleCreateTaskParams("plan", "dag1", "plan"),
+			sampleCreateTaskParams("plan", "dag1", "plan-again"), // duplicate id
+		},
+	}
+
+	if err := st.SubmitDAG(ctx, sub); err == nil {
+		t.Fatalf("SubmitDAG: want error for duplicate task id, got nil")
+	}
+
+	b, err := st.GetDAGBudget(ctx, "dag1")
+	if err != nil {
+		t.Fatalf("GetDAGBudget: %v", err)
+	}
+	if b != nil {
+		t.Fatalf("GetDAGBudget = %+v, want nil (rolled back)", b)
+	}
+
+	if _, err := st.GetTask(ctx, "plan"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetTask(plan): err = %v, want ErrNotFound (rolled back)", err)
+	}
+}
+
+func TestStore_SubmitDAG_ValidationErrors(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty dag id", func(t *testing.T) {
+		st, _ := openTestStore(t)
+		sub := DAGSubmission{
+			DAGID: "",
+			Tasks: []CreateTaskParams{sampleCreateTaskParams("t1", "", "plan")},
+		}
+		if err := st.SubmitDAG(ctx, sub); !errors.Is(err, ErrInvalidDAGSubmission) {
+			t.Fatalf("SubmitDAG: err = %v, want ErrInvalidDAGSubmission", err)
+		}
+	})
+
+	t.Run("empty tasks", func(t *testing.T) {
+		st, _ := openTestStore(t)
+		sub := DAGSubmission{DAGID: "dag1"}
+		if err := st.SubmitDAG(ctx, sub); !errors.Is(err, ErrInvalidDAGSubmission) {
+			t.Fatalf("SubmitDAG: err = %v, want ErrInvalidDAGSubmission", err)
+		}
+		b, err := st.GetDAGBudget(ctx, "dag1")
+		if err != nil {
+			t.Fatalf("GetDAGBudget: %v", err)
+		}
+		if b != nil {
+			t.Fatalf("GetDAGBudget = %+v, want nil (no write before validation failure)", b)
+		}
+	})
+
+	t.Run("self edge", func(t *testing.T) {
+		st, _ := openTestStore(t)
+		sub := DAGSubmission{
+			DAGID: "dag1",
+			Tasks: []CreateTaskParams{sampleCreateTaskParams("t1", "dag1", "plan")},
+			Deps:  []Dep{{TaskID: "t1", DependsOn: "t1"}},
+		}
+		if err := st.SubmitDAG(ctx, sub); !errors.Is(err, ErrInvalidDAGSubmission) {
+			t.Fatalf("SubmitDAG: err = %v, want ErrInvalidDAGSubmission", err)
+		}
+		b, err := st.GetDAGBudget(ctx, "dag1")
+		if err != nil {
+			t.Fatalf("GetDAGBudget: %v", err)
+		}
+		if b != nil {
+			t.Fatalf("GetDAGBudget = %+v, want nil (no write before validation failure)", b)
+		}
+	})
+
+	t.Run("dep endpoint not in tasks", func(t *testing.T) {
+		st, _ := openTestStore(t)
+		sub := DAGSubmission{
+			DAGID: "dag1",
+			Tasks: []CreateTaskParams{sampleCreateTaskParams("t1", "dag1", "plan")},
+			Deps:  []Dep{{TaskID: "t1", DependsOn: "ghost"}},
+		}
+		if err := st.SubmitDAG(ctx, sub); !errors.Is(err, ErrInvalidDAGSubmission) {
+			t.Fatalf("SubmitDAG: err = %v, want ErrInvalidDAGSubmission", err)
+		}
+		b, err := st.GetDAGBudget(ctx, "dag1")
+		if err != nil {
+			t.Fatalf("GetDAGBudget: %v", err)
+		}
+		if b != nil {
+			t.Fatalf("GetDAGBudget = %+v, want nil (no write before validation failure)", b)
+		}
+	})
+}
+
+// TestStore_SubmitDAG_BudgetRowLandsBeforeAnyCost proves the budget-first
+// write order inside the transaction: after a successful SubmitDAG, AddCost
+// on one of its tasks must succeed rather than returning
+// ErrBudgetRowMissing.
+func TestStore_SubmitDAG_BudgetRowLandsBeforeAnyCost(t *testing.T) {
+	st, _ := openTestStore(t)
+	ctx := context.Background()
+
+	sub := DAGSubmission{
+		DAGID: "dag1",
+		Tasks: []CreateTaskParams{sampleCreateTaskParams("t1", "dag1", "plan")},
+	}
+	if err := st.SubmitDAG(ctx, sub); err != nil {
+		t.Fatalf("SubmitDAG: %v", err)
+	}
+
+	if err := st.AddCost(ctx, "t1", 0.5); err != nil {
+		t.Fatalf("AddCost: err = %v, want nil (budget row must already exist)", err)
+	}
+}

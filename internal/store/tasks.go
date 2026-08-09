@@ -41,6 +41,12 @@ var ErrBudgetRowMissing = errors.New("store: dag_budgets row missing for task's 
 // than rely on a soft no-op here.
 var ErrDAGBudgetExists = errors.New("store: dag budget already exists")
 
+// ErrInvalidDAGSubmission is returned by SubmitDAG when sub fails one of
+// its cheap, pre-transaction shape checks (empty DAGID, no tasks, a dep
+// edge naming a task not in the batch, or a self-edge). It is checked
+// before any write, so a failure here never touches the database.
+var ErrInvalidDAGSubmission = errors.New("store: invalid dag submission")
+
 // Task is the persisted view of a row in the tasks table (m4.md §3.2).
 // Nullable DB columns map to "" (string columns) or a nil pointer
 // (BudgetUSD), matching the session.Session convention in sessions.go.
@@ -86,9 +92,12 @@ type CreateTaskParams struct {
 	BudgetUSD      *float64
 }
 
-// CreateTask inserts a new task row and returns it persisted (i.e.
-// re-fetched, matching CreateSession's pattern).
-func (s *Store) CreateTask(ctx context.Context, p CreateTaskParams) (*Task, error) {
+// createTaskTx inserts a new task row against q (either s.db standalone or a
+// *sql.Tx composed inside SubmitDAG's batch) — the INSERT only, with no
+// re-read, so it can be called N times inside one transaction without ever
+// reaching for s.db (which would deadlock under SetMaxOpenConns(1) if q is
+// already a tx on the connection's one slot).
+func (s *Store) createTaskTx(ctx context.Context, q dbtx, p CreateTaskParams) error {
 	maxAttempts := p.MaxAttempts
 	if maxAttempts <= 0 {
 		maxAttempts = 1
@@ -106,7 +115,7 @@ func (s *Store) CreateTask(ctx context.Context, p CreateTaskParams) (*Task, erro
 	}
 	now := s.clk.Now().UnixMilli()
 
-	_, err := s.db.ExecContext(ctx, `
+	_, err := q.ExecContext(ctx, `
 		INSERT INTO tasks (
 			id, dag_id, name, prompt, repo, cwd, worktree, branch, model,
 			permission_mode, status, attempts, max_attempts, session_id,
@@ -118,7 +127,16 @@ func (s *Store) CreateTask(ctx context.Context, p CreateTaskParams) (*Task, erro
 		string(status), maxAttempts, nullableFloatPtr(p.BudgetUSD), now, now,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("store: creating task %s: %w", p.Name, err)
+		return fmt.Errorf("store: creating task %s: %w", p.Name, err)
+	}
+	return nil
+}
+
+// CreateTask inserts a new task row and returns it persisted (i.e.
+// re-fetched, matching CreateSession's pattern).
+func (s *Store) CreateTask(ctx context.Context, p CreateTaskParams) (*Task, error) {
+	if err := s.createTaskTx(ctx, s.db, p); err != nil {
+		return nil, err
 	}
 	return s.GetTask(ctx, p.ID)
 }
@@ -202,14 +220,11 @@ func (s *Store) UpdateTask(ctx context.Context, id string, mutate func(*Task)) (
 	return updated, nil
 }
 
-// AddDep records that taskID depends on dependsOn (task_deps, m4.md §3.2):
-// taskID cannot become ready until dependsOn reaches status='succeeded'.
-// Both ids must already exist — the ON DELETE CASCADE foreign keys enforce
-// that at runtime (the long-lived connection runs with foreign_keys ON) and
-// a violation surfaces as a wrapped error here. Cycle detection is the
-// orchestrator's job (m4.md §8.1), not the store's.
-func (s *Store) AddDep(ctx context.Context, taskID, dependsOn string) error {
-	_, err := s.db.ExecContext(ctx,
+// addDepTx inserts one task_deps row against q, the tx-scoped counterpart of
+// AddDep used by SubmitDAG so every edge in a batch lands on the same
+// transaction as the tasks and budget row around it.
+func (s *Store) addDepTx(ctx context.Context, q dbtx, taskID, dependsOn string) error {
+	_, err := q.ExecContext(ctx,
 		`INSERT INTO task_deps (task_id, depends_on) VALUES (?, ?)`,
 		taskID, dependsOn,
 	)
@@ -217,6 +232,16 @@ func (s *Store) AddDep(ctx context.Context, taskID, dependsOn string) error {
 		return fmt.Errorf("store: adding dep %s -> %s: %w", taskID, dependsOn, err)
 	}
 	return nil
+}
+
+// AddDep records that taskID depends on dependsOn (task_deps, m4.md §3.2):
+// taskID cannot become ready until dependsOn reaches status='succeeded'.
+// Both ids must already exist — the ON DELETE CASCADE foreign keys enforce
+// that at runtime (the long-lived connection runs with foreign_keys ON) and
+// a violation surfaces as a wrapped error here. Cycle detection is the
+// orchestrator's job (m4.md §8.1), not the store's.
+func (s *Store) AddDep(ctx context.Context, taskID, dependsOn string) error {
+	return s.addDepTx(ctx, s.db, taskID, dependsOn)
 }
 
 // ReadyTasks returns dagID's tasks that are ready to run: status is
@@ -458,14 +483,11 @@ func (s *Store) GetDAGBudget(ctx context.Context, dagID string) (*DAGBudget, err
 	return &b, nil
 }
 
-// CreateDAGBudget inserts dagID's dag_budgets row (cost_usd starts at 0).
-// It is the SOLE writer of that row — AddCost only ever UPDATEs it and
-// assumes it already exists (m4.md §3.3). Calling this twice for the same
-// dagID returns ErrDAGBudgetExists rather than silently no-op'ing or
-// clobbering an in-progress rollup: callers that want idempotent
-// resubmission must check first, not rely on a soft second call.
-func (s *Store) CreateDAGBudget(ctx context.Context, dagID string, budgetUSD *float64) error {
-	_, err := s.db.ExecContext(ctx,
+// createDAGBudgetTx inserts dagID's dag_budgets row against q, the
+// tx-scoped counterpart of CreateDAGBudget used by SubmitDAG so the budget
+// row lands in the same transaction as the tasks and deps around it.
+func (s *Store) createDAGBudgetTx(ctx context.Context, q dbtx, dagID string, budgetUSD *float64) error {
+	_, err := q.ExecContext(ctx,
 		`INSERT INTO dag_budgets (dag_id, budget_usd, cost_usd) VALUES (?, ?, 0)`,
 		dagID, nullableFloatPtr(budgetUSD),
 	)
@@ -476,6 +498,97 @@ func (s *Store) CreateDAGBudget(ctx context.Context, dagID string, budgetUSD *fl
 		return fmt.Errorf("store: creating dag budget for %s: %w", dagID, err)
 	}
 	return nil
+}
+
+// CreateDAGBudget inserts dagID's dag_budgets row (cost_usd starts at 0).
+// It is the SOLE writer of that row — AddCost only ever UPDATEs it and
+// assumes it already exists (m4.md §3.3). Calling this twice for the same
+// dagID returns ErrDAGBudgetExists rather than silently no-op'ing or
+// clobbering an in-progress rollup: callers that want idempotent
+// resubmission must check first, not rely on a soft second call.
+func (s *Store) CreateDAGBudget(ctx context.Context, dagID string, budgetUSD *float64) error {
+	return s.createDAGBudgetTx(ctx, s.db, dagID, budgetUSD)
+}
+
+// DAGSubmission is one atomic dag: its budget cap plus all task nodes and
+// the dependency edges among them. SubmitDAG writes all of them in a
+// single transaction so the orchestrator never observes a partially-built
+// dag.
+type DAGSubmission struct {
+	DAGID     string
+	BudgetUSD *float64           // nil = unbounded (no cap)
+	Tasks     []CreateTaskParams // >= 1; each task's DAGID is forced to sub.DAGID
+	Deps      []Dep              // {TaskID, DependsOn}; both endpoints must be in Tasks
+}
+
+// SubmitDAG writes sub's budget row, every task, and every dep edge in one
+// transaction, so a caller building a whole dag (`corral run`, m4.md §13
+// step 24) never leaves it half-built for the orchestrator's polling
+// goroutine to observe — e.g. an `implement` task ready before `plan`'s
+// dependency edge exists, breaking dependency order.
+//
+// It validates sub's shape before opening the transaction at all, so a bad
+// submission never touches the database:
+//   - sub.DAGID must be non-empty.
+//   - sub.Tasks must be non-empty.
+//   - every Deps[i].TaskID and Deps[i].DependsOn must name a task present
+//     in sub.Tasks, and a task may not depend on itself.
+//
+// Cycle detection is deliberately NOT done here — that is
+// orchestrator.DetectCycle's job. Doing it in this package would require
+// store to import orchestrator, creating an import cycle (orchestrator
+// already imports store).
+func (s *Store) SubmitDAG(ctx context.Context, sub DAGSubmission) error {
+	if sub.DAGID == "" {
+		return fmt.Errorf("%w: dag id is empty", ErrInvalidDAGSubmission)
+	}
+	if len(sub.Tasks) == 0 {
+		return fmt.Errorf("%w: dag %s has no tasks", ErrInvalidDAGSubmission, sub.DAGID)
+	}
+
+	taskIDs := make(map[string]struct{}, len(sub.Tasks))
+	for _, t := range sub.Tasks {
+		taskIDs[t.ID] = struct{}{}
+	}
+	for _, d := range sub.Deps {
+		if d.TaskID == d.DependsOn {
+			return fmt.Errorf("%w: dag %s: task %s depends on itself",
+				ErrInvalidDAGSubmission, sub.DAGID, d.TaskID)
+		}
+		if _, ok := taskIDs[d.TaskID]; !ok {
+			return fmt.Errorf("%w: dag %s: dep task %s is not in Tasks",
+				ErrInvalidDAGSubmission, sub.DAGID, d.TaskID)
+		}
+		if _, ok := taskIDs[d.DependsOn]; !ok {
+			return fmt.Errorf("%w: dag %s: dep target %s is not in Tasks",
+				ErrInvalidDAGSubmission, sub.DAGID, d.DependsOn)
+		}
+	}
+
+	return s.withTx(ctx, func(tx *sql.Tx) error {
+		// Budget row first: the AddCost invariant (a task's dag_budgets
+		// row must already exist) then holds the instant any cost
+		// arrives for a task in this dag.
+		if err := s.createDAGBudgetTx(ctx, tx, sub.DAGID, sub.BudgetUSD); err != nil {
+			return err
+		}
+		// All tasks before any dep: task_deps' ON DELETE CASCADE foreign
+		// keys reference tasks(id), and the long-lived connection runs
+		// with foreign_keys ON, so a dep inserted before its endpoints
+		// exist would fail the FK check.
+		for _, t := range sub.Tasks {
+			t.DAGID = sub.DAGID // force — a caller can't mismatch a task into another dag
+			if err := s.createTaskTx(ctx, tx, t); err != nil {
+				return err
+			}
+		}
+		for _, d := range sub.Deps {
+			if err := s.addDepTx(ctx, tx, d.TaskID, d.DependsOn); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 const taskSelectColumns = `SELECT
