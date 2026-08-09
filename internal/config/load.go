@@ -20,6 +20,9 @@ func defaultsLayer() *layer {
 			LogLevel:      strPtr("info"),
 			LogFormat:     strPtr("text"),
 			ShutdownGrace: strPtr("5s"),
+			Listen:        strPtr(""),
+			TLSCert:       strPtr(""),
+			TLSKey:        strPtr(""),
 		},
 		Session: sessionLayer{
 			ClaudeBin:         strPtr("claude"),
@@ -246,6 +249,11 @@ func resolveDaemon(l *daemonLayer) (Daemon, error) {
 		LogLevel:      derefStr(l.LogLevel),
 		LogFormat:     derefStr(l.LogFormat),
 		ShutdownGrace: grace,
+		// Listen is a network address, not a path — it is never
+		// home-expanded. TLSCert/TLSKey ARE file paths, so they are.
+		Listen:  derefStr(l.Listen),
+		TLSCert: expandHome(derefStr(l.TLSCert)),
+		TLSKey:  expandHome(derefStr(l.TLSKey)),
 	}, nil
 }
 

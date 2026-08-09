@@ -273,6 +273,33 @@ func TestRoundTripsAsServerCert(t *testing.T) {
 	}
 }
 
+// TestLoadPair covers the daemon.tls_cert/tls_key operator-override path:
+// loading the exact same two files LoadOrGenerate just wrote succeeds, and
+// a nonexistent path is a plain error rather than a silent regeneration
+// (LoadPair never writes anything, unlike LoadOrGenerate).
+func TestLoadPair(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "tls")
+	clk := newFakeClock()
+
+	if _, err := LoadOrGenerate(clk, dir, nil); err != nil {
+		t.Fatalf("LoadOrGenerate: %v", err)
+	}
+	certPath := filepath.Join(dir, certFileName)
+	keyPath := filepath.Join(dir, keyFileName)
+
+	cert, err := LoadPair(certPath, keyPath)
+	if err != nil {
+		t.Fatalf("LoadPair: %v", err)
+	}
+	if cert == nil || len(cert.Certificate) == 0 {
+		t.Fatalf("LoadPair returned an unusable certificate: %+v", cert)
+	}
+
+	if _, err := LoadPair(filepath.Join(dir, "nonexistent-cert.pem"), keyPath); err == nil {
+		t.Fatalf("LoadPair with a nonexistent cert path: want error, got nil")
+	}
+}
+
 // TestHalfPairRegenerates covers case 8: only cert.pem present (and
 // garbage) with key.pem absent is treated as "absent" and both files are
 // regenerated fresh rather than erroring out on the unusable half-pair.

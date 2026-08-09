@@ -97,6 +97,11 @@ func (d *Daemon) shutdown(ctx context.Context, grace time.Duration) error {
 		d.log.Warn("shutdown: releasing lock", "err", err)
 	}
 
+	if d.tcpSrv != nil {
+		if err := d.tcpSrv.Shutdown(context.Background()); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			d.log.Warn("shutdown: tcp http server shutdown", "err", err)
+		}
+	}
 	if err := d.srv.Shutdown(context.Background()); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		d.log.Warn("shutdown: http server shutdown", "err", err)
 	}

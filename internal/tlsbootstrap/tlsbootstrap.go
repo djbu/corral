@@ -201,3 +201,17 @@ func populateSANs(template *x509.Certificate, hosts []string) {
 		}
 	}
 }
+
+// LoadPair loads an operator-supplied cert/key pair from explicit paths
+// (the daemon.tls_cert / daemon.tls_key override, design doc §5), rather
+// than the self-signed bootstrap LoadOrGenerate manages. It is used when an
+// operator points corral at a cert from their own CA / tailscale / Let's
+// Encrypt; both paths must be given (the daemon enforces both-or-neither
+// before calling this) and are loaded verbatim, never regenerated.
+func LoadPair(certPath, keyPath string) (*tls.Certificate, error) {
+	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("tlsbootstrap: loading configured cert/key pair: %w", err)
+	}
+	return &cert, nil
+}

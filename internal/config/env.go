@@ -41,6 +41,18 @@ var envSpecs = []envSpec{
 		l.Daemon.ShutdownGrace = strPtr(v)
 		return nil
 	}},
+	{"daemon.listen", "CORRAL_DAEMON_LISTEN", func(l *layer, v string) error {
+		l.Daemon.Listen = strPtr(v)
+		return nil
+	}},
+	{"daemon.tls_cert", "CORRAL_DAEMON_TLS_CERT", func(l *layer, v string) error {
+		l.Daemon.TLSCert = strPtr(v)
+		return nil
+	}},
+	{"daemon.tls_key", "CORRAL_DAEMON_TLS_KEY", func(l *layer, v string) error {
+		l.Daemon.TLSKey = strPtr(v)
+		return nil
+	}},
 
 	{"session.claude_bin", "CORRAL_SESSION_CLAUDE_BIN", func(l *layer, v string) error {
 		l.Session.ClaudeBin = strPtr(v)

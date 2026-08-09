@@ -20,6 +20,9 @@ type daemonLayer struct {
 	LogLevel      *string `toml:"log_level"`
 	LogFormat     *string `toml:"log_format"`
 	ShutdownGrace *string `toml:"shutdown_grace"`
+	Listen        *string `toml:"listen"`
+	TLSCert       *string `toml:"tls_cert"`
+	TLSKey        *string `toml:"tls_key"`
 }
 
 type sessionLayer struct {
@@ -165,6 +168,18 @@ func mergeDaemon(dst, src *daemonLayer, srcSource sourceFunc, sources map[string
 	if src.ShutdownGrace != nil {
 		dst.ShutdownGrace = src.ShutdownGrace
 		sources["daemon.shutdown_grace"] = srcSource("daemon.shutdown_grace")
+	}
+	if src.Listen != nil {
+		dst.Listen = src.Listen
+		sources["daemon.listen"] = srcSource("daemon.listen")
+	}
+	if src.TLSCert != nil {
+		dst.TLSCert = src.TLSCert
+		sources["daemon.tls_cert"] = srcSource("daemon.tls_cert")
+	}
+	if src.TLSKey != nil {
+		dst.TLSKey = src.TLSKey
+		sources["daemon.tls_key"] = srcSource("daemon.tls_key")
 	}
 }
 

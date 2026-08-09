@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -28,6 +30,7 @@ import (
 	"github.com/danielbecerra/corral/internal/state"
 	"github.com/danielbecerra/corral/internal/store"
 	"github.com/danielbecerra/corral/internal/supervisor"
+	"github.com/danielbecerra/corral/internal/tlsbootstrap"
 	"github.com/danielbecerra/corral/internal/version"
 )
 
@@ -104,6 +107,11 @@ type Daemon struct {
 	lockFile *os.File
 	listener net.Listener
 	srv      *http.Server
+	// tcpListener and tcpSrv are M5 step 30's opt-in TCP+TLS listener, or
+	// nil when daemon.listen is unset (the default) — the daemon stays
+	// unix-socket-only in that case. See startup's bind/serve blocks.
+	tcpListener net.Listener
+	tcpSrv      *http.Server
 
 	sockPath string
 	pidPath  string
@@ -388,6 +396,52 @@ func (d *Daemon) startup(ctx context.Context) error {
 		return fmt.Errorf("daemon: chmod socket %s: %w", d.sockPath, err)
 	}
 	d.listener = ln
+
+	// M5 step 30: opt-in TCP+TLS listener. Bound here — before the pidfile is
+	// written — so a bind failure (port already in use) aborts startup cleanly
+	// with no stale pidfile. TLS is mandatory: there is no plaintext-TCP path.
+	// This is the only place corral becomes network-reachable, and it stays
+	// closed unless the operator explicitly set daemon.listen.
+	if d.cfg.Listen != "" {
+		// Both-or-neither: a half-set override (tls_cert without tls_key, or the
+		// reverse) would silently fall through to the self-signed bootstrap while
+		// the operator believes their own cert is live. Fail closed instead — the
+		// same both-or-neither reasoning step 27 applied to scope+session_id at
+		// token mint time.
+		certSet, keySet := d.cfg.TLSCert != "", d.cfg.TLSKey != ""
+		if certSet != keySet {
+			ln.Close()
+			return fmt.Errorf("daemon: daemon.tls_cert and daemon.tls_key must both be set or both empty; got tls_cert=%q tls_key=%q", d.cfg.TLSCert, d.cfg.TLSKey)
+		}
+
+		var cert *tls.Certificate
+		if certSet {
+			cert, err = tlsbootstrap.LoadPair(d.cfg.TLSCert, d.cfg.TLSKey)
+		} else {
+			cert, err = tlsbootstrap.LoadOrGenerate(d.clk, filepath.Join(d.cfg.StateDir, "tls"), hostsFor(d.cfg.Listen))
+		}
+		if err != nil {
+			ln.Close()
+			return fmt.Errorf("daemon: tls bootstrap: %w", err)
+		}
+
+		// Best-effort SAN check: if the cert can't cover the host the operator is
+		// listening on, a remote pinned-CA client (step 31) will fail hostname
+		// verification with nothing to click through. Warn, never fail — the
+		// operator may be reaching it by a name/IP we can't see here.
+		warnIfHostUncovered(cert, d.cfg.Listen, d.log)
+
+		tcpLn, err := tls.Listen("tcp", d.cfg.Listen, &tls.Config{
+			Certificates: []tls.Certificate{*cert},
+			MinVersion:   tls.VersionTLS12,
+		})
+		if err != nil {
+			ln.Close()
+			return fmt.Errorf("daemon: listen %s: %w", d.cfg.Listen, err)
+		}
+		d.tcpListener = tcpLn
+	}
+
 	if err := d.writePIDFile(); err != nil {
 		return err
 	}
@@ -424,6 +478,23 @@ func (d *Daemon) startup(ctx context.Context) error {
 			d.log.Error("http server exited", "err", err)
 		}
 	}()
+
+	if d.tcpListener != nil {
+		// WriteTimeout is deliberately NOT set: step 32 mounts SSE on this same
+		// server and a write deadline would kill long-lived streams.
+		// ReadHeaderTimeout guards against a slow-header DoS from an
+		// unauthenticated caller (bearerAuth runs only after headers are read).
+		d.tcpSrv = &http.Server{
+			Handler:           srv.AuthenticatedHandler(d.store, d.log),
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+		go func() {
+			if err := d.tcpSrv.Serve(d.tcpListener); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
+				d.log.Error("tcp http server exited", "err", err)
+			}
+		}()
+		d.log.Warn("TCP listener enabled — daemon is network-reachable", "addr", d.tcpListener.Addr().String(), "tls", map[bool]string{true: "operator-supplied", false: "self-signed"}[d.cfg.TLSCert != ""])
+	}
 
 	if _, err := d.store.AppendEvent(ctx, "", session.EventDaemonStarted, ""); err != nil {
 		d.log.Warn("recording daemon.started event", "err", err)
@@ -591,6 +662,29 @@ func (d *Daemon) probeAutoMode(ctx context.Context) {
 
 func (d *Daemon) writePIDFile() error {
 	return os.WriteFile(d.pidPath, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o600)
+}
+
+// warnIfHostUncovered logs a Warn if cert's leaf certificate does not cover
+// every non-loopback host implied by listen (via hostsFor). Best-effort: any
+// parse failure or empty host set is silently skipped — this only ever warns,
+// never blocks startup.
+func warnIfHostUncovered(cert *tls.Certificate, listen string, log *slog.Logger) {
+	if cert == nil || len(cert.Certificate) == 0 {
+		return
+	}
+	leaf, err := x509.ParseCertificate(cert.Certificate[0])
+	if err != nil {
+		return
+	}
+	var uncovered []string
+	for _, h := range hostsFor(listen) {
+		if leaf.VerifyHostname(h) != nil {
+			uncovered = append(uncovered, h)
+		}
+	}
+	if len(uncovered) > 0 {
+		log.Warn("TLS cert does not cover configured listen host(s); remote clients pinning this cert will fail hostname verification", "uncovered", uncovered, "listen", listen)
+	}
 }
 
 func mustHomeDir() string {

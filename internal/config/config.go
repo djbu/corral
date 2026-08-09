@@ -21,6 +21,18 @@ type Daemon struct {
 	LogLevel      string
 	LogFormat     string
 	ShutdownGrace time.Duration
+	// Listen is the opt-in TCP+TLS listener's host:port (design doc m5.md
+	// §5, step 30). Empty (the default) means unix-socket-only: corral
+	// never becomes network-reachable unless an operator explicitly sets
+	// this. Fails closed — there is no "TCP without TLS" path.
+	Listen string
+	// TLSCert and TLSKey are the both-or-neither operator override that
+	// points Listen's TLS at a cert from the operator's own CA / tailscale
+	// / Let's Encrypt instead of the self-signed bootstrap cert
+	// (tlsbootstrap.LoadOrGenerate). Both empty (the default) uses the
+	// self-signed cert; the daemon rejects startup if exactly one is set.
+	TLSCert string
+	TLSKey  string
 }
 
 // Session is the resolved session-scope configuration.

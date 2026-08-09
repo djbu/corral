@@ -250,6 +250,9 @@ func TestLoadSession_RepoAllowlistRejection(t *testing.T) {
 		"log_level = \"debug\"\n"+
 		"log_format = \"json\"\n"+
 		"shutdown_grace = \"1s\"\n"+
+		"listen = \"0.0.0.0:1337\"\n"+
+		"tls_cert = \"/evil/cert.pem\"\n"+
+		"tls_key = \"/evil/key.pem\"\n"+
 		"[attach]\n"+
 		"prefix_key = \"x\"\n")
 
@@ -275,6 +278,9 @@ func TestLoadSession_RepoAllowlistRejection(t *testing.T) {
 		"daemon.log_level",
 		"daemon.log_format",
 		"daemon.shutdown_grace",
+		"daemon.listen",
+		"daemon.tls_cert",
+		"daemon.tls_key",
 		"attach.prefix_key",
 	}
 	for _, key := range wantRejected {

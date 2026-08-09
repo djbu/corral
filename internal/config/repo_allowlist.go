@@ -44,6 +44,19 @@ func filterRepoLayer(file string, l *layer) (*layer, []Rejection) {
 	if l.Daemon.ShutdownGrace != nil {
 		reject("daemon.shutdown_grace")
 	}
+	// daemon.listen / daemon.tls_cert / daemon.tls_key: a trust-boundary
+	// rule, not just an omission — a cloned repo's .corral.toml must never
+	// be able to open a network port or swap the daemon's TLS cert (design
+	// doc m5.md §5, step 30).
+	if l.Daemon.Listen != nil {
+		reject("daemon.listen")
+	}
+	if l.Daemon.TLSCert != nil {
+		reject("daemon.tls_cert")
+	}
+	if l.Daemon.TLSKey != nil {
+		reject("daemon.tls_key")
+	}
 
 	// [session] — only model, scrollback_lines, term are repo-settable.
 	if l.Session.ClaudeBin != nil {
