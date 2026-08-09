@@ -23,6 +23,25 @@ type BlockedReason struct {
 	BlockedAt             string          `json:"blocked_at"` // RFC3339
 	HookSeq               int64           `json:"hook_seq"`
 	Redactions            []string        `json:"redactions"`
+	Truncated             bool            `json:"truncated"`
+}
+
+// PermissionRequestSeq returns the permission.requested event sequence named
+// by a persisted blocked reason. It is the shared correlation seam used by
+// HTTP and ntfy answers; malformed, non-permission, and missing reasons are
+// deliberately uncorrelated rather than guessed.
+func PermissionRequestSeq(reasonJSON string) int64 {
+	if reasonJSON == "" {
+		return 0
+	}
+	var reason BlockedReason
+	if err := json.Unmarshal([]byte(reasonJSON), &reason); err != nil {
+		return 0
+	}
+	if reason.Kind != "permission" || reason.HookSeq <= 0 {
+		return 0
+	}
+	return reason.HookSeq
 }
 
 // kindForTool classifies a tool name into the BlockedReason.Kind vocabulary

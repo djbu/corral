@@ -146,6 +146,12 @@ func TestAnswerEndToEndMetacharactersSurviveVerbatim(t *testing.T) {
 	if created.ID == "" {
 		t.Fatalf("created session has empty ID; body=%s", rec.Body.String())
 	}
+	if _, err := st.UpdateSession(context.Background(), created.ID, func(s *session.Session) {
+		s.AgentState = session.AgentBlocked
+		s.BlockedReasonJSON = `{"kind":"permission","hook_seq":77}`
+	}); err != nil {
+		t.Fatalf("setting blocked answer correlation: %v", err)
+	}
 	// Best-effort: if an assertion below fails before the scenario's own
 	// "exit" step runs, don't leave a live fakeclaude child behind.
 	t.Cleanup(func() { _, _ = reg.Kill(context.Background(), created.ID, nil) })
@@ -157,6 +163,21 @@ func TestAnswerEndToEndMetacharactersSurviveVerbatim(t *testing.T) {
 	arec := doVersioned(t, srv.Handler(), "POST", "/v1/sessions/"+created.ID+"/answer", answerBody)
 	if arec.Code != 200 {
 		t.Fatalf("answer status = %d, want 200, body=%s", arec.Code, arec.Body.String())
+	}
+	var answerAudit map[string]any
+	events, err := st.ListEvents(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	for _, ev := range events {
+		if ev.Kind == session.EventSessionAnswered {
+			if err := json.Unmarshal([]byte(ev.DataJSON), &answerAudit); err != nil {
+				t.Fatalf("decoding session.answered: %v", err)
+			}
+		}
+	}
+	if answerAudit["via"] != "http" || answerAudit["permission_request_seq"] != float64(77) {
+		t.Fatalf("session.answered audit = %#v, want via=http permission_request_seq=77", answerAudit)
 	}
 
 	// Poll for the scenario's hooks-1.json: the child must fork, reach its

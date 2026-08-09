@@ -14,6 +14,7 @@ import (
 	"github.com/danielbecerra/corral/internal/answer"
 	"github.com/danielbecerra/corral/internal/clock"
 	"github.com/danielbecerra/corral/internal/session"
+	"github.com/danielbecerra/corral/internal/state"
 	"github.com/danielbecerra/corral/internal/store"
 )
 
@@ -319,7 +320,11 @@ func (s *ReplySubscriber) handleMessage(raw string) {
 	// the length) and via:"ntfy" so this reply is distinguishable from an HTTP
 	// `corral answer`. Uses context.Background() so the write survives Close's
 	// ctx cancellation, matching the Dispatcher's event writes.
-	data, mErr := json.Marshal(map[string]any{"via": "ntfy", "len": len(text)})
+	audit := map[string]any{"via": "ntfy", "len": len(text)}
+	if requestSeq := state.PermissionRequestSeq(sess.BlockedReasonJSON); requestSeq > 0 {
+		audit["permission_request_seq"] = requestSeq
+	}
+	data, mErr := json.Marshal(audit)
 	if mErr == nil {
 		if _, aErr := s.store.AppendEvent(context.Background(), sess.ID, session.EventSessionAnswered, string(data)); aErr != nil {
 			s.log.Warn("notify: reply appending session.answered failed", "session", name, "err", aErr)

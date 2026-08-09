@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -292,6 +293,118 @@ func TestSettleFiresBlocked(t *testing.T) {
 	if reason2.HookSeq != reason.HookSeq {
 		t.Errorf("reason.HookSeq changed from %d to %d across recomputes, want stable", reason.HookSeq, reason2.HookSeq)
 	}
+}
+
+func TestPermissionEvidenceIsRedactedCorrelatedAndCapped(t *testing.T) {
+	t.Run("redaction and request correlation", func(t *testing.T) {
+		fc := clocktest.NewFake(fixedStart)
+		st := openRealTestStore(t, fc)
+		e := NewEngine(st, fc, EngineConfig{}, &spyNotifier{}, nil)
+		stepCh := make(chan struct{}, 64)
+		e.afterStep = func() { stepCh <- struct{}{} }
+
+		const id = "sess-evidence-redacted"
+		const secret = "sk-ant-abcdefghijklmnopqrstuvwxyz123456"
+		createTestSession(t, st, id, session.StatusRunning)
+		stopEngineLoop(t, e, id)
+
+		deliver(t, e, id, stepCh, hookrelay.HookPayload{Common: hookrelay.Common{HookEventName: "PreToolUse", SessionID: id}, PromptID: "p1", ToolName: "Bash", ToolUseID: "tu1", ToolInput: json.RawMessage(`{"command":"deploy ` + secret + `"}`)})
+		deliver(t, e, id, stepCh, bashPayload("PermissionRequest", id, "p1", "deploy "+secret))
+
+		var requested *session.Event
+		for _, ev := range mustListEvents(t, st, id) {
+			if ev.Kind == session.EventPermissionRequested {
+				requested = ev
+				break
+			}
+		}
+		if requested == nil {
+			t.Fatal("permission.requested event missing")
+		}
+		if strings.Contains(requested.DataJSON, secret) {
+			t.Fatalf("permission.requested leaked secret: %s", requested.DataJSON)
+		}
+		if !strings.Contains(requested.DataJSON, "redacted:anthropic_key") {
+			t.Fatalf("permission.requested missing redaction marker: %s", requested.DataJSON)
+		}
+
+		fc.Advance(16 * time.Second)
+		sess := pollAgentState(t, st, id, session.AgentBlocked)
+		if strings.Contains(sess.BlockedReasonJSON, secret) {
+			t.Fatalf("blocked reason leaked secret: %s", sess.BlockedReasonJSON)
+		}
+		var reason BlockedReason
+		if err := json.Unmarshal([]byte(sess.BlockedReasonJSON), &reason); err != nil {
+			t.Fatalf("decode blocked reason: %v", err)
+		}
+		if reason.HookSeq != requested.Seq {
+			t.Fatalf("blocked reason hook_seq = %d, want request seq %d", reason.HookSeq, requested.Seq)
+		}
+		if !slices.Contains(reason.Redactions, "anthropic_key") {
+			t.Fatalf("blocked reason redactions = %v, want anthropic_key", reason.Redactions)
+		}
+
+		resolvedPayload := bashPayload("PostToolUse", id, "p1", "deploy "+secret)
+		resolvedPayload.ToolUseID = "tu1"
+		deliver(t, e, id, stepCh, resolvedPayload)
+		var resolved map[string]any
+		var resolvedRaw string
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) && resolvedRaw == "" {
+			for _, ev := range mustListEvents(t, st, id) {
+				if ev.Kind == session.EventPermissionResolved {
+					resolvedRaw = ev.DataJSON
+					if err := json.Unmarshal([]byte(ev.DataJSON), &resolved); err != nil {
+						t.Fatalf("decode permission.resolved: %v", err)
+					}
+				}
+			}
+			if resolvedRaw == "" {
+				time.Sleep(2 * time.Millisecond)
+			}
+		}
+		seqValue, ok := resolved["request_seq"].(float64)
+		if !ok {
+			t.Fatalf("permission.resolved missing numeric request_seq: raw=%s resolved=%v events=%v", resolvedRaw, resolved, listEventKinds(t, st, id))
+		}
+		if got := int64(seqValue); got != requested.Seq {
+			t.Fatalf("permission.resolved request_seq = %d, want %d", got, requested.Seq)
+		}
+	})
+
+	t.Run("cap keeps enclosing event valid", func(t *testing.T) {
+		fc := clocktest.NewFake(fixedStart)
+		st := openRealTestStore(t, fc)
+		e := NewEngine(st, fc, EngineConfig{MaxEventPayloadBytes: 24}, nil, nil)
+		stepCh := make(chan struct{}, 64)
+		e.afterStep = func() { stepCh <- struct{}{} }
+
+		const id = "sess-evidence-capped"
+		createTestSession(t, st, id, session.StatusRunning)
+		stopEngineLoop(t, e, id)
+		deliver(t, e, id, stepCh, bashPayload("PermissionRequest", id, "p1", strings.Repeat("x", 100)))
+
+		for _, ev := range mustListEvents(t, st, id) {
+			if ev.Kind != session.EventPermissionRequested {
+				continue
+			}
+			var data struct {
+				ToolInput any  `json:"tool_input"`
+				Truncated bool `json:"truncated"`
+			}
+			if err := json.Unmarshal([]byte(ev.DataJSON), &data); err != nil {
+				t.Fatalf("permission.requested is invalid JSON: %v, data=%s", err, ev.DataJSON)
+			}
+			if !data.Truncated {
+				t.Fatalf("truncated = false, want true: %s", ev.DataJSON)
+			}
+			if _, ok := data.ToolInput.(string); !ok {
+				t.Fatalf("capped tool_input type = %T, want JSON string", data.ToolInput)
+			}
+			return
+		}
+		t.Fatal("permission.requested event missing")
+	})
 }
 
 func TestResolveAfterBlocked_BackToWorking(t *testing.T) {

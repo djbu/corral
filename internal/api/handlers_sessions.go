@@ -591,16 +591,19 @@ func (d SessionsDeps) handleAnswer(w http.ResponseWriter, r *http.Request) {
 	// Best-effort audit trail: the write already happened, so a failure here
 	// must not turn into an error response (matches the session.created
 	// pattern in handleCreate above).
-	var data []byte
-	var marshalErr error
+	dataFields := map[string]any{"via": "http"}
 	if body.Key != "" {
-		data, marshalErr = json.Marshal(map[string]string{"key": body.Key})
+		dataFields["key"] = body.Key
 	} else {
 		// Raw byte length of the text, deliberately not len(redact(text)):
 		// redacting first would leak whether the text looked secret-shaped
 		// through the length alone.
-		data, marshalErr = json.Marshal(map[string]int{"len": len(body.Text)})
+		dataFields["len"] = len(body.Text)
 	}
+	if requestSeq := state.PermissionRequestSeq(sess.BlockedReasonJSON); requestSeq > 0 {
+		dataFields["permission_request_seq"] = requestSeq
+	}
+	data, marshalErr := json.Marshal(dataFields)
 	if marshalErr == nil {
 		if _, err := d.Store.AppendEvent(ctx, sess.ID, session.EventSessionAnswered, string(data)); err != nil {
 			_ = err

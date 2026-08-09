@@ -319,10 +319,11 @@ func (d *Daemon) startup(ctx context.Context) error {
 	}
 
 	d.engine = state.NewEngine(d.store, d.clk, state.EngineConfig{
-		PermissionSettle: stateCfg.PermissionSettle,
-		PermissionTTL:    stateCfg.PermissionTTL,
-		StaleAfter:       stateCfg.StaleAfter,
-		FirstHookGrace:   stateCfg.FirstHookGrace,
+		PermissionSettle:     stateCfg.PermissionSettle,
+		PermissionTTL:        stateCfg.PermissionTTL,
+		StaleAfter:           stateCfg.StaleAfter,
+		FirstHookGrace:       stateCfg.FirstHookGrace,
+		MaxEventPayloadBytes: stateCfg.MaxEventPayloadBytes,
 	}, notifier, d.log)
 
 	relayCmd, err := resolveRelayCommand()

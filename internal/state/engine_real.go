@@ -25,6 +25,7 @@ import (
 
 	"github.com/danielbecerra/corral/internal/clock"
 	"github.com/danielbecerra/corral/internal/hookrelay"
+	"github.com/danielbecerra/corral/internal/redact"
 	"github.com/danielbecerra/corral/internal/session"
 	"github.com/danielbecerra/corral/internal/store"
 )
@@ -38,8 +39,9 @@ const (
 	// Staleness defaults (Amendment §4.5). Applied by NewEngine when
 	// EngineConfig leaves either at zero. Both drive render-time
 	// derivation only — there is no timer or sweeper goroutine.
-	defaultStaleAfter     = 15 * time.Minute
-	defaultFirstHookGrace = 60 * time.Second
+	defaultStaleAfter                 = 15 * time.Minute
+	defaultFirstHookGrace             = 60 * time.Second
+	defaultMaxEventPayloadBytes int64 = 64 << 10
 )
 
 // ingestBufferSize is the per-session hook-event queue's capacity.
@@ -66,6 +68,10 @@ type EngineConfig struct {
 	// so the one [state] config block configures both.
 	StaleAfter     time.Duration
 	FirstHookGrace time.Duration
+	// MaxEventPayloadBytes caps persisted agent-controlled evidence after
+	// redaction. The in-memory payload used for transition matching remains
+	// untouched.
+	MaxEventPayloadBytes int64
 }
 
 // Notifier is step 8's seam for delivering a blocked notification (e.g. to
@@ -111,6 +117,9 @@ func NewEngine(st *store.Store, clk clock.Clock, cfg EngineConfig, notifier Noti
 	}
 	if cfg.FirstHookGrace == 0 {
 		cfg.FirstHookGrace = defaultFirstHookGrace
+	}
+	if cfg.MaxEventPayloadBytes <= 0 {
+		cfg.MaxEventPayloadBytes = defaultMaxEventPayloadBytes
 	}
 	if log == nil {
 		log = slog.Default()
@@ -500,9 +509,16 @@ func (l *sessionLoop) openPermission(ctx context.Context, ev hookrelay.HookPaylo
 	}
 	l.open = append(l.open, r)
 
-	r.hookSeq = l.appendEvent(ctx, session.EventPermissionRequested, map[string]any{
+	persistedInput, redactions, truncated := l.persistedJSON(r.toolInput)
+	data := map[string]any{
 		"prompt_id": ev.PromptID, "tool_name": ev.ToolName,
-	})
+		"tool_use_id": toolUseID, "redactions": markerRuleNames(redactions),
+		"truncated": truncated,
+	}
+	if len(r.toolInput) > 0 {
+		data["tool_input"] = persistedInput
+	}
+	r.hookSeq = l.appendEvent(ctx, session.EventPermissionRequested, data)
 }
 
 // resolveMatching resolves the open request matching (ev.PromptID,
@@ -560,10 +576,11 @@ func (l *sessionLoop) resolve(ctx context.Context, i int, outcome string) {
 	l.open = append(l.open[:i], l.open[i+1:]...)
 
 	l.appendEvent(ctx, session.EventPermissionResolved, map[string]any{
-		"outcome":   outcome,
-		"settle_ms": l.engine.clk.Now().Sub(r.openedAt).Milliseconds(),
-		"prompt_id": r.promptID,
-		"tool_name": r.toolName,
+		"outcome":     outcome,
+		"settle_ms":   l.engine.clk.Now().Sub(r.openedAt).Milliseconds(),
+		"prompt_id":   r.promptID,
+		"tool_name":   r.toolName,
+		"request_seq": r.hookSeq,
 	})
 }
 
@@ -582,7 +599,7 @@ func (l *sessionLoop) scanDeadlines(now time.Time) {
 			if !r.notified {
 				r.notified = true
 				l.appendEvent(ctx, session.EventPermissionBlocked, map[string]any{
-					"prompt_id": r.promptID, "tool_name": r.toolName,
+					"prompt_id": r.promptID, "tool_name": r.toolName, "request_seq": r.hookSeq,
 				})
 				if l.engine.notifier != nil {
 					if err := l.engine.notifier.NotifyBlocked(l.sessionID, l.reasonFor(r)); err != nil {
@@ -609,25 +626,75 @@ func (l *sessionLoop) scanDeadlines(now time.Time) {
 // later calls (e.g. from recomputeAndPersist on a subsequent event), so
 // "blocked for N minutes" reflects the real blocking moment, not "now".
 func (l *sessionLoop) reasonFor(r *openReq) BlockedReason {
+	toolInput, inputRedactions, inputTruncated := l.persistedJSON(r.toolInput)
+	suggestions, suggestionRedactions, suggestionTruncated := l.persistedJSON(r.suggestions)
+	notification, notificationMarkers := redact.Redact([]byte(r.notificationMessage))
+	notification, notificationTruncated := capEvidence(notification, l.engine.cfg.MaxEventPayloadBytes)
+	redactions := markerRuleNames(inputRedactions, suggestionRedactions, notificationMarkers)
+
 	return BlockedReason{
 		Kind:                  kindForTool(r.toolName),
-		Summary:               summaryForTool(r.toolName, r.toolInput),
+		Summary:               summaryForTool(r.toolName, toolInput),
 		ToolName:              r.toolName,
 		ToolUseID:             r.toolUseID,
-		ToolInput:             json.RawMessage(r.toolInput),
-		PermissionSuggestions: r.suggestions,
+		ToolInput:             toolInput,
+		PermissionSuggestions: suggestions,
 		PromptID:              r.promptID,
 		AgentID:               r.agentID,
 		AgentType:             r.agentType,
 		PermissionMode:        r.permissionMode,
-		NotificationMessage:   r.notificationMessage,
+		NotificationMessage:   string(notification),
 		NotificationType:      r.notificationType,
 		Confidence:            r.confidence,
 		OpenedAt:              r.openedAt.UTC().Format(time.RFC3339),
 		BlockedAt:             r.blockedAt.UTC().Format(time.RFC3339),
 		HookSeq:               r.hookSeq,
-		Redactions:            []string{},
+		Redactions:            redactions,
+		Truncated:             inputTruncated || suggestionTruncated || notificationTruncated,
 	}
+}
+
+// persistedJSON redacts agent-controlled JSON before persistence and caps it
+// without ever producing an invalid enclosing event. A valid, untruncated
+// value remains structured JSON; invalid or truncated bytes are encoded as a
+// JSON string. Marker metadata is returned separately for synthesis gates.
+func (l *sessionLoop) persistedJSON(raw []byte) (json.RawMessage, []redact.Marker, bool) {
+	if len(raw) == 0 {
+		return nil, nil, false
+	}
+	out, markers := redact.Redact(raw)
+	out, truncated := capEvidence(out, l.engine.cfg.MaxEventPayloadBytes)
+	if !truncated && json.Valid(out) {
+		return json.RawMessage(out), markers, false
+	}
+	quoted, err := json.Marshal(string(out))
+	if err != nil {
+		return json.RawMessage(`""`), markers, truncated
+	}
+	return json.RawMessage(quoted), markers, truncated
+}
+
+func capEvidence(b []byte, max int64) ([]byte, bool) {
+	if max <= 0 || int64(len(b)) <= max {
+		return b, false
+	}
+	return b[:max], true
+}
+
+func markerRuleNames(groups ...[]redact.Marker) []string {
+	seen := make(map[string]struct{})
+	var names []string
+	for _, markers := range groups {
+		for _, marker := range markers {
+			if _, ok := seen[marker.Rule]; ok {
+				continue
+			}
+			seen[marker.Rule] = struct{}{}
+			names = append(names, marker.Rule)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 // persistHeartbeat bumps HookCount/LastHookAtMs/LastPromptID/LastActivityMs.

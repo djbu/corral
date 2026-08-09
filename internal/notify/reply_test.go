@@ -171,6 +171,11 @@ func TestReplySubscriberGates(t *testing.T) {
 	makeSession(t, st, "id-working", "working-sess", "/tmp/w")
 	setAgentState(t, st, "id-blocked", session.AgentBlocked)
 	setAgentState(t, st, "id-working", session.AgentWorking)
+	if _, err := st.UpdateSession(context.Background(), "id-blocked", func(s *session.Session) {
+		s.BlockedReasonJSON = `{"kind":"permission","hook_seq":41}`
+	}); err != nil {
+		t.Fatalf("UpdateSession blocked reason: %v", err)
+	}
 
 	msgs := []string{
 		"onlyname",                     // malformed: no text
@@ -220,6 +225,9 @@ func TestReplySubscriberGates(t *testing.T) {
 	}
 	if got, want := ans[0]["len"], float64(len(shellPayload)); got != want {
 		t.Fatalf("session.answered len = %v, want %v", got, want)
+	}
+	if got, want := ans[0]["permission_request_seq"], float64(41); got != want {
+		t.Fatalf("session.answered permission_request_seq = %v, want %v", got, want)
 	}
 }
 
