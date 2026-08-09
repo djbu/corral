@@ -43,7 +43,7 @@ func printLearningsUsage(w io.Writer) {
 	fmt.Fprintln(w, "  corral learnings scan [--repo PATH] [--json]")
 	fmt.Fprintln(w, "  corral learnings list [--repo PATH] [--status STATUS] [--json]")
 	fmt.Fprintln(w, "  corral learnings show <id> [--diff] [--json]")
-	fmt.Fprintln(w, "  corral learnings report <id> [--json]")
+	fmt.Fprintln(w, "  corral learnings report <id> [--early] [--json]")
 	fmt.Fprintln(w, "  corral learnings adopt <id> [--json]")
 	fmt.Fprintln(w, "  corral learnings reject <id> [--reason TEXT] [--json]")
 	fmt.Fprintln(w, "  corral learnings retire <id> [--json]")
@@ -155,6 +155,7 @@ func learningsReport(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("learnings report", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	jsonOut := fs.Bool("json", false, "print stable JSON")
+	early := fs.Bool("early", false, "close the post window now, only if baseline and post samples are sufficient")
 	cf := addClientFlags(fs)
 	if err := fs.Parse(interspersedFlagArgs(args, "host")); err != nil || fs.NArg() != 1 {
 		return exitUsage
@@ -163,7 +164,7 @@ func learningsReport(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return learningCLIError(stderr, err)
 	}
-	report, err := c.GetLearningReport(context.Background(), fs.Arg(0))
+	report, err := c.GetLearningReport(context.Background(), fs.Arg(0), *early)
 	if err != nil {
 		return learningCLIError(stderr, err)
 	}

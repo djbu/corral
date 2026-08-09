@@ -2,6 +2,7 @@ package learning
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -12,6 +13,82 @@ import (
 	"github.com/danielbecerra/corral/internal/session"
 	"github.com/danielbecerra/corral/internal/store"
 )
+
+func TestReporterEarlyCloseRequiresAndPersistsSufficientSample(t *testing.T) {
+	ctx := context.Background()
+	fc := clocktest.NewFake(time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC))
+	st, repo := newReporterStore(t, fc)
+	for i := 0; i < 5; i++ {
+		id := "base-" + string(rune('a'+i))
+		createMiningSession(t, st, id, repo)
+		_, _ = st.AppendEvent(ctx, id, session.EventPermissionBlocked, `{}`)
+	}
+	fc.Advance(time.Millisecond)
+	l := createProposedLearning(t, st, repo, fc)
+	reporter := NewReporter(st, fc, config.Learn{
+		Window: 14 * 24 * time.Hour, TTL: 90 * 24 * time.Hour,
+		MinSessions: 5, MinTerminalTasks: 0, CostRegressionTolerance: .10,
+	})
+	reporter.newID = sequentialIDs("baseline", "early-post")
+	if _, err := reporter.Adopt(ctx, l.ID); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		id := "post-" + string(rune('a'+i))
+		createMiningSession(t, st, id, repo)
+		_, _ = st.AppendEvent(ctx, id, session.EventSessionCreated, `{}`)
+	}
+	fc.Advance(time.Millisecond)
+	report, err := reporter.GenerateEarly(ctx, l.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Measurements) != 2 || report.Measurements[1].Verdict != "improved" {
+		t.Fatalf("early report = %+v", report)
+	}
+	if report.Measurements[1].WindowEndMs != fc.Now().UnixMilli() || report.EligibleAtMs != fc.Now().UnixMilli() {
+		t.Fatalf("early window end=%d eligible=%d want now=%d", report.Measurements[1].WindowEndMs, report.EligibleAtMs, fc.Now().UnixMilli())
+	}
+
+	// The ordinary 14-day path sees the already-finalized post measurement
+	// and stays idempotent instead of creating a second post window later.
+	report, err = reporter.Generate(ctx, l.ID)
+	if err != nil || len(report.Measurements) != 2 {
+		t.Fatalf("Generate after early close = (%+v,%v)", report, err)
+	}
+}
+
+func TestReporterEarlyCloseRejectsInconclusiveSample(t *testing.T) {
+	ctx := context.Background()
+	fc := clocktest.NewFake(time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC))
+	st, repo := newReporterStore(t, fc)
+	for i := 0; i < 5; i++ {
+		createMiningSession(t, st, "base-"+string(rune('a'+i)), repo)
+	}
+	fc.Advance(time.Millisecond)
+	l := createProposedLearning(t, st, repo, fc)
+	reporter := NewReporter(st, fc, config.Learn{
+		Window: 14 * 24 * time.Hour, TTL: 90 * 24 * time.Hour,
+		MinSessions: 5, MinTerminalTasks: 0,
+	})
+	reporter.newID = sequentialIDs("baseline", "must-not-persist")
+	if _, err := reporter.Adopt(ctx, l.ID); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 4; i++ {
+		id := "post-" + string(rune('a'+i))
+		createMiningSession(t, st, id, repo)
+		_, _ = st.AppendEvent(ctx, id, session.EventSessionCreated, `{}`)
+	}
+	fc.Advance(time.Millisecond)
+	if _, err := reporter.GenerateEarly(ctx, l.ID); !errors.Is(err, ErrInsufficientPostSample) {
+		t.Fatalf("GenerateEarly error = %v, want ErrInsufficientPostSample", err)
+	}
+	measurements, err := st.ListLearningMeasurements(ctx, l.ID)
+	if err != nil || len(measurements) != 1 || measurements[0].Phase != "baseline" {
+		t.Fatalf("insufficient early close persisted data: (%+v,%v)", measurements, err)
+	}
+}
 
 func TestReporterBaselinePostImprovementAndIdempotence(t *testing.T) {
 	ctx := context.Background()

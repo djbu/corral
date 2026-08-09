@@ -113,8 +113,12 @@ func (c *Client) GetLearning(ctx context.Context, id string) (LearningInfo, erro
 	return out, nil
 }
 
-func (c *Client) GetLearningReport(ctx context.Context, id string) (LearningReport, error) {
-	resp, err := c.do(ctx, http.MethodGet, "/v1/learnings/"+url.PathEscape(id)+"/report", nil)
+func (c *Client) GetLearningReport(ctx context.Context, id string, early ...bool) (LearningReport, error) {
+	path := "/v1/learnings/" + url.PathEscape(id) + "/report"
+	if len(early) > 0 && early[0] {
+		path += "?early=true"
+	}
+	resp, err := c.do(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return LearningReport{}, err
 	}

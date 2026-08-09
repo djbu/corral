@@ -210,8 +210,28 @@ func (d LearningsDeps) handleLearningReport(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
-	report, err := learning.NewReporter(d.Store, d.Clock, d.Config).Generate(r.Context(), l.ID)
+	early := false
+	switch r.URL.Query().Get("early") {
+	case "", "false":
+	case "true":
+		early = true
+	default:
+		writeError(w, http.StatusBadRequest, CodeBadRequest, "early must be true or false", nil)
+		return
+	}
+	reporter := learning.NewReporter(d.Store, d.Clock, d.Config)
+	var report learning.Report
+	var err error
+	if early {
+		report, err = reporter.GenerateEarly(r.Context(), l.ID)
+	} else {
+		report, err = reporter.Generate(r.Context(), l.ID)
+	}
 	if err != nil {
+		if errors.Is(err, learning.ErrInsufficientPostSample) || errors.Is(err, store.ErrInvalidLearningTransition) {
+			writeError(w, http.StatusConflict, CodeLearningConflict, err.Error(), nil)
+			return
+		}
 		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
 		return
 	}

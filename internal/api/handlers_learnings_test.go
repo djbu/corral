@@ -81,6 +81,52 @@ func TestLearningsAPI_ScanListShowReport(t *testing.T) {
 	}
 }
 
+func TestLearningsAPI_EarlyReportRequiresExplicitValidQuery(t *testing.T) {
+	fc := clocktest.NewFake(time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC))
+	st, err := store.Open(filepath.Join(t.TempDir(), "corral.db"), fc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ctx := context.Background()
+	repo, _ := corralgit.CanonicalPath(t.TempDir())
+	createAPILearning(t, st, "early", repo, "early-fp")
+	if _, err := st.TransitionLearning(ctx, "early", store.LearningTransition{From: store.LearningCandidate, To: store.LearningVerified}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.TransitionLearning(ctx, "early", store.LearningTransition{From: store.LearningVerified, To: store.LearningProposed}); err != nil {
+		t.Fatal(err)
+	}
+	adopted := fc.Now().UnixMilli()
+	if _, err := st.AdoptLearning(ctx, store.AdoptLearningParams{
+		LearningID: "early", AdoptedMs: adopted, ExpiresMs: fc.Now().Add(90 * 24 * time.Hour).UnixMilli(),
+		MeasurementID: "early-baseline", WindowStartMs: adopted - 1,
+		MetricsJSON: `{"blocked_events":5,"sessions":5,"blocked_per_session":1,"terminal_tasks":0}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		id := fmt.Sprintf("early-post-%d", i)
+		createLearningSession(t, st, id, repo)
+		if _, err := st.AppendEvent(ctx, id, session.EventSessionCreated, `{}`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fc.Advance(time.Millisecond)
+	cfg := config.Learn{Window: 14 * 24 * time.Hour, MinSessions: 5, MinTerminalTasks: 0, TTL: 90 * 24 * time.Hour}
+	srv := New()
+	srv.RegisterLearnings(LearningsDeps{Store: st, Clock: fc, Config: cfg})
+
+	rec := doVersioned(t, srv.Handler(), http.MethodGet, "/v1/learnings/early/report?early=true", nil)
+	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"phase":"post"`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"verdict":"improved"`)) {
+		t.Fatalf("early report status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = doVersioned(t, srv.Handler(), http.MethodGet, "/v1/learnings/early/report?early=now", nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid early query status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestLearningsAPI_SessionTokenScope(t *testing.T) {
 	fc := clocktest.NewFake(time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC))
 	st, err := store.Open(filepath.Join(t.TempDir(), "corral.db"), fc)

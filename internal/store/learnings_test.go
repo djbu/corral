@@ -94,6 +94,16 @@ func TestLearningStoreLifecycleAndProvenance(t *testing.T) {
 	if err != nil || len(measurements) != 1 || measurements[0].ID != "m1" || measurements[0].CreatedMs == 0 {
 		t.Fatalf("ListLearningMeasurements = (%+v,%v)", measurements, err)
 	}
+	if err := st.CreateLearningMeasurement(ctx, LearningMeasurement{
+		ID: "m2", LearningID: l.ID, Phase: "baseline", WindowStartMs: 2,
+		WindowEndMs: 3, MetricsJSON: `{"blocked":2}`, Verdict: "baseline",
+	}); err != nil {
+		t.Fatalf("idempotent phase measurement: %v", err)
+	}
+	measurements, _ = st.ListLearningMeasurements(ctx, l.ID)
+	if len(measurements) != 1 || measurements[0].ID != "m1" {
+		t.Fatalf("second measurement for same phase was persisted: %+v", measurements)
+	}
 }
 
 func TestLearningStoreRejectsInvalidJSONAndForeignEvidence(t *testing.T) {

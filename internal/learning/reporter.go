@@ -3,6 +3,7 @@ package learning
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -13,6 +14,8 @@ import (
 	"github.com/danielbecerra/corral/internal/session"
 	"github.com/danielbecerra/corral/internal/store"
 )
+
+var ErrInsufficientPostSample = errors.New("learning: early post report requires sufficient baseline and post samples")
 
 type ReporterStore interface {
 	GetLearning(context.Context, string) (*store.Learning, error)
@@ -91,23 +94,66 @@ func (r *Reporter) Generate(ctx context.Context, id string) (Report, error) {
 	if l.AdoptedMs == nil {
 		return report, nil
 	}
+	if end, ok := measurementWindowEnd(measurements, "post"); ok {
+		report.EligibleAtMs = end
+		return report, nil
+	}
 	report.EligibleAtMs = *l.AdoptedMs + r.config.Window.Milliseconds()
 	if r.clock.Now().UnixMilli() < report.EligibleAtMs {
 		return report, nil
 	}
-	start, end := *l.AdoptedMs, report.EligibleAtMs
+	return r.persistPost(ctx, l, measurements, *l.AdoptedMs, report.EligibleAtMs, false)
+}
+
+// GenerateEarly explicitly closes the post-adoption measurement before the
+// configured observation window elapses. It is operator-triggered and refuses
+// to persist an inconclusive sample, so the default time gate can only be
+// shortened when both the baseline and post windows already meet the configured
+// session/task denominators. No clock or historical timestamp is modified.
+func (r *Reporter) GenerateEarly(ctx context.Context, id string) (Report, error) {
+	l, err := r.store.GetLearning(ctx, id)
+	if err != nil {
+		return Report{}, err
+	}
+	measurements, err := r.store.ListLearningMeasurements(ctx, id)
+	if err != nil {
+		return Report{}, err
+	}
+	report := Report{Learning: l, Measurements: measurements}
+	if l.AdoptedMs == nil {
+		return report, store.ErrInvalidLearningTransition
+	}
+	if end, ok := measurementWindowEnd(measurements, "post"); ok {
+		report.EligibleAtMs = end
+		return report, nil
+	}
+	end := r.clock.Now().UnixMilli()
+	if end <= *l.AdoptedMs {
+		return report, ErrInsufficientPostSample
+	}
+	return r.persistPost(ctx, l, measurements, *l.AdoptedMs, end, true)
+}
+
+func (r *Reporter) persistPost(ctx context.Context, l *store.Learning, measurements []store.LearningMeasurement, start, end int64, requireSufficient bool) (Report, error) {
 	post, err := r.measure(ctx, l, start, end)
 	if err != nil {
 		return Report{}, err
 	}
 	baselineMetrics, ok := measurementMetrics(measurements, "baseline")
 	if !ok {
-		return Report{}, fmt.Errorf("learning: adopted learning %s has no baseline measurement", id)
+		return Report{}, fmt.Errorf("learning: adopted learning %s has no baseline measurement", l.ID)
 	}
 	verdict := r.verdict(baselineMetrics, post)
+	if requireSufficient && verdict == "inconclusive" {
+		return Report{Learning: l, Measurements: measurements, EligibleAtMs: end}, fmt.Errorf(
+			"%w: baseline sessions=%d terminal_tasks=%d; post sessions=%d terminal_tasks=%d",
+			ErrInsufficientPostSample, baselineMetrics.Sessions, baselineMetrics.TerminalTasks,
+			post.Sessions, post.TerminalTasks,
+		)
+	}
 	postJSON, _ := json.Marshal(post)
 	if err := r.store.CreateLearningMeasurement(ctx, store.LearningMeasurement{
-		ID: r.newID(), LearningID: id, Phase: "post", WindowStartMs: start,
+		ID: r.newID(), LearningID: l.ID, Phase: "post", WindowStartMs: start,
 		WindowEndMs: end, MetricsJSON: string(postJSON), Verdict: verdict,
 	}); err != nil {
 		return Report{}, err
@@ -117,7 +163,7 @@ func (r *Reporter) Generate(ctx context.Context, id string) (Report, error) {
 	}
 
 	if verdict == "regression" && l.Status == store.LearningAdopted {
-		l, err = r.store.TransitionLearning(ctx, id, store.LearningTransition{
+		l, err = r.store.TransitionLearning(ctx, l.ID, store.LearningTransition{
 			From: store.LearningAdopted, To: store.LearningRegressionFlagged,
 		})
 		if err != nil {
@@ -127,7 +173,7 @@ func (r *Reporter) Generate(ctx context.Context, id string) (Report, error) {
 			return Report{}, err
 		}
 	} else if r.clock.Now().UnixMilli() >= l.ExpiresMs && l.Status == store.LearningAdopted {
-		l, err = r.store.TransitionLearning(ctx, id, store.LearningTransition{
+		l, err = r.store.TransitionLearning(ctx, l.ID, store.LearningTransition{
 			From: store.LearningAdopted, To: store.LearningStale,
 		})
 		if err != nil {
@@ -137,11 +183,11 @@ func (r *Reporter) Generate(ctx context.Context, id string) (Report, error) {
 			return Report{}, err
 		}
 	}
-	measurements, err = r.store.ListLearningMeasurements(ctx, id)
+	measurements, err = r.store.ListLearningMeasurements(ctx, l.ID)
 	if err != nil {
 		return Report{}, err
 	}
-	return Report{Learning: l, Measurements: measurements, EligibleAtMs: report.EligibleAtMs}, nil
+	return Report{Learning: l, Measurements: measurements, EligibleAtMs: end}, nil
 }
 
 func (r *Reporter) measure(ctx context.Context, l *store.Learning, start, end int64) (Metrics, error) {
@@ -224,6 +270,15 @@ func measurementMetrics(rows []store.LearningMeasurement, phase string) (Metrics
 		}
 	}
 	return Metrics{}, false
+}
+
+func measurementWindowEnd(rows []store.LearningMeasurement, phase string) (int64, bool) {
+	for _, row := range rows {
+		if row.Phase == phase {
+			return row.WindowEndMs, true
+		}
+	}
+	return 0, false
 }
 
 func (r *Reporter) verdict(baseline, post Metrics) string {

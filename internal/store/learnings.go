@@ -293,9 +293,13 @@ func (s *Store) CreateLearningMeasurement(ctx context.Context, m LearningMeasure
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO learning_measurements
 		(id,learning_id,phase,window_start_ms,window_end_ms,metrics_json,verdict,created_ms)
-		VALUES (?,?,?,?,?,?,?,?)
-		ON CONFLICT(learning_id,phase,window_start_ms,window_end_ms) DO NOTHING`, m.ID, m.LearningID, m.Phase, m.WindowStartMs,
-		m.WindowEndMs, m.MetricsJSON, m.Verdict, s.clk.Now().UnixMilli())
+		SELECT ?,?,?,?,?,?,?,?
+		WHERE NOT EXISTS (
+			SELECT 1 FROM learning_measurements WHERE learning_id=? AND phase=?
+		)
+		ON CONFLICT(learning_id,phase,window_start_ms,window_end_ms) DO NOTHING`,
+		m.ID, m.LearningID, m.Phase, m.WindowStartMs, m.WindowEndMs, m.MetricsJSON,
+		m.Verdict, s.clk.Now().UnixMilli(), m.LearningID, m.Phase)
 	if err != nil {
 		return fmt.Errorf("store: creating learning measurement: %w", err)
 	}
