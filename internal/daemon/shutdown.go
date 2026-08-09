@@ -32,6 +32,15 @@ func (d *Daemon) shutdown(ctx context.Context, grace time.Duration) error {
 		d.reaper.Close()
 	}
 
+	// Same reasoning as the reaper immediately above: the orchestrator's
+	// tick writes to the store (marking a task's terminal outcome,
+	// scheduling a retry, ...), so it must stop before the store closes
+	// below. Close joins the tick-loop goroutine, so no tick is in flight
+	// once this returns.
+	if d.orchestrator != nil {
+		d.orchestrator.Close()
+	}
+
 	// Step 1: stop accepting new connections.
 	if err := d.listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		d.log.Warn("shutdown: closing listener", "err", err)

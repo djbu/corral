@@ -22,6 +22,7 @@ import (
 	"github.com/danielbecerra/corral/internal/clock"
 	"github.com/danielbecerra/corral/internal/config"
 	"github.com/danielbecerra/corral/internal/notify"
+	"github.com/danielbecerra/corral/internal/orchestrator"
 	"github.com/danielbecerra/corral/internal/reaper"
 	"github.com/danielbecerra/corral/internal/session"
 	"github.com/danielbecerra/corral/internal/state"
@@ -87,6 +88,12 @@ type Daemon struct {
 	// idle_timeout is 0. Closed on shutdown, before the store, since a reap
 	// writes to the store (CheckpointIdle).
 	reaper *reaper.Reaper
+	// orchestrator is m4 step 21's task-DAG executor, or a never-started
+	// (but always safe to Close) Orchestrator when there is nothing to
+	// drive yet. Closed on shutdown, before the store, for the same
+	// reason as reaper: a tick can write to the store (marking a task's
+	// terminal outcome).
+	orchestrator *orchestrator.Orchestrator
 	// checkpointer is concretely typed (rather than the checkpoint.
 	// Checkpointer interface) so shutdown.go can call WithGrace for a
 	// per-request grace override; M1 has only this one implementation.
@@ -347,6 +354,28 @@ func (d *Daemon) startup(ctx context.Context) error {
 	// stale by a reap running concurrently with recovery itself.
 	d.reaper = reaper.New(registry, d.store, d.clk, d.log, stateCfg.IdleTimeout)
 	d.reaper.Start()
+
+	// Step 21: the task-DAG orchestrator (m4.md §8). Wired unconditionally,
+	// same posture as the idle reaper above — an idle daemon with no active
+	// dag costs nothing but a periodic no-op tick. claudeBin is resolved
+	// once here, the same way api/handlers_sessions.go resolves it per
+	// request (session.claude_bin + LookPath if not absolute); a
+	// resolution failure is logged, not fatal, matching probeClaudeBin's
+	// discipline above — it only prevents headless spawns from working,
+	// which will surface per-task as an ordinary spawn error and retry,
+	// not as a reason to refuse to start the daemon.
+	orchClaudeBin := sessionCfg.ClaudeBin
+	if !filepath.IsAbs(orchClaudeBin) {
+		if resolved, err := exec.LookPath(orchClaudeBin); err != nil {
+			d.log.Warn("orchestrator: claude_bin not resolved at startup; headless spawns will fail until this is fixed", "claude_bin", orchClaudeBin, "err", err)
+		} else {
+			orchClaudeBin = resolved
+		}
+	}
+	d.orchestrator = orchestrator.New(registry, d.store, d.clk, d.log, orchestrator.Config{
+		StateDir: d.cfg.StateDir,
+	}, orchClaudeBin)
+	d.orchestrator.Start()
 
 	// Step 9: acquire the socket, chmod it, write the pidfile.
 	ln, err := Listen(d.sockPath)

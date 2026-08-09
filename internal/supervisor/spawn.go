@@ -103,12 +103,18 @@ func BuildArgv(spec session.Spec, redact bool) []string {
 //
 // The returned map is always exactly: the whitelisted+passthrough names
 // present in snapshot, plus TERM, COLORTERM, PWD, CORRAL_SESSION_ID,
-// CORRAL_SOCK, CORRAL_SESSION_SECRET — nothing else, regardless of what
+// CORRAL_SOCK, CORRAL_SESSION_SECRET, and (only when spec.DepWorktrees is
+// non-empty) CORRAL_DEP_WORKTREES — nothing else, regardless of what
 // snapshot itself contains. sessionSecret is the per-spawn hook-auth secret
 // (Amendment: CORRAL_SESSION_SECRET) — generated fresh per spawn by the
 // caller (Registry.Spawn), never read from snapshot: envWhitelist
 // deliberately excludes it so it can never be inherited from the daemon's
-// own ambient environment.
+// own ambient environment. CORRAL_DEP_WORKTREES (design doc §6.2) is
+// likewise sourced only from spec.DepWorktrees, never from snapshot — it is
+// a corral-owned value the orchestrator computes per attempt, not something
+// any ambient process environment could plausibly supply, so honoring it
+// from snapshot would reopen exactly the kind of unintended-inheritance
+// leak this function's invariant exists to prevent (finding #3).
 func BuildEnv(spec session.Spec, snapshot map[string]string, passthrough []string, term, sockPath, sessionSecret string) map[string]string {
 	env := make(map[string]string, len(envWhitelist)+len(passthrough)+6)
 
@@ -133,6 +139,9 @@ func BuildEnv(spec session.Spec, snapshot map[string]string, passthrough []strin
 	env["CORRAL_SESSION_ID"] = spec.ID
 	env["CORRAL_SOCK"] = sockPath
 	env["CORRAL_SESSION_SECRET"] = sessionSecret
+	if spec.DepWorktrees != "" {
+		env["CORRAL_DEP_WORKTREES"] = spec.DepWorktrees
+	}
 
 	return env
 }

@@ -133,6 +133,14 @@ func (r *Reaper) reapOnce(ctx context.Context) {
 			continue
 		}
 
+		// Headless task-owned sessions are exempt from the idle reaper (m4.md §8.2):
+		// their lifecycle authority is the orchestrator's per-task timeout, not idle
+		// checkpointing. Hook-derived activity from a headless child is deliberately
+		// NOT a reap signal — the exemption is by mode, not by silence.
+		if sess.Mode == session.ModeHeadless {
+			continue
+		}
+
 		// Reap ONLY idle sessions. agent_state==idle is a turn boundary (the
 		// agent finished and is waiting), so checkpointing here never loses an
 		// in-flight turn. working/blocked/unknown are deliberately left alone:

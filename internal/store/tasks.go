@@ -283,6 +283,85 @@ func (s *Store) RunningTasks(ctx context.Context) ([]*Task, error) {
 	return out, nil
 }
 
+// terminalDAGStatuses is the set of task statuses ActiveDAGs treats as
+// "this dag is done" (m4.md §8.2 step 21's tickOnce step 2, "distinct
+// dag_id from tasks WHERE status NOT IN the terminal set"). blocked is
+// deliberately NOT terminal here — a blocked task's dag may still have
+// other branches making progress, and explicit blocked-marking of
+// dependents is itself deferred (m4.md §8.1, "do not implement
+// blocked_count here"), so ActiveDAGs must not treat it as if the whole
+// dag stopped.
+var terminalDAGStatuses = []TaskStatus{TaskSucceeded, TaskFailed, TaskCancelled}
+
+// ActiveDAGs returns the distinct dag_id of every dag that has at least one
+// task NOT in a terminal status (succeeded/failed/cancelled) — the
+// orchestrator's per-tick "which dags still need attention" query (m4.md
+// §8.1 step 21). Order is dag_id ascending, purely for deterministic
+// iteration in tests and logs.
+func (s *Store) ActiveDAGs(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT DISTINCT dag_id FROM tasks WHERE status NOT IN (?, ?, ?) ORDER BY dag_id ASC`,
+		string(terminalDAGStatuses[0]), string(terminalDAGStatuses[1]), string(terminalDAGStatuses[2]),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: listing active dags: %w", err)
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var dagID string
+		if err := rows.Scan(&dagID); err != nil {
+			return nil, fmt.Errorf("store: scanning active dag id: %w", err)
+		}
+		out = append(out, dagID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: listing active dags: %w", err)
+	}
+	return out, nil
+}
+
+// Dep is one raw task_deps edge: TaskID depends on DependsOn. Used by
+// DetectCycle (internal/orchestrator/dag.go) and by the orchestrator's
+// dependency-worktree assembly (m4.md §6.2) — both need the edge list, not
+// the joined/derived views ReadyTasks computes in SQL.
+type Dep struct {
+	TaskID    string
+	DependsOn string
+}
+
+// TaskDeps returns every task_deps edge among dagID's own tasks (joined
+// through tasks so a dep row belonging to a different dag's task ids never
+// leaks in, even though task_deps itself carries no dag_id column). Order
+// is task_id then depends_on, ascending, for deterministic test/log output.
+func (s *Store) TaskDeps(ctx context.Context, dagID string) ([]Dep, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT d.task_id, d.depends_on
+		FROM task_deps d
+		JOIN tasks t ON t.id = d.task_id
+		WHERE t.dag_id = ?
+		ORDER BY d.task_id ASC, d.depends_on ASC
+	`, dagID)
+	if err != nil {
+		return nil, fmt.Errorf("store: listing task deps for dag %s: %w", dagID, err)
+	}
+	defer rows.Close()
+
+	var out []Dep
+	for rows.Next() {
+		var d Dep
+		if err := rows.Scan(&d.TaskID, &d.DependsOn); err != nil {
+			return nil, fmt.Errorf("store: scanning task dep: %w", err)
+		}
+		out = append(out, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: listing task deps for dag %s: %w", dagID, err)
+	}
+	return out, nil
+}
+
 // SetTaskSession points taskID at the session (or the current attempt's
 // session) by id. Pass "" to clear it back to NULL. Returns ErrNotFound if
 // taskID doesn't exist.

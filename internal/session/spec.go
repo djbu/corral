@@ -49,4 +49,16 @@ type Spec struct {
 	// PermissionMode / repo_allowlist.go's rule) — never from anything
 	// repo-controlled.
 	PermissionMode string
+
+	// DepWorktrees is a pre-marshaled JSON array of the task's resolved
+	// dependency worktrees (design doc §6.2): each element is
+	// {"name","worktree","branch"} for one dependency task that has a
+	// non-empty resolved worktree. "" means none (no worktree-using
+	// dependency, or the task itself has no dependencies). Headless-only.
+	// BuildEnv (supervisor/spawn.go) copies this verbatim into the child's
+	// CORRAL_DEP_WORKTREES environment variable when non-empty — this is
+	// the ONLY place it is consumed; never written into Env directly by a
+	// caller, matching BuildEnv's "returned map is always exactly ..."
+	// invariant for CORRAL_SESSION_ID/CORRAL_SOCK.
+	DepWorktrees string
 }

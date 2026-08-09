@@ -190,6 +190,35 @@ func TestReaper_ReapOnce_NonIdleStates_NotReaped(t *testing.T) {
 	}
 }
 
+// TestReaper_ReapOnce_HeadlessIdlePastTimeout_NotReaped is m4.md §8.2's
+// reaper exemption: a headless task-owned session that is idle, unattached,
+// and past idle_timeout — every condition that would reap an interactive
+// session — must still never be reaped. Its lifecycle authority is the
+// orchestrator's per-task timeout, not this idle checkpoint; the exemption
+// is keyed on Mode, checked before any of the idle/attached/timeout
+// predicates below it.
+func TestReaper_ReapOnce_HeadlessIdlePastTimeout_NotReaped(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := clocktest.NewFake(start)
+
+	st := newFakeStore()
+	st.sessions["s1"] = &session.Session{
+		ID:             "s1",
+		Mode:           session.ModeHeadless,
+		AgentState:     session.AgentIdle,
+		LastActivityMs: start.UnixMilli(),
+	}
+	sup := &fakeSupervisor{liveIDs: []string{"s1"}}
+
+	r := New(sup, st, clk, nil, 10*time.Minute)
+	clk.Advance(11 * time.Minute)
+	r.reapOnce(context.Background())
+
+	if got := sup.callCount(); got != 0 {
+		t.Fatalf("CheckpointIdle called %d times for a headless session, want 0", got)
+	}
+}
+
 // --- disabled reaper (idle_timeout=0): Start/Close are safe no-ops --------
 
 func TestReaper_Disabled_StartAndCloseAreNoops(t *testing.T) {

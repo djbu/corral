@@ -419,3 +419,87 @@ func TestStore_RunningTasks_FiltersAcrossDAGs(t *testing.T) {
 		t.Fatalf("RunningTasks ids = %v, want {t1, t3}", idsOf(running))
 	}
 }
+
+func TestStore_ActiveDAGs_ExcludesFullyTerminalDAGs(t *testing.T) {
+	st, _ := openTestStore(t)
+	ctx := context.Background()
+
+	mk := func(id, dagID, name string, status TaskStatus) {
+		if _, err := st.CreateTask(ctx, sampleCreateTaskParams(id, dagID, name)); err != nil {
+			t.Fatalf("CreateTask %s: %v", id, err)
+		}
+		if _, err := st.UpdateTask(ctx, id, func(tk *Task) { tk.Status = status }); err != nil {
+			t.Fatalf("UpdateTask %s: %v", id, err)
+		}
+	}
+
+	// dag1: one task still running -> active.
+	mk("t1", "dag1", "plan", TaskRunning)
+	// dag2: every task terminal (succeeded/failed/cancelled) -> not active.
+	mk("t2", "dag2", "plan", TaskSucceeded)
+	mk("t3", "dag2", "implement", TaskFailed)
+	mk("t4", "dag2", "review", TaskCancelled)
+	// dag3: one task pending -> active.
+	mk("t5", "dag3", "plan", TaskPending)
+	// dag4: one task blocked -> active (blocked is deliberately not
+	// terminal here; explicit blocked-marking of dependents is deferred,
+	// but a blocked task's dag may still have other branches progressing).
+	mk("t6", "dag4", "plan", TaskBlocked)
+
+	active, err := st.ActiveDAGs(ctx)
+	if err != nil {
+		t.Fatalf("ActiveDAGs: %v", err)
+	}
+	want := []string{"dag1", "dag3", "dag4"}
+	if len(active) != len(want) {
+		t.Fatalf("ActiveDAGs = %v, want %v", active, want)
+	}
+	for i, id := range want {
+		if active[i] != id {
+			t.Fatalf("ActiveDAGs = %v, want %v", active, want)
+		}
+	}
+}
+
+func TestStore_TaskDeps_ScopedToDAG(t *testing.T) {
+	st, _ := openTestStore(t)
+	ctx := context.Background()
+
+	for _, tk := range []struct{ id, dagID, name string }{
+		{"plan", "dag1", "plan"},
+		{"implement", "dag1", "implement"},
+		{"review", "dag1", "review"},
+		{"other-plan", "dag2", "plan"},
+		{"other-impl", "dag2", "implement"},
+	} {
+		if _, err := st.CreateTask(ctx, sampleCreateTaskParams(tk.id, tk.dagID, tk.name)); err != nil {
+			t.Fatalf("CreateTask %s: %v", tk.id, err)
+		}
+	}
+	if err := st.AddDep(ctx, "implement", "plan"); err != nil {
+		t.Fatalf("AddDep: %v", err)
+	}
+	if err := st.AddDep(ctx, "review", "implement"); err != nil {
+		t.Fatalf("AddDep: %v", err)
+	}
+	if err := st.AddDep(ctx, "other-impl", "other-plan"); err != nil {
+		t.Fatalf("AddDep: %v", err)
+	}
+
+	deps, err := st.TaskDeps(ctx, "dag1")
+	if err != nil {
+		t.Fatalf("TaskDeps: %v", err)
+	}
+	want := []Dep{
+		{TaskID: "implement", DependsOn: "plan"},
+		{TaskID: "review", DependsOn: "implement"},
+	}
+	if len(deps) != len(want) {
+		t.Fatalf("TaskDeps = %+v, want %+v", deps, want)
+	}
+	for i := range want {
+		if deps[i] != want[i] {
+			t.Fatalf("TaskDeps[%d] = %+v, want %+v", i, deps[i], want[i])
+		}
+	}
+}

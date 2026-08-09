@@ -348,6 +348,33 @@ func TestBuildEnvSessionSecret(t *testing.T) {
 	}
 }
 
+// TestBuildEnvDepWorktreesOmittedWhenEmpty is the negative half of §6.2's
+// CORRAL_DEP_WORKTREES contract: a spec with no dependency worktrees to
+// report (the common case — most tasks have no deps, or no worktree-using
+// deps) must not grow an env var at all, not one set to "".
+func TestBuildEnvDepWorktreesOmittedWhenEmpty(t *testing.T) {
+	spec := baseSpec()
+	spec.DepWorktrees = ""
+	env := BuildEnv(spec, map[string]string{"PATH": "/usr/bin"}, nil, "", "/sock", "secret")
+	if _, ok := env["CORRAL_DEP_WORKTREES"]; ok {
+		t.Fatalf("CORRAL_DEP_WORKTREES present = %q, want key absent when Spec.DepWorktrees is empty", env["CORRAL_DEP_WORKTREES"])
+	}
+}
+
+// TestBuildEnvDepWorktreesCopiedVerbatim is the positive half: a non-empty
+// Spec.DepWorktrees must reach the child's environment exactly as given —
+// BuildEnv (spawn.go) is the ONLY place CORRAL_DEP_WORKTREES is set, per
+// the trust-boundary rule in m4.md §6.2 (never assembled from spec.Env by
+// a caller, never sourced from the env snapshot).
+func TestBuildEnvDepWorktreesCopiedVerbatim(t *testing.T) {
+	spec := baseSpec()
+	spec.DepWorktrees = `[{"name":"a","worktree":"/repo/.worktrees/a","branch":"corral/task/a-a1"}]`
+	env := BuildEnv(spec, map[string]string{"PATH": "/usr/bin"}, nil, "", "/sock", "secret")
+	if env["CORRAL_DEP_WORKTREES"] != spec.DepWorktrees {
+		t.Fatalf("CORRAL_DEP_WORKTREES = %q, want %q", env["CORRAL_DEP_WORKTREES"], spec.DepWorktrees)
+	}
+}
+
 func assertExactKeySet(t *testing.T, env map[string]string, want []string) {
 	t.Helper()
 	gotKeys := make([]string, 0, len(env))
