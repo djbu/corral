@@ -30,6 +30,11 @@ const (
 	CodeSessionNotResumable Code = "session_not_resumable"
 	CodeDAGNotFound         Code = "dag_not_found"
 	CodeDAGCycle            Code = "dag_cycle"
+	// CodeForbidden: token's scope='session' subtree does not include the
+	// requested session/dag (m5.md §10). Distinct from CodeUnauthorized,
+	// which means "no/invalid token" — this means "valid token, wrong
+	// scope."
+	CodeForbidden Code = "forbidden"
 )
 
 // errorBody is the "error" object inside the envelope.

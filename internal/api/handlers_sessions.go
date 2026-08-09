@@ -152,13 +152,32 @@ func (d SessionsDeps) writeSession(w http.ResponseWriter, status int, sess *sess
 // GET /v1/dashboard (handlers_dashboard.go) calls this exact function too,
 // so the two views can never disagree about what "blocked" means for a
 // given session — see that file's doc comment for why that matters.
+//
+// A scope='session' token in ctx (step 34, m5.md §10) additionally confines
+// the result to the caller's subtree — a scoped operator's dashboard shows
+// only their own sessions, never a foreign one. Admin/absent tokens see
+// every session, unfiltered, as before.
 func buildSessionResponses(ctx context.Context, st *store.Store, engine state.Engine, registry *supervisor.Registry) ([]sessionResponse, error) {
 	sessions, err := st.ListSessions(ctx)
 	if err != nil {
 		return nil, err
 	}
+
+	var subtree map[string]struct{}
+	if row, ok := TokenFromContext(ctx); ok && row.Scope == "session" {
+		subtree, err = sessionSubtree(ctx, st, row.SessionID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	out := make([]sessionResponse, 0, len(sessions))
 	for _, sess := range sessions {
+		if subtree != nil {
+			if _, allowed := subtree[sess.ID]; !allowed {
+				continue
+			}
+		}
 		resp := toSessionResponse(sess, registry.Attached(sess.ID))
 		resp.AgentState = string(engine.State(sess.ID))
 		resp.Stale = staleForEngine(engine, sess.ID)
@@ -167,16 +186,34 @@ func buildSessionResponses(ctx context.Context, st *store.Store, engine state.En
 	return out, nil
 }
 
-// resolveSession looks up idOrName first as an ID, then as a name.
+// resolveSession looks up idOrName first as an ID, then as a name, then
+// enforces the request's token scope (step 34, m5.md §10): a scope='session'
+// token whose subtree does not include the resolved session gets
+// errForbiddenScope, not ErrNotFound — the session lookup happens first, on
+// purpose, so a scoped token asking about a foreign-but-real session sees
+// 403, while a nonexistent name still sees 404. Do not reorder these checks;
+// that ordering is the design's deliberate answer to the existence-leak
+// question, not an oversight.
 func (d SessionsDeps) resolveSession(r *http.Request, idOrName string) (*session.Session, error) {
 	sess, err := d.Store.GetSession(r.Context(), idOrName)
-	if err == nil {
-		return sess, nil
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			return nil, err
+		}
+		sess, err = d.Store.GetSessionByName(r.Context(), idOrName)
+		if err != nil {
+			return nil, err
+		}
 	}
-	if !errors.Is(err, store.ErrNotFound) {
+
+	allowed, err := tokenAllowsSession(r.Context(), d.Store, sess.ID)
+	if err != nil {
 		return nil, err
 	}
-	return d.Store.GetSessionByName(r.Context(), idOrName)
+	if !allowed {
+		return nil, errForbiddenScope
+	}
+	return sess, nil
 }
 
 type listSessionsResponse struct {
@@ -195,6 +232,10 @@ func (d SessionsDeps) handleList(w http.ResponseWriter, r *http.Request) {
 func (d SessionsDeps) handleGet(w http.ResponseWriter, r *http.Request) {
 	sess, err := d.resolveSession(r, r.PathValue("idOrName"))
 	if err != nil {
+		if errors.Is(err, errForbiddenScope) {
+			writeError(w, http.StatusForbidden, CodeForbidden, "token is not scoped to this session", nil)
+			return
+		}
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, CodeSessionNotFound, fmt.Sprintf("no session %q", r.PathValue("idOrName")), nil)
 			return
@@ -227,6 +268,10 @@ type listEventsResponse struct {
 func (d SessionsDeps) handleEvents(w http.ResponseWriter, r *http.Request) {
 	sess, err := d.resolveSession(r, r.PathValue("idOrName"))
 	if err != nil {
+		if errors.Is(err, errForbiddenScope) {
+			writeError(w, http.StatusForbidden, CodeForbidden, "token is not scoped to this session", nil)
+			return
+		}
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, CodeSessionNotFound, fmt.Sprintf("no session %q", r.PathValue("idOrName")), nil)
 			return
@@ -378,6 +423,10 @@ func (d SessionsDeps) handleDelete(w http.ResponseWriter, r *http.Request) {
 	idOrName := r.PathValue("idOrName")
 	sess, err := d.resolveSession(r, idOrName)
 	if err != nil {
+		if errors.Is(err, errForbiddenScope) {
+			writeError(w, http.StatusForbidden, CodeForbidden, "token is not scoped to this session", nil)
+			return
+		}
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, CodeSessionNotFound, fmt.Sprintf("no session %q", idOrName), nil)
 			return
@@ -415,15 +464,40 @@ func (d SessionsDeps) handleDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleWake brings a reaped/stopped-but-resumable session back to life
-// (design doc's deferred "woken only on demand" half of idle-reap). Unlike
-// handleDelete/handleAnswer it does not call resolveSession first —
-// Registry.Wake already resolves idOrName itself (live registry, then
-// store by id, then by name), since an already-live session's no-op path
-// never even reaches the store.
+// (design doc's deferred "woken only on demand" half of idle-reap).
+// Registry.Wake resolves idOrName itself (live registry, then store by id,
+// then by name), so unlike handleDelete/handleAnswer this handler's
+// resolveSession call exists solely for the step 34 scope gate — see the
+// comment inside for why its result also replaces idOrName in the Wake call.
 func (d SessionsDeps) handleWake(w http.ResponseWriter, r *http.Request) {
 	idOrName := r.PathValue("idOrName")
 
-	updated, err := d.Registry.Wake(r.Context(), idOrName)
+	// handleWake doesn't otherwise call resolveSession — Registry.Wake does
+	// its own id/name resolution against the live registry and the store —
+	// so this call exists purely as the step 34 (m5.md §10) scope gate. Its
+	// *session.Session is used only to get the authorized session's real
+	// ID, which is then passed to Wake instead of the raw idOrName: passing
+	// idOrName straight through would let a scoped token's resolveSession
+	// check authorize one session while Wake's own (differently-ordered)
+	// resolution acts on another. Every non-scope error from this call
+	// (including ErrNotFound) is reported as-is, before Wake ever runs,
+	// rather than falling through — an unresolved auth check must never
+	// silently proceed to the mutating call.
+	sess, err := d.resolveSession(r, idOrName)
+	if err != nil {
+		if errors.Is(err, errForbiddenScope) {
+			writeError(w, http.StatusForbidden, CodeForbidden, "token is not scoped to this session", nil)
+			return
+		}
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, CodeSessionNotFound, fmt.Sprintf("no session %q", idOrName), nil)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
+		return
+	}
+
+	updated, err := d.Registry.Wake(r.Context(), sess.ID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, CodeSessionNotFound, fmt.Sprintf("no session %q", idOrName), nil)
@@ -486,6 +560,10 @@ func (d SessionsDeps) handleAnswer(w http.ResponseWriter, r *http.Request) {
 
 	sess, err := d.resolveSession(r, idOrName)
 	if err != nil {
+		if errors.Is(err, errForbiddenScope) {
+			writeError(w, http.StatusForbidden, CodeForbidden, "token is not scoped to this session", nil)
+			return
+		}
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, CodeSessionNotFound, fmt.Sprintf("no session %q", idOrName), nil)
 			return

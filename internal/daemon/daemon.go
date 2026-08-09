@@ -487,8 +487,8 @@ func (d *Daemon) startup(ctx context.Context) error {
 		Engine:  d.engine,
 		Secrets: registry,
 	})
-	srv.RegisterAttach(registry, d.log)
-	srv.RegisterEvents(api.EventsDeps{Broker: d.broker, Clock: d.clk, Log: d.log})
+	srv.RegisterAttach(registry, d.store, d.log)
+	srv.RegisterEvents(api.EventsDeps{Broker: d.broker, Store: d.store, Clock: d.clk, Log: d.log})
 	d.srv = &http.Server{Handler: srv.Handler()}
 	go func() {
 		if err := d.srv.Serve(ln); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {

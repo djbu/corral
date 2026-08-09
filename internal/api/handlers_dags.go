@@ -157,6 +157,19 @@ func (d DagsDeps) dagDetail(ctx context.Context, dagID string, budgetUSD *float6
 // mints real task ids and translates edges through nameToID before ever
 // touching the store.
 func (d DagsDeps) handleCreate(w http.ResponseWriter, r *http.Request) {
+	// A scope='session' token has no parent/attach point for a dynamically
+	// submitted dag (m5.md §10) — there is no existing dag it could be
+	// "attached" to, only a brand-new one it would then own outright — so
+	// this route is denied outright for scoped tokens, before the body is
+	// even decoded. Admin/absent tokens are unaffected.
+	if _, isScoped, err := tokenDAGScope(r.Context(), d.Store); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
+		return
+	} else if isScoped {
+		writeError(w, http.StatusForbidden, CodeForbidden, "token is not scoped to create a dag", nil)
+		return
+	}
+
 	var req createDagRequest
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
@@ -271,13 +284,26 @@ func (d DagsDeps) handleCreate(w http.ResponseWriter, r *http.Request) {
 // GET /v1/dashboard (handlers_dashboard.go), since the two responses must
 // carry the same dagSummaryResponse slice — extracted here rather than
 // duplicated so that never drifts.
+//
+// A scope='session' token in ctx (step 34, m5.md §10) confines the result
+// to its own dag — allowedDagID == "" (a root with no task) filters out
+// everything, which falls out of the plain != comparison below with no
+// special case needed, since a real DAGID is never "". Signature stays
+// (ctx, st): the token itself is read from ctx, not passed as a param.
 func dagSummaries(ctx context.Context, st *store.Store) ([]dagSummaryResponse, error) {
 	budgets, err := st.ListDAGBudgets(ctx)
 	if err != nil {
 		return nil, err
 	}
+	allowedDagID, isScoped, err := tokenDAGScope(ctx, st)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]dagSummaryResponse, 0, len(budgets))
 	for _, b := range budgets {
+		if isScoped && b.DAGID != allowedDagID {
+			continue
+		}
 		out = append(out, dagSummaryResponse{DAGID: b.DAGID, BudgetUSD: b.BudgetUSD, CostUSD: b.CostUSD})
 	}
 	return out, nil
@@ -297,7 +323,11 @@ func (d DagsDeps) handleList(w http.ResponseWriter, r *http.Request) {
 // handleGet serves GET /v1/dags/{id}: the dag's tasks and edges plus its
 // budget/cost rollup. A dag with no dag_budgets row (GetDAGBudget's (nil,
 // nil) return) is reported as 404 — SubmitDAG is the sole writer of that
-// row, so an absent row means this id was never submitted.
+// row, so an absent row means this id was never submitted. The existence
+// check runs before the step 34 (m5.md §10) scope check, deliberately not
+// reordered: an unknown id stays 404 even for a scoped token, and only a
+// real-but-foreign dag becomes 403 — the same existence-vs-scope leak
+// posture handlers_sessions.go's resolveSession uses.
 func (d DagsDeps) handleGet(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	ctx := r.Context()
@@ -309,6 +339,14 @@ func (d DagsDeps) handleGet(w http.ResponseWriter, r *http.Request) {
 	}
 	if budget == nil {
 		writeError(w, http.StatusNotFound, CodeDAGNotFound, fmt.Sprintf("no dag %q", id), nil)
+		return
+	}
+
+	if allowedDagID, isScoped, err := tokenDAGScope(ctx, d.Store); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
+		return
+	} else if isScoped && id != allowedDagID {
+		writeError(w, http.StatusForbidden, CodeForbidden, "token is not scoped to this dag", nil)
 		return
 	}
 

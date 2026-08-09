@@ -147,6 +147,16 @@ func (s *Store) GetTask(ctx context.Context, id string) (*Task, error) {
 	return scanTask(row)
 }
 
+// GetTaskBySessionID returns the task whose session_id equals sessionID, or
+// ErrNotFound if no task has claimed that session — the case for a
+// standalone `corral new` session, which was never spawned to run a task.
+// Used by scope resolution (m5.md §10) to find a scoped token's root
+// session's task, if any.
+func (s *Store) GetTaskBySessionID(ctx context.Context, sessionID string) (*Task, error) {
+	row := s.db.QueryRowContext(ctx, taskSelectColumns+" FROM tasks WHERE session_id = ? LIMIT 1", sessionID)
+	return scanTask(row)
+}
+
 // ListTasks returns every task belonging to dagID, ordered by created_ms
 // ascending (i.e. creation order) for deterministic output.
 func (s *Store) ListTasks(ctx context.Context, dagID string) ([]*Task, error) {

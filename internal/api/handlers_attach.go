@@ -5,14 +5,19 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/danielbecerra/corral/internal/store"
 	"github.com/danielbecerra/corral/internal/supervisor"
 )
 
 // attachDeps is what the attach upgrade route needs. It is deliberately
-// separate from SessionsDeps (rather than adding fields to it) since only
-// the Registry is needed here — Store/Engine are handlers_sessions.go's.
+// separate from SessionsDeps (rather than adding fields to it) — Engine
+// isn't needed here — but step 34 (m5.md §10) needs Store too: attach runs
+// over TCP as well as the unix socket (step 31, remote attach), so a
+// scope='session' token must be checked here just like every other
+// session-scoped route.
 type attachDeps struct {
 	Registry *supervisor.Registry
+	Store    *store.Store
 	Log      *slog.Logger
 }
 
@@ -20,14 +25,14 @@ type attachDeps struct {
 // §5.1/§9.2): a request that sets Upgrade: corral-attach/1 is hijacked into
 // a raw net.Conn and handed to supervisor.Registry.Attach, which then owns
 // the connection for the rest of the attachment's life (§5). Any other
-// request to this path — missing/wrong Upgrade header, or a session that
-// isn't live — is answered as an ordinary JSON error response, never
-// hijacked.
-func (s *Server) RegisterAttach(registry *supervisor.Registry, log *slog.Logger) {
+// request to this path — missing/wrong Upgrade header, a session that isn't
+// live, or (step 34) a scoped token confined away from this session — is
+// answered as an ordinary JSON error response, never hijacked.
+func (s *Server) RegisterAttach(registry *supervisor.Registry, st *store.Store, log *slog.Logger) {
 	if log == nil {
 		log = slog.Default()
 	}
-	d := attachDeps{Registry: registry, Log: log}
+	d := attachDeps{Registry: registry, Store: st, Log: log}
 	s.Handle("GET /v1/sessions/{idOrName}/attach", d.handleAttach)
 }
 
@@ -42,6 +47,16 @@ func (d attachDeps) handleAttach(w http.ResponseWriter, r *http.Request) {
 	ls, ok := d.Registry.Get(idOrName)
 	if !ok {
 		writeError(w, http.StatusNotFound, CodeSessionNotFound, fmt.Sprintf("no live session %q", idOrName), nil)
+		return
+	}
+
+	allowed, err := tokenAllowsSession(r.Context(), d.Store, ls.SessionID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
+		return
+	}
+	if !allowed {
+		writeError(w, http.StatusForbidden, CodeForbidden, "token is not scoped to this session", nil)
 		return
 	}
 

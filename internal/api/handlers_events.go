@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/danielbecerra/corral/internal/clock"
+	"github.com/danielbecerra/corral/internal/store"
 )
 
 // heartbeatInterval is how often GET /v1/events/stream writes a
@@ -19,6 +20,7 @@ const heartbeatInterval = 20 * time.Second
 // d.store.SetEventPublisher(d.broker) — and passes it to RegisterEvents.
 type EventsDeps struct {
 	Broker *Broker
+	Store  *store.Store
 	Clock  clock.Clock
 	Log    *slog.Logger
 }
@@ -67,6 +69,23 @@ func (d EventsDeps) handleStream(w http.ResponseWriter, r *http.Request) {
 		log = slog.Default()
 	}
 
+	// Step 34 (m5.md §10): compute the caller's subtree once, up front,
+	// before any header is set or byte written — a store error here can
+	// still be a clean JSON 500, unlike one raised mid-stream after the
+	// text/event-stream headers and first Flush have already committed the
+	// response to 200. scopedSessions == nil means "not confined" (admin or
+	// no token); a non-nil, possibly-empty set means "confined to exactly
+	// this."
+	var scopedSessions map[string]struct{}
+	if row, ok := TokenFromContext(r.Context()); ok && row.Scope == "session" {
+		var err error
+		scopedSessions, err = sessionSubtree(r.Context(), d.Store, row.SessionID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
+			return
+		}
+	}
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -109,11 +128,18 @@ func (d EventsDeps) handleStream(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			} else {
-				// TODO(step34): per-session scoped child tokens will filter
-				// here — a caller holding a token scoped to one session must
-				// only receive frames for that session_id. Not implemented
-				// yet: every authenticated subscriber currently sees every
-				// event, daemon-scoped or not.
+				// Step 34 (m5.md §10): a scope='session' subscriber only
+				// receives frames for sessions in its subtree — never a
+				// foreign session's, and never a daemon-scoped frame
+				// (SessionID == "", e.g. token.unauthorized), which belongs
+				// to no session at all. Admin/absent-token subscribers see
+				// everything, as before. scopedSessions was computed once,
+				// before this loop started, not per frame.
+				if scopedSessions != nil {
+					if _, allowed := scopedSessions[frame.Event.SessionID]; !allowed {
+						continue
+					}
+				}
 				payload, err := json.Marshal(frameJSON{
 					Seq:       frame.Event.Seq,
 					SessionID: frame.Event.SessionID,
