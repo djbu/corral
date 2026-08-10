@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/proto"
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/store"
+	"github.com/djbu/corral/internal/proto"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/store"
 )
 
 // sendHello writes a Hello frame (design doc §5.2) to conn.

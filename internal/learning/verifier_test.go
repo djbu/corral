@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/clock/clocktest"
-	"github.com/danielbecerra/corral/internal/config"
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/store"
+	"github.com/djbu/corral/internal/clock/clocktest"
+	"github.com/djbu/corral/internal/config"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/store"
 )
 
 func TestVerifierProposesCounterfactuallyValidRule(t *testing.T) {

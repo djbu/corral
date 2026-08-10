@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/danielbecerra/corral/internal/version"
+	"github.com/djbu/corral/internal/version"
 )
 
 // Server is corral's HTTP API surface: a ServeMux under /v1/, wrapped in

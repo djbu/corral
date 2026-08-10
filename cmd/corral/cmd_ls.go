@@ -9,7 +9,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/api/client"
+	"github.com/djbu/corral/internal/api/client"
 )
 
 // cmdLs implements `corral ls [--json]` (design doc §9.2): NAME STATE

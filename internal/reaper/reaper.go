@@ -13,8 +13,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/clock"
-	"github.com/danielbecerra/corral/internal/session"
+	"github.com/djbu/corral/internal/clock"
+	"github.com/djbu/corral/internal/session"
 )
 
 // Supervisor is the subset of *supervisor.Registry the reaper needs.

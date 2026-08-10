@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/api/client"
+	"github.com/djbu/corral/internal/api/client"
 )
 
 // scenarioPath returns the absolute path to a fakeclaude scenario JSON, so it

@@ -23,11 +23,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/clock"
-	"github.com/danielbecerra/corral/internal/hookrelay"
-	"github.com/danielbecerra/corral/internal/redact"
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/store"
+	"github.com/djbu/corral/internal/clock"
+	"github.com/djbu/corral/internal/hookrelay"
+	"github.com/djbu/corral/internal/redact"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/store"
 )
 
 // defaultPermissionSettle and defaultPermissionTTL are Amendment A.3.2's

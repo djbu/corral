@@ -3,7 +3,7 @@ package orchestrator
 import (
 	"testing"
 
-	"github.com/danielbecerra/corral/internal/store"
+	"github.com/djbu/corral/internal/store"
 )
 
 func task(id, name string) *store.Task {

@@ -15,24 +15,25 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/api"
-	"github.com/danielbecerra/corral/internal/api/dashboard"
-	"github.com/danielbecerra/corral/internal/checkpoint"
-	"github.com/danielbecerra/corral/internal/claude/automode"
-	"github.com/danielbecerra/corral/internal/clock"
-	"github.com/danielbecerra/corral/internal/config"
-	"github.com/danielbecerra/corral/internal/notify"
-	"github.com/danielbecerra/corral/internal/orchestrator"
-	"github.com/danielbecerra/corral/internal/reaper"
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/state"
-	"github.com/danielbecerra/corral/internal/store"
-	"github.com/danielbecerra/corral/internal/supervisor"
-	"github.com/danielbecerra/corral/internal/tlsbootstrap"
-	"github.com/danielbecerra/corral/internal/version"
+	"golang.org/x/sys/unix"
+
+	"github.com/djbu/corral/internal/api"
+	"github.com/djbu/corral/internal/api/dashboard"
+	"github.com/djbu/corral/internal/checkpoint"
+	"github.com/djbu/corral/internal/claude/automode"
+	"github.com/djbu/corral/internal/clock"
+	"github.com/djbu/corral/internal/config"
+	"github.com/djbu/corral/internal/notify"
+	"github.com/djbu/corral/internal/orchestrator"
+	"github.com/djbu/corral/internal/reaper"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/state"
+	"github.com/djbu/corral/internal/store"
+	"github.com/djbu/corral/internal/supervisor"
+	"github.com/djbu/corral/internal/tlsbootstrap"
+	"github.com/djbu/corral/internal/version"
 )
 
 // envSnapshotWhitelist mirrors supervisor's own whitelist (design doc §7.2)
@@ -600,11 +601,11 @@ func (d *Daemon) initLogging() error {
 }
 
 // setsidSelfCheck implements design doc §3.1's "daemon-run self-checks
-// syscall.Getsid(0) == os.Getpid(), logs WARN if not — silently-failed
+// unix.Getsid(0) == os.Getpid(), logs WARN if not — silently-failed
 // setsid degrades to 'works until terminal closes', exactly the bug class
 // worth one-line assertion." It never fails startup — only logs.
 func (d *Daemon) setsidSelfCheck() {
-	sid, err := syscall.Getsid(0)
+	sid, err := unix.Getsid(0)
 	if err != nil {
 		d.log.Warn("setsid self-check: Getsid failed", "err", err)
 		return

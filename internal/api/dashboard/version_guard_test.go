@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/danielbecerra/corral/internal/version"
+	"github.com/djbu/corral/internal/version"
 )
 
 // apiVersionRe matches app.js's `const API_VERSION = <int>;` declaration.

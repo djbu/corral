@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/clock/clocktest"
-	"github.com/danielbecerra/corral/internal/session"
+	"github.com/djbu/corral/internal/clock/clocktest"
+	"github.com/djbu/corral/internal/session"
 )
 
 func TestLearningStoreLifecycleAndProvenance(t *testing.T) {

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/clock/clocktest"
+	"github.com/djbu/corral/internal/clock/clocktest"
 )
 
 // fakeNow anchors every test's clock so validity assertions are exact and

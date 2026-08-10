@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/danielbecerra/corral/internal/hookrelay"
+	"github.com/djbu/corral/internal/hookrelay"
 )
 
 // cmdHookRelay implements the hidden `corral hook-relay --event <Name>`

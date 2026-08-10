@@ -6,13 +6,13 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/danielbecerra/corral/internal/clock"
-	"github.com/danielbecerra/corral/internal/config"
-	corralgit "github.com/danielbecerra/corral/internal/git"
-	"github.com/danielbecerra/corral/internal/learning"
-	"github.com/danielbecerra/corral/internal/redact"
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/store"
+	"github.com/djbu/corral/internal/clock"
+	"github.com/djbu/corral/internal/config"
+	corralgit "github.com/djbu/corral/internal/git"
+	"github.com/djbu/corral/internal/learning"
+	"github.com/djbu/corral/internal/redact"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/store"
 )
 
 type LearningsDeps struct {

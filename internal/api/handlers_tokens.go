@@ -6,8 +6,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/danielbecerra/corral/internal/apitoken"
-	"github.com/danielbecerra/corral/internal/store"
+	"github.com/djbu/corral/internal/apitoken"
+	"github.com/djbu/corral/internal/store"
 )
 
 // TokensDeps is everything handlers_tokens.go's routes need. daemon.go

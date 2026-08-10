@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/danielbecerra/corral/internal/api/client"
+	"github.com/djbu/corral/internal/api/client"
 )
 
 func TestInterspersedFlagArgs(t *testing.T) {

@@ -23,11 +23,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/clock"
-	"github.com/danielbecerra/corral/internal/redact"
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/state"
-	"github.com/danielbecerra/corral/internal/store"
+	"github.com/djbu/corral/internal/clock"
+	"github.com/djbu/corral/internal/redact"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/state"
+	"github.com/djbu/corral/internal/store"
 )
 
 // queueCap is the bounded queue depth (§8.4). Full → drop, never block.

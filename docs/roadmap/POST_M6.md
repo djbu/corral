@@ -3,6 +3,10 @@
 **Estado:** propuesto para ejecución. **Punto de partida:** `8517aac`, con
 `v0.6.0` apuntando al commit validado `b4b1151`.
 
+**M7A:** implementado en el PR privado
+[`djbu/corral#1`](https://github.com/djbu/corral/pull/1). Los pasos 46–47
+pasaron localmente y en la matriz GitHub Actions de macOS/Linux.
+
 Este documento ordena los pendientes que quedaron después de M6. No es una
 lista de deseos: cada fase tiene dependencias, entregables, pruebas y una
 condición explícita de cierre.
@@ -78,7 +82,7 @@ sin conocer el código”.
 
 - usar `corral` como nombre, `djbu` como owner,
   `https://github.com/djbu/corral` como URL canónica y visibilidad privada;
-- migrar el módulo Go de `github.com/danielbecerra/corral` a
+- migrar el módulo Go desde su ruta provisional a
   `github.com/djbu/corral` en una operación mecánica verificada;
 - añadir `LICENSE`, copyright y política de contribución mínima;
 - registrar ADR de licencia, telemetría y nombre;
@@ -414,8 +418,8 @@ paridad probada o rechazo explícito basado en evidencia.
 
 La primera tanda concreta es:
 
-- [ ] 46 — decidir identidad/licencia/remote;
-- [ ] 47 — CI normal macOS/Linux;
+- [x] 46 — identidad, licencia, remote privado y módulo canónico;
+- [x] 47 — CI normal macOS/Linux;
 - [ ] 48 — build reproducible y checksums;
 - [ ] 49 — workflow de prerelease/release;
 - [ ] 50 — `daemon status|stop|restart`;

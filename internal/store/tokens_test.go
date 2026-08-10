@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/apitoken"
+	"github.com/djbu/corral/internal/apitoken"
 )
 
 func TestMigration0005_AppliesCleanly(t *testing.T) {

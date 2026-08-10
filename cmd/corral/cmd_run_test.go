@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/danielbecerra/corral/internal/api/client"
+	"github.com/djbu/corral/internal/api/client"
 )
 
 // writeDagFile writes contents to a fresh tempdir file and returns its

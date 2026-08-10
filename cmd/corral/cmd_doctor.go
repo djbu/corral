@@ -8,9 +8,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/danielbecerra/corral/internal/claude/automode"
-	"github.com/danielbecerra/corral/internal/claude/settings"
-	"github.com/danielbecerra/corral/internal/config"
+	"github.com/djbu/corral/internal/claude/automode"
+	"github.com/djbu/corral/internal/claude/settings"
+	"github.com/djbu/corral/internal/config"
 )
 
 // cmdDoctor implements `corral doctor`: a read-only local diagnostic of the

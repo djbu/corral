@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/clock"
-	"github.com/danielbecerra/corral/internal/store"
+	"github.com/djbu/corral/internal/clock"
+	"github.com/djbu/corral/internal/store"
 )
 
 // heartbeatInterval is how often GET /v1/events/stream writes a

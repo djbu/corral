@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/store"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/store"
 )
 
 // Wake brings a reaped/stopped-but-resumable session (idle-reaped by

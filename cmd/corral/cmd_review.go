@@ -10,8 +10,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/danielbecerra/corral/internal/api/client"
-	"github.com/danielbecerra/corral/internal/config"
+	"github.com/djbu/corral/internal/api/client"
+	"github.com/djbu/corral/internal/config"
 )
 
 // cmdReview implements `corral review [<dag-id>] [--diff]` (m4.md §13 step

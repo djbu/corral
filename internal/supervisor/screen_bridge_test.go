@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/clock"
-	"github.com/danielbecerra/corral/internal/screen"
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/state"
-	"github.com/danielbecerra/corral/internal/store"
+	"github.com/djbu/corral/internal/clock"
+	"github.com/djbu/corral/internal/screen"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/state"
+	"github.com/djbu/corral/internal/store"
 )
 
 // fakeClaudeBinOnce/fakeClaudeBinPath cache one build of test/fakeclaude
@@ -35,7 +35,7 @@ func buildFakeClaude(t *testing.T) string {
 			return
 		}
 		bin := filepath.Join(dir, "fakeclaude")
-		cmd := exec.Command("go", "build", "-o", bin, "github.com/danielbecerra/corral/test/fakeclaude")
+		cmd := exec.Command("go", "build", "-o", bin, "github.com/djbu/corral/test/fakeclaude")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			fakeClaudeBinErr = err
 			t.Logf("go build fakeclaude output:\n%s", out)

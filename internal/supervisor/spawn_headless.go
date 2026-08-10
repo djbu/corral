@@ -6,8 +6,8 @@ import (
 	"os/exec"
 	"syscall"
 
-	"github.com/danielbecerra/corral/internal/procinfo"
-	"github.com/danielbecerra/corral/internal/session"
+	"github.com/djbu/corral/internal/procinfo"
+	"github.com/djbu/corral/internal/session"
 )
 
 // SpawnHeadless is Spawn's fork for Mode==ModeHeadless (design doc §5.2):

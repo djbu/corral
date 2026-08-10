@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/danielbecerra/corral/internal/apitoken"
+	"github.com/djbu/corral/internal/apitoken"
 )
 
 // TokenRow is the persisted view of a row in the api_tokens table (m5.md

@@ -17,9 +17,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/proto"
-	"github.com/danielbecerra/corral/internal/screen"
-	"github.com/danielbecerra/corral/internal/session"
+	"github.com/djbu/corral/internal/proto"
+	"github.com/djbu/corral/internal/screen"
+	"github.com/djbu/corral/internal/session"
 )
 
 // ErrAlreadyAttached is returned by installAttachment when a session

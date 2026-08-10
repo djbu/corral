@@ -12,7 +12,7 @@ no access to any external advisor. Read it top to bottom before acting.
 
 ## 1. What corral is
 
-- A **single-binary Go daemon** (`github.com/danielbecerra/corral`) that supervises Claude Code CLI
+- A **single-binary Go daemon** (`github.com/djbu/corral`) that supervises Claude Code CLI
   sessions. Module root on the author's machine: `/Users/danielbecerra/code/research/corral`.
 - Architecture: a background **daemon** process holds session state in a SQLite-backed `store`,
   supervises child `claude` processes over PTYs, and exposes an HTTP API on **two** transports:

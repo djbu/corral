@@ -12,8 +12,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/supervisor"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/supervisor"
 )
 
 // Token is what Checkpoint returns and Restore consumes: enough to relaunch

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/danielbecerra/corral/internal/procinfo"
-	"github.com/danielbecerra/corral/internal/session"
+	"github.com/djbu/corral/internal/procinfo"
+	"github.com/djbu/corral/internal/session"
 )
 
 func baseSpec() session.Spec {

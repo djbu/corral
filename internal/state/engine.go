@@ -11,9 +11,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/danielbecerra/corral/internal/hookrelay"
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/store"
+	"github.com/djbu/corral/internal/hookrelay"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/store"
 )
 
 // HookEvent is M2's hook-relay entry-point payload: a type alias (not a

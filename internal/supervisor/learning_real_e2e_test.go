@@ -12,11 +12,11 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/danielbecerra/corral/internal/clock"
-	corralgit "github.com/danielbecerra/corral/internal/git"
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/state"
-	"github.com/danielbecerra/corral/internal/store"
+	"github.com/djbu/corral/internal/clock"
+	corralgit "github.com/djbu/corral/internal/git"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/state"
+	"github.com/djbu/corral/internal/store"
 )
 
 // TestLearningRuleE2E_RealClaude is intentionally opt-in: it spends a real

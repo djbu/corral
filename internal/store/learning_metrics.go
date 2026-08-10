@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/danielbecerra/corral/internal/session"
+	"github.com/djbu/corral/internal/session"
 )
 
 type SessionActivity struct {

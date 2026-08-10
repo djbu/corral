@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/danielbecerra/corral/internal/session"
+	"github.com/djbu/corral/internal/session"
 )
 
 // The events table is append-only by construction (§6.2, §5.4 invariant):

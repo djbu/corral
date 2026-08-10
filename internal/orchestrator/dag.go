@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/danielbecerra/corral/internal/store"
+	"github.com/djbu/corral/internal/store"
 )
 
 // DetectCycle reports whether tasks+deps (deps expected to already be

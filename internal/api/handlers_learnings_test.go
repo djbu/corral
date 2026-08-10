@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/clock/clocktest"
-	"github.com/danielbecerra/corral/internal/config"
-	corralgit "github.com/danielbecerra/corral/internal/git"
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/store"
-	"github.com/danielbecerra/corral/internal/version"
+	"github.com/djbu/corral/internal/clock/clocktest"
+	"github.com/djbu/corral/internal/config"
+	corralgit "github.com/djbu/corral/internal/git"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/store"
+	"github.com/djbu/corral/internal/version"
 )
 
 func TestLearningsAPI_ScanListShowReport(t *testing.T) {

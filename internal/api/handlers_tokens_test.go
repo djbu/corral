@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/danielbecerra/corral/internal/apitoken"
+	"github.com/djbu/corral/internal/apitoken"
 )
 
 // newTokensTestServer mirrors newDagsTestServer for the tokens routes.

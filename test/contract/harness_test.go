@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/api/client"
+	"github.com/djbu/corral/internal/api/client"
 )
 
 // builtBins caches the corral + fakeclaude binaries built once per `go test`
@@ -64,10 +64,10 @@ func buildBinaries(t *testing.T) builtBins {
 		}
 		corralBin := filepath.Join(dir, "corral")
 		fakeBin := filepath.Join(dir, "fakeclaude")
-		if buildErr = build(corralBin, "github.com/danielbecerra/corral/cmd/corral"); buildErr != nil {
+		if buildErr = build(corralBin, "github.com/djbu/corral/cmd/corral"); buildErr != nil {
 			return
 		}
-		if buildErr = build(fakeBin, "github.com/danielbecerra/corral/test/fakeclaude"); buildErr != nil {
+		if buildErr = build(fakeBin, "github.com/djbu/corral/test/fakeclaude"); buildErr != nil {
 			return
 		}
 		bins = builtBins{corral: corralBin, fakeclaude: fakeBin}

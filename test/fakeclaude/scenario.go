@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/claude/sessions"
+	"github.com/djbu/corral/internal/claude/sessions"
 )
 
 // scenario is the parsed CORRAL_FAKE_SCENARIO file (design doc §9.1): an

@@ -15,9 +15,9 @@ import (
 
 	xterm "github.com/charmbracelet/x/term"
 
-	"github.com/danielbecerra/corral/internal/config"
-	"github.com/danielbecerra/corral/internal/proto"
-	"github.com/danielbecerra/corral/internal/version"
+	"github.com/djbu/corral/internal/config"
+	"github.com/djbu/corral/internal/proto"
+	"github.com/djbu/corral/internal/version"
 )
 
 // cmdAttach implements `corral attach <name-or-id> [--no-take-over]`

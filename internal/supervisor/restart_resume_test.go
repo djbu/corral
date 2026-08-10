@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/claude/sessions"
-	"github.com/danielbecerra/corral/internal/clock"
-	"github.com/danielbecerra/corral/internal/proto"
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/state"
-	"github.com/danielbecerra/corral/internal/store"
+	"github.com/djbu/corral/internal/claude/sessions"
+	"github.com/djbu/corral/internal/clock"
+	"github.com/djbu/corral/internal/proto"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/state"
+	"github.com/djbu/corral/internal/store"
 )
 
 // restartResumeCheckpointer mirrors internal/checkpoint.ResumeCheckpointer

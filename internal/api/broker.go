@@ -3,7 +3,7 @@ package api
 import (
 	"sync"
 
-	"github.com/danielbecerra/corral/internal/session"
+	"github.com/djbu/corral/internal/session"
 )
 
 // Frame is what a subscriber's channel carries. A normal frame carries a

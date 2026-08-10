@@ -8,10 +8,10 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/danielbecerra/corral/internal/hookrelay"
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/state"
-	"github.com/danielbecerra/corral/internal/store"
+	"github.com/djbu/corral/internal/hookrelay"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/state"
+	"github.com/djbu/corral/internal/store"
 )
 
 // maxHookBodyBytes is the hard cap on a single hook payload's body (design

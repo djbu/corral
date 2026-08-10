@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/version"
+	"github.com/djbu/corral/internal/version"
 )
 
 // Client talks to one daemon, either over its local unix socket (New) or a

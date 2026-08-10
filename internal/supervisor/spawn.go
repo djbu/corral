@@ -16,8 +16,8 @@ import (
 
 	"github.com/creack/pty"
 
-	"github.com/danielbecerra/corral/internal/procinfo"
-	"github.com/danielbecerra/corral/internal/session"
+	"github.com/djbu/corral/internal/procinfo"
+	"github.com/djbu/corral/internal/session"
 )
 
 // envWhitelist is the fixed set of environment variable NAMES corral

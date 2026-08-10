@@ -4,8 +4,8 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/danielbecerra/corral/internal/claude/streamjson"
-	"github.com/danielbecerra/corral/internal/screen"
+	"github.com/djbu/corral/internal/claude/streamjson"
+	"github.com/djbu/corral/internal/screen"
 )
 
 // LiveSession is the supervisor's live handle to a spawned session process

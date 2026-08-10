@@ -373,7 +373,7 @@ func buildFakeclaude(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "fakeclaude")
-	cmd := exec.Command("go", "build", "-o", bin, "github.com/danielbecerra/corral/test/fakeclaude")
+	cmd := exec.Command("go", "build", "-o", bin, "github.com/djbu/corral/test/fakeclaude")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("go build fakeclaude: %v\n%s", err, out)

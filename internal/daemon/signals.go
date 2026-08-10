@@ -7,8 +7,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/config"
-	"github.com/danielbecerra/corral/internal/procinfo"
+	"github.com/djbu/corral/internal/config"
+	"github.com/djbu/corral/internal/procinfo"
 )
 
 // runSignalLoop is design doc §3.2 step 11 and the whole of §3.4: it blocks

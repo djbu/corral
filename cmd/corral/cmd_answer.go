@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/danielbecerra/corral/internal/api/client"
+	"github.com/djbu/corral/internal/api/client"
 )
 
 // cmdAnswer implements `corral answer <session> "text"` and

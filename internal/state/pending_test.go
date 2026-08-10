@@ -3,7 +3,7 @@ package state
 import (
 	"testing"
 
-	"github.com/danielbecerra/corral/internal/hookrelay"
+	"github.com/djbu/corral/internal/hookrelay"
 )
 
 func TestPendingTracker_OpenClose(t *testing.T) {

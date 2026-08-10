@@ -11,11 +11,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/danielbecerra/corral/internal/answer"
-	"github.com/danielbecerra/corral/internal/clock"
-	"github.com/danielbecerra/corral/internal/session"
-	"github.com/danielbecerra/corral/internal/state"
-	"github.com/danielbecerra/corral/internal/store"
+	"github.com/djbu/corral/internal/answer"
+	"github.com/djbu/corral/internal/clock"
+	"github.com/djbu/corral/internal/session"
+	"github.com/djbu/corral/internal/state"
+	"github.com/djbu/corral/internal/store"
 )
 
 // The reply subscriber (design doc §8.6) closes M2's exit criterion —
