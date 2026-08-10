@@ -291,6 +291,9 @@ telemetría de presión se completan junto con soak (paso 61).
 
 #### 61. Soak y leak detection
 
+**Estado:** job nocturno reproducible y manual implementado; la primera corrida
+nocturna en GitHub queda como evidencia de baseline operativo.
+
 - 50 sesiones concurrentes bajo `-race`;
 - 1000 ciclos spawn/kill/resume en job nocturno;
 - umbrales de file descriptors, goroutines, RSS y tamaño de WAL;

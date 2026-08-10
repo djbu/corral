@@ -1,6 +1,7 @@
 # binaries
 /corral
 /dist/
+/.soak-artifacts/
 
 # spike scratch — session sandboxes and raw captures stay local
 spike/*/sandbox/

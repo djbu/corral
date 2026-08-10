@@ -534,6 +534,10 @@ func (d *Daemon) startup(ctx context.Context) error {
 	if err := writeLifecycleState(d.cfg.StateDir, LifecycleRunning); err != nil {
 		return err
 	}
+	// The soak recorder is deliberately opt-in and writes only beneath the
+	// daemon state directory. It gives the nightly fleet exercise a direct
+	// goroutine/WAL signal without exposing a diagnostic endpoint to clients.
+	d.startSoakMetrics()
 
 	return nil
 }
