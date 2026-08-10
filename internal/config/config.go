@@ -33,6 +33,9 @@ type Daemon struct {
 	// self-signed cert; the daemon rejects startup if exactly one is set.
 	TLSCert string
 	TLSKey  string
+	// MinFreeBytes rejects new spawns before state_dir runs out of space.
+	// It is daemon/operator policy and can never be set by a repo file.
+	MinFreeBytes int64
 }
 
 // Session is the resolved session-scope configuration.

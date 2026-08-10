@@ -25,6 +25,7 @@ type daemonLayer struct {
 	Listen        *string `toml:"listen"`
 	TLSCert       *string `toml:"tls_cert"`
 	TLSKey        *string `toml:"tls_key"`
+	MinFreeBytes  *string `toml:"min_free_bytes"`
 }
 
 type sessionLayer struct {
@@ -203,6 +204,10 @@ func mergeDaemon(dst, src *daemonLayer, srcSource sourceFunc, sources map[string
 	if src.TLSKey != nil {
 		dst.TLSKey = src.TLSKey
 		sources["daemon.tls_key"] = srcSource("daemon.tls_key")
+	}
+	if src.MinFreeBytes != nil {
+		dst.MinFreeBytes = src.MinFreeBytes
+		sources["daemon.min_free_bytes"] = srcSource("daemon.min_free_bytes")
 	}
 }
 

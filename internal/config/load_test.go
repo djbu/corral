@@ -44,6 +44,41 @@ func TestLoadDaemon_DefaultsOnly(t *testing.T) {
 	if sources["daemon.log_level"] != "default" {
 		t.Errorf(`Sources["daemon.log_level"] = %q, want "default"`, sources["daemon.log_level"])
 	}
+	if d.MinFreeBytes != 256<<20 {
+		t.Errorf("MinFreeBytes = %d, want %d", d.MinFreeBytes, 256<<20)
+	}
+	if sources["daemon.min_free_bytes"] != "default" {
+		t.Errorf(`Sources["daemon.min_free_bytes"] = %q, want "default"`, sources["daemon.min_free_bytes"])
+	}
+}
+
+func TestLoadDaemonMinFreeBytesEnv(t *testing.T) {
+	withHome(t)
+	t.Setenv("CORRAL_DAEMON_MIN_FREE_BYTES", "1GiB")
+	d, sources, err := LoadDaemon()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.MinFreeBytes != 1<<30 {
+		t.Fatalf("MinFreeBytes = %d, want %d", d.MinFreeBytes, 1<<30)
+	}
+	if sources["daemon.min_free_bytes"] != "env CORRAL_DAEMON_MIN_FREE_BYTES" {
+		t.Fatalf("source = %q", sources["daemon.min_free_bytes"])
+	}
+}
+
+func TestRepoCannotSetMinFreeBytes(t *testing.T) {
+	withHome(t)
+	_, sub := setupRepo(t)
+	repoPath := filepath.Join(sub, ".corral.toml")
+	writeFile(t, repoPath, "[daemon]\nmin_free_bytes = \"0B\"\n")
+	_, _, _, rejected, err := LoadSession(sub, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rejected) != 1 || rejected[0].Key != "daemon.min_free_bytes" {
+		t.Fatalf("rejected = %+v", rejected)
+	}
 }
 
 func TestLoadDaemon_Precedence(t *testing.T) {

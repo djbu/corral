@@ -149,6 +149,20 @@ Las tablas de aprendizaje son proyecciones consultables. Los eventos siguen
 siendo la evidencia atribuible. Los tokens se almacenan como hash SHA-256; el
 secreto en texto plano sólo se muestra al crearlo.
 
+M7E añade una frontera de operación alrededor del store. Backup abre una
+conexión de sólo lectura y usa `VACUUM INTO` para materializar una imagen
+standalone que ya incorpora WAL; valida schema e integridad antes de publicarla
+atómicamente. Restore y GC requieren el daemon detenido y adquieren el mismo
+flock de singleton para impedir que arranque durante mantenimiento. Restore
+crea primero un snapshot de rollback. GC sólo elimina directorios de sesión
+ausentes de `sessions.id`; ninguna fila ni evidencia entra en su conjunto de
+candidatos.
+
+`supervisor.Registry.Spawn` es la frontera común para interactive, wake y
+headless. Allí se consulta espacio libre antes de crear settings/proceso. Por
+debajo de `daemon.min_free_bytes` se conserva el intento fallido como auditoría
+pero no se inicia trabajo nuevo; las sesiones existentes pueden checkpointar.
+
 ## 4. Flujo de una sesión interactiva
 
 ```mermaid
@@ -253,6 +267,7 @@ Con la configuración predeterminada:
 |---|---|
 | `~/.corral/config.toml` | Configuración del operador |
 | `~/.corral/corral.db` | SQLite durable |
+| `~/.corral/backups/*.db` | Snapshots consistentes y rollbacks de restore |
 | `~/.corral/corral.sock` | API local |
 | `~/.corral/daemon.pid` | PID del daemon |
 | `~/.corral/daemon.lock` | Exclusión de instancia única |
@@ -278,6 +293,8 @@ restrictivos. No se recomienda editar la base ni los settings generados.
 | `internal/orchestrator` | DAG, dependencias, reintentos y costos |
 | `internal/api` | API, auth, scopes, SSE y dashboard embebido |
 | `internal/store` | SQLite, migraciones y consultas |
+| `internal/dataops` | Plan/aplicación de GC estrictamente bajo state_dir |
+| `internal/diskspace` | Espacio disponible del filesystem de state_dir |
 | `internal/learning` | Minería, verificación, adopción y medición |
 | `internal/notify` | ntfy, webhook y canal de respuestas |
 | `internal/claude` | Contratos específicos de Claude Code |
@@ -329,22 +346,22 @@ hooks, notificaciones, checkpoint/recovery, DAGs, acceso remoto, dashboard y el
 primer learning loop verificado. M7A ya estableció el repositorio privado,
 identidad legal y CI protegida. M7B añade el pipeline reproducible de releases
 y M7C el lifecycle seguro y los servicios de usuario. M7D añade instalación
-privada/offline verificable y prepara Homebrew privado; M7 no se cierra hasta
-completar operación de datos y el smoke de upgrade.
+privada/offline verificable y prepara Homebrew privado. M7E añade backup,
+restore, GC y protección ante poco disco; M7 no se cierra hasta completar el
+smoke de upgrade.
 
 El proyecto continúa en pre-alpha. El orden, dependencias y gates están en el
 [plan ejecutable post-M6](../roadmap/POST_M6.md). Los pendientes principales
 son:
 
-1. backup, GC, protección ante poco disco y restore;
-2. completar el smoke de publicación, instalación y upgrade de `v0.7.0`,
+1. completar el smoke de publicación, instalación y upgrade de `v0.7.0`,
    incluida la fórmula Homebrew privada;
-3. comandos seguros para aceptar o descartar worktrees desde `corral review`;
-4. E2E con navegador real, además del E2E HTTP ya existente;
-5. Windows, modo multiusuario/equipo y más notificadores;
-6. las siguientes familias de aprendizaje: memoria operacional, routing de
+2. comandos seguros para aceptar o descartar worktrees desde `corral review`;
+3. E2E con navegador real, además del E2E HTTP ya existente;
+4. Windows, modo multiusuario/equipo y más notificadores;
+5. las siguientes familias de aprendizaje: memoria operacional, routing de
    modelo, síntesis de skills y corpus de regresión;
-7. funciones avanzadas de flota descritas en el runbook, como scheduling por
+6. funciones avanzadas de flota descritas en el runbook, como scheduling por
    cuota y una superficie MCP.
 
 Estas extensiones no impiden usar el núcleo actual, pero sí importan antes de

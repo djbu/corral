@@ -57,6 +57,9 @@ func filterRepoLayer(file string, l *layer) (*layer, []Rejection) {
 	if l.Daemon.TLSKey != nil {
 		reject("daemon.tls_key")
 	}
+	if l.Daemon.MinFreeBytes != nil {
+		reject("daemon.min_free_bytes")
+	}
 
 	// [session] — only model, scrollback_lines, term are repo-settable.
 	if l.Session.ClaudeBin != nil {

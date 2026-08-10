@@ -508,25 +508,67 @@ veredicto; `inconclusive` no significa mejora.
 
 ## 14. Copias de seguridad y actualización
 
-La copia más segura se hace con el daemon detenido para incluir SQLite, WAL y
-settings de forma coherente:
+`corral backup` crea un snapshot SQLite consistente aunque el daemon siga
+escribiendo. El archivo aparece sólo después de validar integridad y hacer
+`fsync`:
+
+```sh
+corral backup
+corral backup --output /ruta/absoluta/corral-pre-upgrade.db
+```
+
+El default es `~/.corral/backups/corral-<timestamp>.db`. El snapshot contiene
+sesiones, eventos, DAGs, hashes de tokens —incluidas revocaciones— y learnings.
+Los settings/logs de sesión son archivos separados y no forman parte de SQLite.
+
+Restore exige un daemon limpiamente detenido y `--replace` cuando ya existe
+una DB. Antes de reemplazar crea otro snapshot automático de rollback:
 
 ```sh
 corral daemon stop
-cp -R "$HOME/.corral" "/ruta/segura/corral-backup"
-corral daemon
+corral restore --replace /ruta/absoluta/corral-pre-upgrade.db
+corral daemon start
+corral doctor
+corral ls
+```
+
+Una DB de una versión futura o con `integrity_check` inválido se rechaza. No
+edite `PRAGMA user_version` para forzar un downgrade.
+
+GC observa primero y sólo considera directorios huérfanos bajo
+`~/.corral/sessions`; nunca borra filas, eventos, worktrees, TLS, backups ni
+evidencia referenciada:
+
+```sh
+corral daemon stop
+corral gc --dry-run
+corral gc --apply --older-than 720h --max-bytes 1GiB
+corral gc --apply --vacuum --vacuum-min-reclaim 64MiB
+corral daemon start
+```
+
+`--apply` hace checkpoint WAL. `VACUUM` es opt-in y se omite si el freelist no
+alcanza el umbral. Restore y GC mantienen el lock durante toda la operación,
+por lo que el daemon no puede arrancar a mitad de un reemplazo/borrado.
+
+El daemon rechaza nuevos spawns si `state_dir` tiene menos de 256 MiB libres.
+El operador puede cambiar el umbral, nunca un archivo del repo:
+
+```toml
+[daemon]
+min_free_bytes = "512MiB"
 ```
 
 Antes de actualizar:
 
 1. detenga el daemon ordenadamente;
-2. respalde `~/.corral`;
+2. ejecute `corral backup --output /ruta/absoluta/pre-upgrade.db`;
 3. compile o instale el binario nuevo;
 4. arranque el daemon, que aplicará migraciones dentro del lock;
 5. ejecute `corral --version`, `corral doctor`, `corral config` y `corral ls`.
 
-No edite `corral.db` a mano ni reutilice simultáneamente el mismo `state_dir`
-desde dos daemons.
+No edite `corral.db` a mano, copie sólo el archivo DB mientras está en WAL ni
+reutilice simultáneamente el mismo `state_dir` desde dos daemons.
 
 ## 15. Solución de problemas
 

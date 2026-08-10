@@ -53,6 +53,10 @@ var envSpecs = []envSpec{
 		l.Daemon.TLSKey = strPtr(v)
 		return nil
 	}},
+	{"daemon.min_free_bytes", "CORRAL_DAEMON_MIN_FREE_BYTES", func(l *layer, v string) error {
+		l.Daemon.MinFreeBytes = strPtr(v)
+		return nil
+	}},
 
 	{"session.claude_bin", "CORRAL_SESSION_CLAUDE_BIN", func(l *layer, v string) error {
 		l.Session.ClaudeBin = strPtr(v)
