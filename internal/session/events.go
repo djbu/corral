@@ -78,6 +78,13 @@ const (
 	EventLearningMeasured          EventKind = "learning.measured"
 	EventLearningRegressionFlagged EventKind = "learning.regression_flagged"
 	EventLearningStale             EventKind = "learning.stale"
+
+	// M8 review operations are daemon-scoped and carry only canonical Git
+	// identities, never diff contents or credentials.
+	EventReviewReleaseSucceeded EventKind = "review.release_succeeded"
+	EventReviewReleaseFailed    EventKind = "review.release_failed"
+	EventReviewDiscardSucceeded EventKind = "review.discard_succeeded"
+	EventReviewDiscardFailed    EventKind = "review.discard_failed"
 )
 
 // Event is one row of the append-only events table. SessionID is "" for a

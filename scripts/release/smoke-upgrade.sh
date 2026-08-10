@@ -3,19 +3,35 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 tag="${1:-}"
-[[ "$tag" =~ ^v0\.7\.0-rc\.[0-9]+$ ]] || {
-  echo "usage: smoke-upgrade.sh <v0.7.0-rc.N>" >&2
-  exit 2
-}
+case "$tag" in
+  v0.7.0-rc.*)
+    [[ "$tag" =~ ^v0\.7\.0-rc\.[0-9]+$ ]] || { echo "smoke: invalid RC tag $tag" >&2; exit 2; }
+    baseline_tag=v0.6.0
+    baseline_version=0.6.0
+    baseline_module=github.com/danielbecerra/corral
+    expected_schema=6
+    ;;
+  v0.8.0-rc.*)
+    [[ "$tag" =~ ^v0\.8\.0-rc\.[0-9]+$ ]] || { echo "smoke: invalid RC tag $tag" >&2; exit 2; }
+    baseline_tag=v0.7.0
+    baseline_version=0.7.0
+    baseline_module=github.com/djbu/corral
+    expected_schema=7
+    ;;
+  *)
+    echo "usage: smoke-upgrade.sh <v0.7.0-rc.N|v0.8.0-rc.N>" >&2
+    exit 2
+    ;;
+esac
 command -v gh >/dev/null || { echo "smoke: gh is required" >&2; exit 1; }
 command -v python3 >/dev/null || { echo "smoke: python3 is required" >&2; exit 1; }
 [[ -n "${GH_TOKEN:-${GITHUB_TOKEN:-}}" ]] || { echo "smoke: GH_TOKEN is required" >&2; exit 1; }
 go_mod_cache="$(go env GOMODCACHE)"
 go_build_cache="$(go env GOCACHE)"
 
-tmp="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/corral-m7f.XXXXXX")"
+tmp="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/corral-upgrade.XXXXXX")"
 tmp="$(cd "$tmp" && pwd -P)"
-old_tree="$tmp/v0.6.0"
+old_tree="$tmp/$baseline_tag"
 prefix="$tmp/prefix"
 smoke_home="$tmp/home"
 state="$smoke_home/.corral"
@@ -87,10 +103,10 @@ wait_for_invocations() {
 
 mkdir -p "$prefix/bin" "$smoke_home" "$fake_home" "$fake_state" "$workspace"
 
-step "build and install the real v0.6.0 baseline"
-git -C "$root" worktree add --detach "$old_tree" v0.6.0
+step "build and install the real $baseline_tag baseline"
+git -C "$root" worktree add --detach "$old_tree" "$baseline_tag"
 old_commit="$(git -C "$old_tree" rev-parse HEAD)"
-if [[ "$(uname -s)" == Linux ]]; then
+if [[ "$baseline_tag" == v0.6.0 && "$(uname -s)" == Linux ]]; then
   # v0.6.0 used the Darwin-only syscall.Getsid symbol. Apply exactly the
   # portability fix later committed as 6d81260; no behavior or schema changes.
   perl -0pi -e 's/\t"syscall"\n/\t"golang.org\/x\/sys\/unix"\n/; s/syscall\.Getsid/unix.Getsid/g' \
@@ -99,12 +115,12 @@ if [[ "$(uname -s)" == Linux ]]; then
 fi
 (
   cd "$old_tree"
-  go build -trimpath -ldflags "-X github.com/danielbecerra/corral/internal/version.Version=0.6.0 -X github.com/danielbecerra/corral/internal/version.Commit=$old_commit" -o "$bin" ./cmd/corral
+  go build -trimpath -ldflags "-X $baseline_module/internal/version.Version=$baseline_version -X $baseline_module/internal/version.Commit=$old_commit" -o "$bin" ./cmd/corral
   go build -trimpath -o "$prefix/bin/fakeclaude" ./test/fakeclaude
 )
-"$bin" --version | grep -F "corral 0.6.0 ($old_commit, api 1)"
+"$bin" --version | grep -F "corral $baseline_version ($old_commit, api 1)"
 
-step "create live v0.6.0 state and session"
+step "create live $baseline_tag state and session"
 "$bin" daemon
 new_output="$($bin new --cwd "$workspace" --name upgrade-smoke --no-attach)"
 printf '%s\n' "$new_output"
@@ -128,7 +144,7 @@ with sqlite3.connect(os.environ["DB_PATH"]) as db:
     print(db.execute("PRAGMA user_version").fetchone()[0])
 PY
 )"
-[[ "$schema_before" == 6 ]] || { echo "smoke: v0.6.0 fixture has unexpected schema $schema_before" >&2; exit 1; }
+[[ "$schema_before" == 6 ]] || { echo "smoke: $baseline_tag fixture has unexpected schema $schema_before" >&2; exit 1; }
 
 step "upgrade in place from the authenticated private RC"
 if [[ -n "${CORRAL_SMOKE_RELEASE_DIR:-}" ]]; then
@@ -148,14 +164,15 @@ step "new CLI gracefully stops the old daemon, migrates, and recovers"
 "$bin" daemon start
 wait_for_session running
 wait_for_invocations 2
-DB_PATH="$state/corral.db" python3 - <<'PY'
+DB_PATH="$state/corral.db" EXPECTED_SCHEMA="$expected_schema" python3 - <<'PY'
 import os, sqlite3
 with sqlite3.connect(os.environ["DB_PATH"]) as db:
     version = db.execute("PRAGMA user_version").fetchone()[0]
-    assert version == 6, f"expected compatible schema 6, got {version}"
+    expected = int(os.environ["EXPECTED_SCHEMA"])
+    assert version == expected, f"expected compatible schema {expected}, got {version}"
     row = db.execute("SELECT name, desired_state FROM sessions WHERE name='upgrade-smoke'").fetchone()
     assert row == ("upgrade-smoke", "running"), row
-print("migration smoke: schema=6 reopened idempotently and session intent preserved")
+print(f"migration smoke: schema={version} reopened and session intent preserved")
 PY
 
 step "exercise restart, kill/wake, and attach through a real PTY"
@@ -234,6 +251,6 @@ if [[ "$(uname -s)" == Darwin && -z "${CORRAL_SMOKE_RELEASE_DIR:-}" && "${CORRAL
   unset HOMEBREW_GITHUB_API_TOKEN HOMEBREW_NO_AUTO_UPDATE HOMEBREW_NO_INSTALL_CLEANUP
 fi
 
-step "M7F smoke passed on $(uname -s)/$(uname -m)"
-printf 'baseline=v0.6.0 rc=%s schema_before=%s schema_after=6 invocations=%s state_preserved=yes\n' \
-  "$tag" "$schema_before" "$(invocation_count)"
+step "upgrade smoke passed on $(uname -s)/$(uname -m)"
+printf 'baseline=%s rc=%s schema_before=%s schema_after=%s invocations=%s state_preserved=yes\n' \
+  "$baseline_tag" "$tag" "$schema_before" "$expected_schema" "$(invocation_count)"

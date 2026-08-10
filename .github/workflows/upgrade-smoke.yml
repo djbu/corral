@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Annotated private v0.7.0 release-candidate tag to exercise
+        description: Annotated private v0.7.0 or v0.8.0 release-candidate tag
         required: true
         type: string
 
@@ -24,7 +24,7 @@ jobs:
       matrix:
         os: [macos-latest, ubuntu-latest]
     steps:
-      - name: Check out M7F harness and complete history
+      - name: Check out upgrade harness and complete history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0

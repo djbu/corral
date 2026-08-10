@@ -43,17 +43,75 @@ type SubmitDagRequest struct {
 // (including the repo field, needed client-side to compute review's diff
 // base).
 type DagTask struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	Status      string  `json:"status"`
-	CostUSD     float64 `json:"cost_usd"`
-	Worktree    string  `json:"worktree"`
-	Branch      string  `json:"branch"`
-	Model       string  `json:"model"`
-	Attempts    int     `json:"attempts"`
-	MaxAttempts int     `json:"max_attempts"`
-	SessionID   string  `json:"session_id"`
-	Repo        string  `json:"repo"`
+	ID           string  `json:"id"`
+	Name         string  `json:"name"`
+	Status       string  `json:"status"`
+	CostUSD      float64 `json:"cost_usd"`
+	Worktree     string  `json:"worktree"`
+	Branch       string  `json:"branch"`
+	BaseCommit   string  `json:"base_commit"`
+	ReviewStatus string  `json:"review_status"`
+	Model        string  `json:"model"`
+	Attempts     int     `json:"attempts"`
+	MaxAttempts  int     `json:"max_attempts"`
+	SessionID    string  `json:"session_id"`
+	Repo         string  `json:"repo"`
+}
+
+// ReviewPreflight is the daemon's read-only identity and conflict analysis.
+type ReviewPreflight struct {
+	TaskID       string   `json:"task_id"`
+	ReviewStatus string   `json:"review_status"`
+	Strategy     string   `json:"strategy"`
+	Repo         string   `json:"repo"`
+	Worktree     string   `json:"worktree"`
+	Branch       string   `json:"branch"`
+	BaseCommit   string   `json:"base_commit"`
+	TaskHead     string   `json:"task_head"`
+	TargetRef    string   `json:"target_ref"`
+	TargetHead   string   `json:"target_head"`
+	Commits      []string `json:"commits"`
+	TaskDirty    bool     `json:"task_dirty"`
+	TargetDirty  bool     `json:"target_dirty"`
+	CanApply     bool     `json:"can_apply"`
+	Blockers     []string `json:"blockers"`
+	Warnings     []string `json:"warnings"`
+}
+
+// ReviewRecord is the durable release or discard decision for one task.
+type ReviewRecord struct {
+	TaskID       string `json:"task_id"`
+	Status       string `json:"status"`
+	Strategy     string `json:"strategy"`
+	TargetRef    string `json:"target_ref"`
+	TargetBefore string `json:"target_before"`
+	ResultCommit string `json:"result_commit"`
+	RecoveryRef  string `json:"recovery_ref"`
+	CreatedMs    int64  `json:"created_ms"`
+	UpdatedMs    int64  `json:"updated_ms"`
+}
+
+// ReviewResult combines the durable decision with the identities it applied.
+type ReviewResult struct {
+	Review    *ReviewRecord   `json:"review"`
+	Preflight ReviewPreflight `json:"preflight"`
+}
+
+// ReleaseReviewRequest selects an explicit integration strategy and pins the
+// target identity observed by preflight.
+type ReleaseReviewRequest struct {
+	Strategy           string `json:"strategy"`
+	Target             string `json:"target,omitempty"`
+	ExpectedTargetHead string `json:"expected_target_head,omitempty"`
+}
+
+// DiscardReviewRequest pins the task identity before removing its worktree.
+type DiscardReviewRequest struct {
+	ExpectedTaskHead string `json:"expected_task_head"`
+	ExpectedRepo     string `json:"expected_repo,omitempty"`
+	ExpectedWorktree string `json:"expected_worktree,omitempty"`
+	ExpectedBranch   string `json:"expected_branch,omitempty"`
+	Force            bool   `json:"force"`
 }
 
 // DagEdgeResp is one dependency edge in a DagDetail, by task ID (unlike
@@ -127,4 +185,55 @@ func (c *Client) ListDAGs(ctx context.Context) ([]DagSummary, error) {
 		return nil, err
 	}
 	return v.Dags, nil
+}
+
+// ReviewPreflight calls the task review preflight endpoint.
+func (c *Client) ReviewPreflight(ctx context.Context, taskID, strategy, target string) (ReviewPreflight, error) {
+	q := url.Values{"strategy": []string{strategy}}
+	if target != "" {
+		q.Set("target", target)
+	}
+	resp, err := c.do(ctx, http.MethodGet, "/v1/tasks/"+url.PathEscape(taskID)+"/review/preflight?"+q.Encode(), nil)
+	if err != nil {
+		return ReviewPreflight{}, err
+	}
+	var v ReviewPreflight
+	if err := decode(resp, &v); err != nil {
+		return v, err
+	}
+	return v, nil
+}
+
+// ReleaseReview calls the checked task review release endpoint.
+func (c *Client) ReleaseReview(ctx context.Context, taskID string, req ReleaseReviewRequest) (ReviewResult, error) {
+	b, err := json.Marshal(req)
+	if err != nil {
+		return ReviewResult{}, err
+	}
+	resp, err := c.do(ctx, http.MethodPost, "/v1/tasks/"+url.PathEscape(taskID)+"/review/release", b)
+	if err != nil {
+		return ReviewResult{}, err
+	}
+	var v ReviewResult
+	if err := decode(resp, &v); err != nil {
+		return v, err
+	}
+	return v, nil
+}
+
+// DiscardReview calls the recoverable task review discard endpoint.
+func (c *Client) DiscardReview(ctx context.Context, taskID string, req DiscardReviewRequest) (ReviewResult, error) {
+	b, err := json.Marshal(req)
+	if err != nil {
+		return ReviewResult{}, err
+	}
+	resp, err := c.do(ctx, http.MethodPost, "/v1/tasks/"+url.PathEscape(taskID)+"/review/discard", b)
+	if err != nil {
+		return ReviewResult{}, err
+	}
+	var v ReviewResult
+	if err := decode(resp, &v); err != nil {
+		return v, err
+	}
+	return v, nil
 }

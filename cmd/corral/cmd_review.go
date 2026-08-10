@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -14,18 +15,33 @@ import (
 	"github.com/djbu/corral/internal/config"
 )
 
-// cmdReview implements `corral review [<dag-id>] [--diff]` (m4.md §13 step
-// 24): a read-only view onto submitted dags and their task worktrees.
-// There is no mutation verb here — --release/--discard are deferred, not
-// implemented by this command.
+// cmdReview implements inspection plus M8's explicit release/discard verbs.
 func cmdReview(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 {
+		switch args[0] {
+		case "preflight":
+			return cmdReviewPreflight(args[1:], stdout, stderr)
+		case "release":
+			return cmdReviewRelease(args[1:], stdout, stderr)
+		case "discard":
+			return cmdReviewDiscard(args[1:], stdout, stderr)
+		}
+	}
 	fs := flag.NewFlagSet("review", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	diff := fs.Bool("diff", false, "print the full diff instead of a --stat summary")
+	var dagID string
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		dagID = args[0]
+		args = args[1:]
+	}
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
-	if fs.NArg() > 1 {
+	if dagID == "" && fs.NArg() == 1 {
+		dagID = fs.Arg(0)
+	}
+	if fs.NArg() > 1 || (dagID != "" && fs.NArg() > 0 && fs.Arg(0) != dagID) {
 		fmt.Fprintln(stderr, "usage: corral review [<dag-id>] [--diff]")
 		return exitUsage
 	}
@@ -41,10 +57,152 @@ func cmdReview(args []string, stdout, stderr io.Writer) int {
 	c := client.New(cfg.Socket, stderr)
 	ctx := context.Background()
 
-	if fs.NArg() == 0 {
+	if dagID == "" {
 		return reviewList(ctx, c, stdout, stderr)
 	}
-	return reviewDetail(ctx, c, stdout, stderr, fs.Arg(0), *diff)
+	return reviewDetail(ctx, c, stdout, stderr, dagID, *diff)
+}
+
+func cmdReviewPreflight(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		fmt.Fprintln(stderr, "usage: corral review preflight <task-id> --strategy merge|cherry-pick|branch [--target BRANCH] [--json]")
+		return exitUsage
+	}
+	taskID, args := args[0], args[1:]
+	fs := flag.NewFlagSet("review preflight", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	strategy := fs.String("strategy", "branch", "review strategy")
+	target := fs.String("target", "", "target branch")
+	asJSON := fs.Bool("json", false, "print machine-readable JSON")
+	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
+		return exitUsage
+	}
+	if *strategy != "merge" && *strategy != "cherry-pick" && *strategy != "branch" {
+		fmt.Fprintln(stderr, "corral: review preflight: invalid strategy")
+		return exitUsage
+	}
+	if *strategy != "branch" && *target == "" {
+		fmt.Fprintln(stderr, "corral: review preflight: --target is required")
+		return exitUsage
+	}
+	c, err := reviewClient(stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "corral: review preflight: %v\n", err)
+		return exitError
+	}
+	p, err := c.ReviewPreflight(context.Background(), taskID, *strategy, *target)
+	if err != nil {
+		fmt.Fprintf(stderr, "corral: review preflight: %v\n", err)
+		return exitError
+	}
+	if *asJSON {
+		b, _ := json.Marshal(p)
+		fmt.Fprintln(stdout, string(b))
+	} else {
+		fmt.Fprintf(stdout, "task: %s\nrepo: %s\nworktree: %s\nbranch: %s\nbase: %s\ntask HEAD: %s\n", p.TaskID, p.Repo, p.Worktree, p.Branch, p.BaseCommit, p.TaskHead)
+		if p.TargetHead != "" {
+			fmt.Fprintf(stdout, "target %s: %s\n", p.TargetRef, p.TargetHead)
+		}
+		for _, b := range p.Blockers {
+			fmt.Fprintf(stdout, "blocked: %s\n", b)
+		}
+		for _, w := range p.Warnings {
+			fmt.Fprintf(stdout, "warning: %s\n", w)
+		}
+		fmt.Fprintf(stdout, "can apply: %t\n", p.CanApply)
+	}
+	if !p.CanApply {
+		return exitError
+	}
+	return exitOK
+}
+
+func reviewClient(stderr io.Writer) (*client.Client, error) {
+	cfg, _, err := config.LoadDaemon()
+	if err != nil {
+		return nil, err
+	}
+	return client.New(cfg.Socket, stderr), nil
+}
+
+func cmdReviewRelease(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		fmt.Fprintln(stderr, "usage: corral review release <task-id> --strategy merge|cherry-pick|branch [--target BRANCH] [--expect SHA]")
+		return exitUsage
+	}
+	taskID, args := args[0], args[1:]
+	fs := flag.NewFlagSet("review release", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	strategy := fs.String("strategy", "", "release strategy")
+	target := fs.String("target", "", "target branch")
+	expect := fs.String("expect", "", "expected target HEAD from preflight")
+	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
+		return exitUsage
+	}
+	if *strategy != "merge" && *strategy != "cherry-pick" && *strategy != "branch" {
+		fmt.Fprintln(stderr, "corral: review release: --strategy must be merge, cherry-pick, or branch")
+		return exitUsage
+	}
+	if *strategy != "branch" && (*target == "" || *expect == "") {
+		fmt.Fprintln(stderr, "corral: review release: --target and --expect are required")
+		return exitUsage
+	}
+	c, err := reviewClient(stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "corral: review release: %v\n", err)
+		return exitError
+	}
+	result, err := c.ReleaseReview(context.Background(), taskID, client.ReleaseReviewRequest{Strategy: *strategy, Target: *target, ExpectedTargetHead: *expect})
+	if err != nil {
+		fmt.Fprintf(stderr, "corral: review release: %v\n", err)
+		return exitError
+	}
+	fmt.Fprintf(stdout, "released %s via %s", taskID, *strategy)
+	if result.Review != nil && result.Review.ResultCommit != "" {
+		fmt.Fprintf(stdout, " at %s", result.Review.ResultCommit)
+	}
+	fmt.Fprintln(stdout)
+	return exitOK
+}
+
+func cmdReviewDiscard(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		fmt.Fprintln(stderr, "usage: corral review discard <task-id> --expect SHA [--force]")
+		return exitUsage
+	}
+	taskID, args := args[0], args[1:]
+	fs := flag.NewFlagSet("review discard", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	expect := fs.String("expect", "", "expected task HEAD")
+	force := fs.Bool("force", false, "discard uncommitted work after exact identity check")
+	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
+		return exitUsage
+	}
+	if *expect == "" {
+		fmt.Fprintln(stderr, "corral: review discard: --expect is required")
+		return exitUsage
+	}
+	c, err := reviewClient(stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "corral: review discard: %v\n", err)
+		return exitError
+	}
+	p, err := c.ReviewPreflight(context.Background(), taskID, "branch", "")
+	if err != nil {
+		fmt.Fprintf(stderr, "corral: review discard: %v\n", err)
+		return exitError
+	}
+	result, err := c.DiscardReview(context.Background(), taskID, client.DiscardReviewRequest{ExpectedTaskHead: *expect, ExpectedRepo: p.Repo, ExpectedWorktree: p.Worktree, ExpectedBranch: p.Branch, Force: *force})
+	if err != nil {
+		fmt.Fprintf(stderr, "corral: review discard: %v\n", err)
+		return exitError
+	}
+	fmt.Fprintf(stdout, "discarded %s", taskID)
+	if result.Review != nil {
+		fmt.Fprintf(stdout, "; recovery ref %s", result.Review.RecoveryRef)
+	}
+	fmt.Fprintln(stdout)
+	return exitOK
 }
 
 // reviewList renders `corral review` with no argument: every submitted
@@ -79,9 +237,9 @@ func reviewDetail(ctx context.Context, c *client.Client, stdout, stderr io.Write
 	}
 
 	tw := tabwriter.NewWriter(stdout, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tSTATUS\tCOST\tBRANCH\tWORKTREE")
+	fmt.Fprintln(tw, "ID\tNAME\tSTATUS\tREVIEW\tCOST\tBRANCH\tWORKTREE")
 	for _, t := range detail.Tasks {
-		fmt.Fprintf(tw, "%s\t%s\t$%.4f\t%s\t%s\n", t.Name, t.Status, t.CostUSD, t.Branch, t.Worktree)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t$%.4f\t%s\t%s\n", t.ID, t.Name, t.Status, t.ReviewStatus, t.CostUSD, t.Branch, t.Worktree)
 	}
 	if err := tw.Flush(); err != nil {
 		fmt.Fprintf(stderr, "corral: review: %v\n", err)

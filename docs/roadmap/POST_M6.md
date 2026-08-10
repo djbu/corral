@@ -1,7 +1,7 @@
 # Plan ejecutable después de M6
 
-**Estado:** propuesto para ejecución. **Punto de partida:** `8517aac`, con
-`v0.6.0` apuntando al commit validado `b4b1151`.
+**Estado:** M7 cerrado en la release privada estable `v0.7.0`; M8 en
+ejecución. **Punto de partida de M8:** tag anotado `v0.7.0` sobre `bca30e3`.
 
 **M7A:** integrado en
 [`djbu/corral#1`](https://github.com/djbu/corral/pull/1). Los pasos 46–47
@@ -219,6 +219,8 @@ con Git.
 
 #### 55. Contrato de revisión
 
+**Estado:** completado; contrato congelado en `docs/design/m8.md`.
+
 - definir estados `pending_review`, `released` y `discarded` sin reinterpretar
   tareas ya persistidas;
 - decidir políticas para working tree sucio, commits adicionales, branch
@@ -226,6 +228,8 @@ con Git.
 - registrar toda mutación como evento auditable.
 
 #### 56. Release seguro
+
+**Estado:** completado en implementación y smoke local.
 
 - endpoint y CLI `corral review release <task>`;
 - preflight sin escritura: repo, base, diff, conflictos y ownership;
@@ -236,6 +240,8 @@ con Git.
 
 #### 57. Descarte recuperable
 
+**Estado:** completado en implementación y smoke local.
+
 - endpoint y CLI `corral review discard <task>`;
 - por defecto conservar una referencia/ref de recuperación antes de retirar el
   worktree;
@@ -244,12 +250,18 @@ con Git.
 
 #### 58. Dashboard y browser E2E
 
+**Estado:** completado; evidencia y límite del diálogo nativo documentados en
+`docs/dogfood/m8.md`.
+
 - mostrar diff, preflight y acciones release/discard en el dashboard;
 - confirmaciones con identidad exacta de repo, rama y commit;
 - E2E opt-in con navegador real sobre TLS + bearer + SSE;
 - mantener las pruebas HTTP deterministas en el suite normal.
 
 #### 59. Dogfood de review
+
+**Estado:** implementación y dogfood local completos; promoción RC/estable
+pendiente.
 
 - ejecutar DAGs reales en worktrees;
 - probar camino feliz, conflicto, cancelación y recuperación tras crash;
@@ -446,7 +458,7 @@ La primera tanda concreta es:
 - [x] 52 — instalador privado y fórmula Homebrew no publicada, una vez estable
   el ciclo del servicio;
 - [x] 53 — backup/GC/disco;
-- [ ] 54 — smoke limpio y tag `v0.7.0`.
+- [x] 54 — smoke limpio y tag `v0.7.0`.
 
 El orden 50→51→52 es deliberado: no se debe distribuir un servicio antes de
 tener un ciclo de vida estable, ni distribuir un instalador antes de conocer

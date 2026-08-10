@@ -42,7 +42,7 @@ func TestBackupRestorePreservesOperationalData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BackupDatabase: %v", err)
 	}
-	if info.SchemaVersion != 6 || !info.Integrity {
+	if info.SchemaVersion != 7 || !info.Integrity {
 		t.Fatalf("backup info = %+v", info)
 	}
 	if err := st.Close(); err != nil {

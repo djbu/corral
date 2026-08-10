@@ -242,6 +242,11 @@ button:disabled {
   margin-top: 8px;
 }
 
+.review-panel { margin-top: .75rem; padding-top: .75rem; border-top: 1px solid var(--border); }
+.review-identity, .review-diff { overflow-x: auto; white-space: pre-wrap; padding: .65rem; background: var(--surface); border: 1px solid var(--border); border-radius: .35rem; }
+.review-controls { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.review-controls input { min-width: 10rem; }
+
 .task-row-top {
   font-weight: 600;
 }
