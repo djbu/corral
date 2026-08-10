@@ -410,6 +410,15 @@ func stopDaemon(cfg config.Daemon, grace, timeout time.Duration, stderr io.Write
 		case daemon.LifecycleStarting, daemon.LifecycleStopping:
 			// Wait for startup to expose the API, or for shutdown to release the lock.
 		case daemon.LifecycleLockHeld:
+			// Daemons before M7C do not write daemon.state. After their API has
+			// accepted shutdown there is therefore a short, legitimate interval
+			// where the socket is already closed but the singleton lock has not
+			// been released. It is safe to wait only because this client sent and
+			// received the shutdown request itself; an initially opaque lock still
+			// fails closed below.
+			if shutdownRequested {
+				break
+			}
 			return original, false, fmt.Errorf("lock is held but the local API is unavailable; refusing to signal pid %d", status.PID)
 		default:
 			return original, false, fmt.Errorf("unknown lifecycle state %q", status.State)
