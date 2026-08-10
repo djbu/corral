@@ -352,21 +352,19 @@ privada/offline verificable y prepara Homebrew privado. M7E añade backup,
 restore, GC y protección ante poco disco. M7F añade el harness de promoción
 sobre runners efímeros macOS/Linux: instala el artefacto privado real sobre
 `v0.6.0`, valida migración y recovery, ejercita PTY y TLS/token, y comprueba
-que uninstall conserva los datos. M7 no se cierra hasta que esa matriz y la
-release final estén verdes.
+que uninstall conserva los datos. Esa matriz quedó verde con `v0.7.0-rc.2` y
+M7 se cierra con la release privada anotada `v0.7.0`.
 
 El proyecto continúa en pre-alpha. El orden, dependencias y gates están en el
 [plan ejecutable post-M6](../roadmap/POST_M6.md). Los pendientes principales
 son:
 
-1. completar el smoke de publicación, instalación y upgrade de `v0.7.0`,
-   incluida la fórmula Homebrew privada;
-2. comandos seguros para aceptar o descartar worktrees desde `corral review`;
-3. E2E con navegador real, además del E2E HTTP ya existente;
-4. Windows, modo multiusuario/equipo y más notificadores;
-5. las siguientes familias de aprendizaje: memoria operacional, routing de
+1. comandos seguros para aceptar o descartar worktrees desde `corral review`;
+2. E2E con navegador real, además del E2E HTTP ya existente;
+3. Windows, modo multiusuario/equipo y más notificadores;
+4. las siguientes familias de aprendizaje: memoria operacional, routing de
    modelo, síntesis de skills y corpus de regresión;
-6. funciones avanzadas de flota descritas en el runbook, como scheduling por
+5. funciones avanzadas de flota descritas en el runbook, como scheduling por
    cuota y una superficie MCP.
 
 Estas extensiones no impiden usar el núcleo actual, pero sí importan antes de
