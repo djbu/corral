@@ -16,15 +16,18 @@ plataforma y su archivo de checksums. Por tanto, el binario probado es el
 artefacto publicado, no una compilación sustituta del checkout.
 
 La línea base sí se compila directamente desde el tag histórico anotado
-`v0.6.0`, con su identidad de versión y commit embebida. Tanto `$HOME` como el
-prefix, state dir, socket, fake Claude y workspace viven dentro del temporal
-del runner.
+`v0.6.0`, con su identidad de versión y commit embebida. Ese tag contiene una
+referencia `syscall.Getsid` que nunca compiló en Linux; sólo allí el harness
+aplica el backport portable exacto de `6d81260` (`x/sys/unix.Getsid`), sin
+cambiar comportamiento, schema ni identidad. Tanto `$HOME` como el prefix,
+state dir, socket, fake Claude y workspace viven dentro del temporal del
+runner.
 
 ## Contrato ejecutado
 
 1. Construir e instalar `v0.6.0`, iniciar el daemon y crear una sesión
-   `fakeclaude` que permanece viva; enviar un turno por attach para dejar una
-   transcripción realmente recuperable.
+   `fakeclaude` que permanece viva; sembrar el fixture JSONL mínimo que usa su
+   propio E2E para que la sesión sea recuperable.
 2. Instalar el RC sobre el mismo path mientras el proceso viejo sigue vivo.
 3. Usar el CLI nuevo para solicitar shutdown limpio al daemon viejo; arrancar
    el RC, comprobar que schema 6 se reabre idempotentemente, intención

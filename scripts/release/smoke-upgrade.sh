@@ -14,6 +14,7 @@ go_mod_cache="$(go env GOMODCACHE)"
 go_build_cache="$(go env GOCACHE)"
 
 tmp="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/corral-m7f.XXXXXX")"
+tmp="$(cd "$tmp" && pwd -P)"
 old_tree="$tmp/v0.6.0"
 prefix="$tmp/prefix"
 smoke_home="$tmp/home"
@@ -89,6 +90,13 @@ mkdir -p "$prefix/bin" "$smoke_home" "$fake_home" "$fake_state" "$workspace"
 step "build and install the real v0.6.0 baseline"
 git -C "$root" worktree add --detach "$old_tree" v0.6.0
 old_commit="$(git -C "$old_tree" rev-parse HEAD)"
+if [[ "$(uname -s)" == Linux ]]; then
+  # v0.6.0 used the Darwin-only syscall.Getsid symbol. Apply exactly the
+  # portability fix later committed as 6d81260; no behavior or schema changes.
+  perl -0pi -e 's/\t"syscall"\n/\t"golang.org\/x\/sys\/unix"\n/; s/syscall\.Getsid/unix.Getsid/g' \
+    "$old_tree/internal/daemon/daemon.go"
+  grep -q 'unix.Getsid(0)' "$old_tree/internal/daemon/daemon.go"
+fi
 (
   cd "$old_tree"
   go build -trimpath -ldflags "-X github.com/danielbecerra/corral/internal/version.Version=0.6.0 -X github.com/danielbecerra/corral/internal/version.Commit=$old_commit" -o "$bin" ./cmd/corral
@@ -98,13 +106,22 @@ old_commit="$(git -C "$old_tree" rev-parse HEAD)"
 
 step "create live v0.6.0 state and session"
 "$bin" daemon
-"$bin" new --cwd "$workspace" --name upgrade-smoke --no-attach
+new_output="$($bin new --cwd "$workspace" --name upgrade-smoke --no-attach)"
+printf '%s\n' "$new_output"
+session_id="$(printf '%s\n' "$new_output" | sed -n 's/^created upgrade-smoke (\([^)]*\))$/\1/p')"
+[[ -n "$session_id" ]] || { echo "smoke: could not parse v0.6.0 session id" >&2; exit 1; }
 wait_for_session running
 wait_for_invocations 1
-# A persisted completed turn is the prerequisite for safe recovery. Drive it
-# through the public attach protocol instead of fabricating Claude state.
-python3 "$root/scripts/release/pty-attach-smoke.py" "$bin" upgrade-smoke "upgrade seed"
-find "$fake_home" -name '*.jsonl' -type f | grep -q .
+# Safe recovery requires a transcript. Use the same minimal JSONL fixture as
+# v0.6.0's lifecycle E2E; attach itself is exercised against the upgraded RC.
+SMOKE_HOME="$smoke_home" SMOKE_CWD="$workspace" SESSION_ID="$session_id" python3 - <<'PY'
+import json, os, pathlib
+slug = os.path.realpath(os.environ["SMOKE_CWD"]).replace("/", "-")
+path = pathlib.Path(os.environ["SMOKE_HOME"]) / ".claude" / "projects" / slug / (os.environ["SESSION_ID"] + ".jsonl")
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text(json.dumps({"text": "upgrade seed", "at": "2026-08-10T00:00:00Z"}) + "\n")
+print(f"baseline fixture: wrote resumable transcript {path}")
+PY
 schema_before="$(DB_PATH="$state/corral.db" python3 - <<'PY'
 import os, sqlite3
 with sqlite3.connect(os.environ["DB_PATH"]) as db:
