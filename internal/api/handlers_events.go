@@ -93,6 +93,13 @@ func (d EventsDeps) handleStream(w http.ResponseWriter, r *http.Request) {
 	// harmless (and unread) everywhere else.
 	w.Header().Set("X-Accel-Buffering", "no")
 
+	// Subscribe before flushing the 200 response. A client can begin a write
+	// as soon as it receives the flushed headers; subscribing afterwards leaves
+	// a real gap where an event is durable but invisible to this live stream.
+	// The deferred unsubscribe also covers a Flush failure below.
+	id, ch, done := d.Broker.Subscribe()
+	defer d.Broker.Unsubscribe(id)
+
 	rc := http.NewResponseController(w)
 	// Deliberately no explicit w.WriteHeader(http.StatusOK) before this: the
 	// first successful Flush performs it implicitly, with the headers set
@@ -105,9 +112,6 @@ func (d EventsDeps) handleStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "streaming not supported", nil)
 		return
 	}
-
-	id, ch, done := d.Broker.Subscribe()
-	defer d.Broker.Unsubscribe(id)
 
 	ticker := d.Clock.NewTicker(heartbeatInterval)
 	defer ticker.Stop()
