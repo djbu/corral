@@ -1,6 +1,6 @@
 # M7B — Builds reproducibles y publicación privada
 
-**Estado:** contrato congelado antes de implementación.  
+**Estado:** implementado y validado en `djbu/corral#2`.
 **Alcance:** pasos 48–49 de `docs/roadmap/POST_M6.md`.  
 **Release final de M7:** fuera de alcance; M7B no crea `v0.7.0`.
 
@@ -84,8 +84,9 @@ corral_0.7.0-rc.1_checksums.txt
 <archive>.sbom.json (uno por archive)
 ```
 
-`dist/artifacts.json` y `dist/metadata.json` son evidencia local del build; se
-publican también para que una release pueda auditarse sin reconstruirla.
+`dist/artifacts.json` y `dist/metadata.json` son evidencia local del build.
+`metadata.json` se publica con la release; `artifacts.json` queda en el runner
+porque contiene rutas locales y no forma parte del contrato descargable.
 
 ## 6. Gates locales
 

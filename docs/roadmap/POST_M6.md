@@ -5,8 +5,10 @@
 
 **M7A:** integrado en
 [`djbu/corral#1`](https://github.com/djbu/corral/pull/1). Los pasos 46–47
-pasaron localmente y en la matriz GitHub Actions de macOS/Linux. **M7B:** en
-ejecución sobre los pasos 48–49; contrato en `docs/design/m7b.md`.
+pasaron localmente y en la matriz GitHub Actions de macOS/Linux. **M7B:**
+implementado y validado de extremo a extremo en
+[`djbu/corral#2`](https://github.com/djbu/corral/pull/2); contrato en
+`docs/design/m7b.md` y evidencia en `docs/dogfood/m7b.md`.
 
 Este documento ordena los pendientes que quedaron después de M6. No es una
 lista de deseos: cada fase tiene dependencias, entregables, pruebas y una
@@ -421,8 +423,8 @@ La primera tanda concreta es:
 
 - [x] 46 — identidad, licencia, remote privado y módulo canónico;
 - [x] 47 — CI normal macOS/Linux;
-- [ ] 48 — build reproducible y checksums;
-- [ ] 49 — workflow de prerelease/release;
+- [x] 48 — build reproducible y checksums;
+- [x] 49 — workflow de prerelease/release;
 - [ ] 50 — `daemon status|stop|restart`;
 - [ ] 51 — servicio launchd/systemd;
 - [ ] 52 — instalador privado y fórmula Homebrew no publicada, una vez estable

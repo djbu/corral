@@ -20,7 +20,8 @@ corral_<version>_linux_arm64.tar.gz
 ```
 
 También contiene un archivo de checksums SHA-256, un SBOM SPDX JSON por
-archive, `artifacts.json` y `metadata.json`. Cada archive contiene exactamente
+archive y `metadata.json`. `artifacts.json` se conserva sólo durante el build
+porque incluye rutas internas del runner. Cada archive contiene exactamente
 `corral`, `README.md` y `LICENSE`.
 
 ## 2. Reproducir localmente
