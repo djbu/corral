@@ -14,11 +14,11 @@ class Corral < Formula
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/djbu/corral/releases/download/v@VERSION@/corral_@VERSION@_darwin_arm64.tar.gz",
+      url "@DARWIN_ARM64_URL@",
           headers: private_headers
       sha256 "@DARWIN_ARM64@"
     else
-      url "https://github.com/djbu/corral/releases/download/v@VERSION@/corral_@VERSION@_darwin_amd64.tar.gz",
+      url "@DARWIN_AMD64_URL@",
           headers: private_headers
       sha256 "@DARWIN_AMD64@"
     end
@@ -26,11 +26,11 @@ class Corral < Formula
 
   on_linux do
     if Hardware::CPU.arm?
-      url "https://github.com/djbu/corral/releases/download/v@VERSION@/corral_@VERSION@_linux_arm64.tar.gz",
+      url "@LINUX_ARM64_URL@",
           headers: private_headers
       sha256 "@LINUX_ARM64@"
     else
-      url "https://github.com/djbu/corral/releases/download/v@VERSION@/corral_@VERSION@_linux_amd64.tar.gz",
+      url "@LINUX_AMD64_URL@",
           headers: private_headers
       sha256 "@LINUX_AMD64@"
     end

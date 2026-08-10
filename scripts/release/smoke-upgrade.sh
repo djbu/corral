@@ -212,19 +212,26 @@ if [[ "$(uname -s)" == Darwin && -z "${CORRAL_SMOKE_RELEASE_DIR:-}" && "${CORRAL
   step "install the same private RC through its checksum-pinned Homebrew formula"
   release_dir="$tmp/release"
   formula="$tmp/Formula/corral.rb"
+  assets_json="$release_dir/assets.json"
   mkdir -p "$release_dir"
   GH_TOKEN="${GH_TOKEN:-$GITHUB_TOKEN}" gh release download "$tag" --repo djbu/corral \
     --dir "$release_dir" --pattern "corral_${tag#v}_checksums.txt"
+  GH_TOKEN="${GH_TOKEN:-$GITHUB_TOKEN}" gh release view "$tag" --repo djbu/corral \
+    --json assets >"$assets_json"
   "$root/scripts/release/render-homebrew-formula.sh" "${tag#v}" \
-    "$release_dir/corral_${tag#v}_checksums.txt" "$formula"
+    "$release_dir/corral_${tag#v}_checksums.txt" "$formula" "$assets_json"
   tap=djbu/corral-smoke
   brew tap-new --no-git "$tap"
   tap_root="$(brew --repository "$tap")"
   install -m 0644 "$formula" "$tap_root/Formula/corral.rb"
-  HOMEBREW_GITHUB_API_TOKEN="${GH_TOKEN:-$GITHUB_TOKEN}" brew install "$tap/corral"
+  export HOMEBREW_GITHUB_API_TOKEN="${GH_TOKEN:-$GITHUB_TOKEN}"
+  export HOMEBREW_NO_AUTO_UPDATE=1
+  export HOMEBREW_NO_INSTALL_CLEANUP=1
+  brew install "$tap/corral"
   brew test "$tap/corral"
   brew uninstall "$tap/corral"
   brew untap "$tap"
+  unset HOMEBREW_GITHUB_API_TOKEN HOMEBREW_NO_AUTO_UPDATE HOMEBREW_NO_INSTALL_CLEANUP
 fi
 
 step "M7F smoke passed on $(uname -s)/$(uname -m)"
