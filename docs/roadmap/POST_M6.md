@@ -301,9 +301,9 @@ nocturna en GitHub queda como evidencia de baseline operativo.
 
 #### 62. Pin y compatibilidad de Claude
 
-**Estado:** foundation implementada: versión observada persistida, política
-semver por repo sin control del binario, y drift visible en `corral doctor`.
-Falta automatizar la detección upstream y el corpus golden.
+**Estado:** implementado: versión observada persistida, política semver por
+repo sin control del binario, drift y corpus golden faltante visibles en
+`corral doctor`, más detección upstream programada.
 
 - registrar versión observada por sesión;
 - política por repo: versión esperada/rango compatible sin ejecutar un binario

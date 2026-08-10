@@ -1,0 +1,29 @@
+name: claude-version-watch
+
+on:
+  schedule:
+    - cron: "15 6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Detect latest Claude Code version
+        id: latest
+        run: echo "version=$(npm view @anthropic-ai/claude-code version)" >> "$GITHUB_OUTPUT"
+      - name: Open one compatibility task when the corpus is missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.latest.outputs.version }}
+        run: |
+          corpus="test/contract/testdata/claude-golden/${VERSION}.json"
+          if [[ -f "$corpus" ]]; then exit 0; fi
+          title="Claude Code ${VERSION}: capture compatibility golden corpus"
+          if gh issue list --repo "${GITHUB_REPOSITORY}" --state open --search "in:title \"${title}\"" --json title --jq '.[].title' | grep -Fxq "$title"; then exit 0; fi
+          gh issue create --repo "${GITHUB_REPOSITORY}" --title "$title" --body "Upstream version ${VERSION} is published but ${corpus} is absent. Run the real contract workflow, capture the approved corpus, and review compatibility before pinning it."
