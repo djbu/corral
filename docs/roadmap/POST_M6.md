@@ -1,7 +1,7 @@
 # Plan ejecutable después de M6
 
-**Estado:** M7 cerrado en la release privada estable `v0.7.0`; M8 en
-ejecución. **Punto de partida de M8:** tag anotado `v0.7.0` sobre `bca30e3`.
+**Estado:** M7 cerrado en `v0.7.0`; M8 cerrado en la release privada estable
+`v0.8.0`. **Punto de partida de M9:** tag anotado `v0.8.0`.
 
 **M7A:** integrado en
 [`djbu/corral#1`](https://github.com/djbu/corral/pull/1). Los pasos 46–47
@@ -229,7 +229,7 @@ con Git.
 
 #### 56. Release seguro
 
-**Estado:** completado en implementación y smoke local.
+**Estado:** completado y verificado en CI macOS/Linux.
 
 - endpoint y CLI `corral review release <task>`;
 - preflight sin escritura: repo, base, diff, conflictos y ownership;
@@ -240,7 +240,7 @@ con Git.
 
 #### 57. Descarte recuperable
 
-**Estado:** completado en implementación y smoke local.
+**Estado:** completado y verificado en CI macOS/Linux.
 
 - endpoint y CLI `corral review discard <task>`;
 - por defecto conservar una referencia/ref de recuperación antes de retirar el
@@ -260,8 +260,8 @@ con Git.
 
 #### 59. Dogfood de review
 
-**Estado:** implementación y dogfood local completos; promoción RC/estable
-pendiente.
+**Estado:** completado; `v0.8.0-rc.1` pasó la matriz de upgrade desde
+`v0.7.0` en macOS/Linux y se promovió a `v0.8.0`.
 
 - ejecutar DAGs reales en worktrees;
 - probar camino feliz, conflicto, cancelación y recuperación tras crash;
