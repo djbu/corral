@@ -20,6 +20,7 @@ type DagNode struct {
 	Repo           string   `json:"repo"`
 	Worktree       bool     `json:"worktree"`
 	Model          string   `json:"model"`
+	Template       string   `json:"template"`
 	PermissionMode string   `json:"permission_mode"`
 	MaxAttempts    int      `json:"max_attempts"`
 	BudgetUSD      *float64 `json:"budget_usd"`
@@ -52,6 +53,7 @@ type DagTask struct {
 	BaseCommit   string  `json:"base_commit"`
 	ReviewStatus string  `json:"review_status"`
 	Model        string  `json:"model"`
+	Template     string  `json:"template"`
 	Attempts     int     `json:"attempts"`
 	MaxAttempts  int     `json:"max_attempts"`
 	SessionID    string  `json:"session_id"`

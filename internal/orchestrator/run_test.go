@@ -15,6 +15,7 @@ import (
 	"github.com/djbu/corral/internal/claude/sessions"
 	"github.com/djbu/corral/internal/clock"
 	"github.com/djbu/corral/internal/clock/clocktest"
+	"github.com/djbu/corral/internal/config"
 	"github.com/djbu/corral/internal/session"
 	"github.com/djbu/corral/internal/state"
 	"github.com/djbu/corral/internal/store"
@@ -315,6 +316,30 @@ func TestOrchestrator_NoResultEvent_EndsTaskFailed(t *testing.T) {
 	}
 	if got.Status != store.TaskFailed {
 		t.Fatalf("task status = %s, want failed (nil-result trap: no session.result event must map to failure, not success)", got.Status)
+	}
+}
+
+func TestOrchestrator_TaskTemplateLimitsSpawnEnvironment(t *testing.T) {
+	clk := clocktest.NewFake(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	st := newTestStore(t, clk)
+	reg := &fakeRegistry{}
+	task := mkTask(t, st, "dag-template", "task-template", "check", t.TempDir(), 1)
+	if _, err := st.UpdateTask(t.Context(), task.ID, func(t *store.Task) { t.Template = "review" }); err != nil {
+		t.Fatalf("UpdateTask(template): %v", err)
+	}
+
+	orch := New(reg, st, clk, nil, Config{
+		TaskTimeout: time.Hour, StateDir: t.TempDir(),
+		Templates: map[string]config.Template{
+			"review": {Name: "review", EnvPassthrough: []string{"GITHUB_TOKEN"}},
+		},
+	}, "/usr/bin/true")
+	orch.tickOnce(t.Context())
+	if got := reg.spawnCount(); got != 1 {
+		t.Fatalf("spawn count = %d, want 1", got)
+	}
+	if got := reg.lastSpawn().EnvPassthrough; len(got) != 1 || got[0] != "GITHUB_TOKEN" {
+		t.Fatalf("spawn env passthrough = %v, want [GITHUB_TOKEN]", got)
 	}
 }
 

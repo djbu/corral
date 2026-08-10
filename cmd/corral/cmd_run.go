@@ -53,6 +53,7 @@ type dagFileNode struct {
 	Repo        string   `toml:"repo"`
 	Worktree    bool     `toml:"worktree"`
 	Model       string   `toml:"model"`
+	Template    string   `toml:"template"`
 	MaxAttempts int      `toml:"max_attempts"`
 	BudgetUSD   *float64 `toml:"budget_usd"`
 	DependsOn   []string `toml:"depends_on"`
@@ -106,6 +107,7 @@ func parseDagFile(path string) (client.SubmitDagRequest, error) {
 			Repo:           n.Repo,
 			Worktree:       n.Worktree,
 			Model:          n.Model,
+			Template:       n.Template,
 			PermissionMode: "",
 			MaxAttempts:    n.MaxAttempts,
 			BudgetUSD:      n.BudgetUSD,
@@ -133,6 +135,7 @@ func cmdRun(args []string, stdout, stderr io.Writer) int {
 	repo := fs.String("repo", "", "repo path (bare mode)")
 	worktree := fs.Bool("worktree", false, "run in an isolated git worktree (bare mode)")
 	model := fs.String("model", "", "claude --model override (bare mode)")
+	template := fs.String("template", "", "authorized task template (bare mode)")
 	name := fs.String("name", "", `task name (bare mode, default "task")`)
 	budgetUSD := fs.Float64("budget-usd", 0, "dag budget cap in USD")
 	maxAttempts := fs.Int("max-attempts", 0, "max retry attempts (bare mode)")
@@ -191,6 +194,7 @@ func cmdRun(args []string, stdout, stderr io.Writer) int {
 				Repo:           *repo,
 				Worktree:       *worktree,
 				Model:          *model,
+				Template:       *template,
 				PermissionMode: *permissionMode,
 				MaxAttempts:    *maxAttempts,
 				BudgetUSD:      nil,

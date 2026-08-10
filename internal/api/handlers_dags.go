@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/djbu/corral/internal/config"
 	"github.com/djbu/corral/internal/orchestrator"
 	"github.com/djbu/corral/internal/review"
 	"github.com/djbu/corral/internal/store"
@@ -21,6 +22,7 @@ type DagsDeps struct {
 	Store              *store.Store
 	Review             *review.Service
 	MaxPendingDAGTasks int
+	Templates          map[string]config.Template // daemon-start snapshot, operator-owned
 }
 
 // RegisterDags registers POST /v1/dags, GET /v1/dags, and GET
@@ -44,6 +46,7 @@ type dagNodeRequest struct {
 	Repo           string   `json:"repo"`
 	Worktree       bool     `json:"worktree"`
 	Model          string   `json:"model"`
+	Template       string   `json:"template"`
 	PermissionMode string   `json:"permission_mode"`
 	MaxAttempts    int      `json:"max_attempts"`
 	BudgetUSD      *float64 `json:"budget_usd"`
@@ -77,6 +80,7 @@ type dagTaskResponse struct {
 	BaseCommit   string  `json:"base_commit,omitempty"`
 	ReviewStatus string  `json:"review_status,omitempty"`
 	Model        string  `json:"model,omitempty"`
+	Template     string  `json:"template,omitempty"`
 	Attempts     int     `json:"attempts"`
 	MaxAttempts  int     `json:"max_attempts"`
 	SessionID    string  `json:"session_id,omitempty"`
@@ -125,6 +129,7 @@ func toDagTaskResponse(t *store.Task, reviewStatus string) dagTaskResponse {
 		BaseCommit:   t.BaseCommit,
 		ReviewStatus: reviewStatus,
 		Model:        t.Model,
+		Template:     t.Template,
 		Attempts:     t.Attempts,
 		MaxAttempts:  t.MaxAttempts,
 		SessionID:    t.SessionID,
@@ -226,6 +231,12 @@ func (d DagsDeps) handleCreate(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, CodeBadRequest, fmt.Sprintf("node %q: repo must not be empty", n.Name), nil)
 			return
 		}
+		if n.Template != "" {
+			if _, ok := d.Templates[n.Template]; !ok {
+				writeError(w, http.StatusBadRequest, CodeBadRequest, fmt.Sprintf("node %q: unknown task template %q", n.Name, n.Template), nil)
+				return
+			}
+		}
 		nameToID[n.Name] = uuid.New().String()
 	}
 
@@ -253,6 +264,17 @@ func (d DagsDeps) handleCreate(w http.ResponseWriter, r *http.Request) {
 		if n.Worktree {
 			worktree = "requested"
 		}
+		model, budgetUSD := n.Model, n.BudgetUSD
+		if n.Template != "" {
+			template := d.Templates[n.Template]
+			if template.Model != "" {
+				model = template.Model
+			}
+			if budgetUSD == nil && template.BudgetUSD != nil {
+				v := *template.BudgetUSD
+				budgetUSD = &v
+			}
+		}
 		tasks = append(tasks, store.CreateTaskParams{
 			ID:             id,
 			DAGID:          dagID,
@@ -262,11 +284,12 @@ func (d DagsDeps) handleCreate(w http.ResponseWriter, r *http.Request) {
 			Cwd:            n.Repo,
 			Worktree:       worktree,
 			Branch:         "",
-			Model:          n.Model,
+			Model:          model,
+			Template:       n.Template,
 			PermissionMode: n.PermissionMode,
 			Status:         "",
 			MaxAttempts:    n.MaxAttempts,
-			BudgetUSD:      n.BudgetUSD,
+			BudgetUSD:      budgetUSD,
 		})
 		stubs = append(stubs, &store.Task{ID: id, Name: n.Name})
 	}
