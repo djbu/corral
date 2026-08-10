@@ -136,6 +136,28 @@ func TestReaper_ReapOnce_WithinTimeout_NotReaped(t *testing.T) {
 	}
 }
 
+func TestReaper_ReapOnce_TemplateMayShortenButNotLengthenGlobalTimeout(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clk := clocktest.NewFake(start)
+	st := newFakeStore()
+	st.sessions["short"] = &session.Session{ID: "short", Template: "fast", AgentState: session.AgentIdle, LastActivityMs: start.UnixMilli()}
+	st.sessions["long"] = &session.Session{ID: "long", Template: "slow", AgentState: session.AgentIdle, LastActivityMs: start.UnixMilli()}
+	sup := &fakeSupervisor{liveIDs: []string{"short", "long"}}
+	r := New(sup, st, clk, nil, 10*time.Minute, map[string]time.Duration{"fast": 2 * time.Minute, "slow": time.Hour})
+
+	clk.Advance(3 * time.Minute)
+	r.reapOnce(context.Background())
+	if got := sup.callCount(); got != 1 || sup.lastCall().id != "short" {
+		t.Fatalf("calls after 3m = %+v, want only short template session", sup.calls)
+	}
+
+	clk.Advance(8 * time.Minute)
+	r.reapOnce(context.Background())
+	if got := sup.callCount(); got != 3 {
+		t.Fatalf("calls after 11m = %d, want 3 (global cap reaps both)", got)
+	}
+}
+
 func TestReaper_ReapOnce_AttachedPastTimeout_NotReaped(t *testing.T) {
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clk := clocktest.NewFake(start)

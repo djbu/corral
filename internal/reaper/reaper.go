@@ -40,6 +40,10 @@ type Reaper struct {
 	clk         clock.Clock
 	log         *slog.Logger
 	idleTimeout time.Duration
+	// templateTimeouts is a daemon-start snapshot of operator-owned policy.
+	// A template may only shorten the global timeout; it can never turn a
+	// globally enabled reaper into a weaker or disabled one.
+	templateTimeouts map[string]time.Duration
 
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -48,16 +52,21 @@ type Reaper struct {
 // New builds a Reaper. log defaults to slog.Default(). idleTimeout <= 0
 // disables idle reaping entirely (Start becomes a no-op) — see config.
 // State.IdleTimeout's own doc comment for the config-level default.
-func New(sup Supervisor, st Store, clk clock.Clock, log *slog.Logger, idleTimeout time.Duration) *Reaper {
+func New(sup Supervisor, st Store, clk clock.Clock, log *slog.Logger, idleTimeout time.Duration, templateTimeouts ...map[string]time.Duration) *Reaper {
 	if log == nil {
 		log = slog.Default()
 	}
+	var timeouts map[string]time.Duration
+	if len(templateTimeouts) > 0 {
+		timeouts = templateTimeouts[0]
+	}
 	return &Reaper{
-		sup:         sup,
-		store:       st,
-		clk:         clk,
-		log:         log,
-		idleTimeout: idleTimeout,
+		sup:              sup,
+		store:            st,
+		clk:              clk,
+		log:              log,
+		idleTimeout:      idleTimeout,
+		templateTimeouts: timeouts,
 	}
 }
 
@@ -89,7 +98,13 @@ func (r *Reaper) Close() {
 // frequent enough that a session is reaped soon after crossing idleTimeout,
 // never so frequent that a short idle_timeout busy-loops the check.
 func (r *Reaper) interval() time.Duration {
-	iv := r.idleTimeout / 4
+	timeout := r.idleTimeout
+	for _, candidate := range r.templateTimeouts {
+		if candidate > 0 && candidate < timeout {
+			timeout = candidate
+		}
+	}
+	iv := timeout / 4
 	if iv > time.Minute {
 		iv = time.Minute
 	}
@@ -157,7 +172,7 @@ func (r *Reaper) reapOnce(ctx context.Context) {
 		}
 
 		idleFor := time.Duration(nowMs-sess.LastActivityMs) * time.Millisecond
-		if idleFor <= r.idleTimeout {
+		if idleFor <= r.idleTimeoutFor(sess) {
 			continue
 		}
 
@@ -167,4 +182,16 @@ func (r *Reaper) reapOnce(ctx context.Context) {
 		}
 		r.log.Info("idle-reaped session", "session_id", id, "idle", idleFor)
 	}
+}
+
+// idleTimeoutFor returns the effective timeout for sess. The daemon-wide
+// state.idle_timeout remains the hard maximum: a template can request an
+// earlier checkpoint but never a later one. Unknown or stale names safely
+// fall back to the global policy.
+func (r *Reaper) idleTimeoutFor(sess *session.Session) time.Duration {
+	timeout := r.idleTimeout
+	if candidate := r.templateTimeouts[sess.Template]; candidate > 0 && candidate < timeout {
+		return candidate
+	}
+	return timeout
 }
