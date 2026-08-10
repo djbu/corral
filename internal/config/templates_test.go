@@ -16,6 +16,10 @@ env_passthrough = ["GITHUB_TOKEN"]
 budget_usd = 2.5
 idle_timeout = "15m"
 notify_profile = "team"
+
+[[notify_profile]]
+name = "team"
+backends = ["ntfy"]
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -26,6 +30,16 @@ notify_profile = "team"
 	tpl := got["review"]
 	if tpl.Model != "sonnet" || tpl.BudgetUSD == nil || *tpl.BudgetUSD != 2.5 || tpl.IdleTimeout.String() != "15m0s" || tpl.NotifyProfile != "team" {
 		t.Fatalf("template = %+v", tpl)
+	}
+}
+
+func TestLoadTemplatesFileRejectsUnknownNotifyProfile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "templates.toml")
+	if err := os.WriteFile(path, []byte("[[template]]\nname=\"x\"\nnotify_profile=\"missing\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadTemplatesFile(path); err == nil {
+		t.Fatal("unknown notify profile accepted")
 	}
 }
 

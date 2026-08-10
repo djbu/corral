@@ -74,6 +74,10 @@ type Options struct {
 	Debounce time.Duration // suppress identical (session,kind,summary) within this window
 	Timeout  time.Duration // per-attempt HTTP deadline (also the http.Client timeout)
 	Retries  int           // retries AFTER the initial attempt; total sends = 1 + Retries
+	// TemplateBackends maps a trusted template name to its selected subset of
+	// globally constructed backends. Missing template entries use every global
+	// backend; an empty slice is intentionally a silent profile.
+	TemplateBackends map[string][]string
 }
 
 // job is the minimal item NotifyBlocked enqueues. It carries only what the
@@ -94,10 +98,11 @@ type Dispatcher struct {
 	store    *store.Store
 	log      *slog.Logger
 
-	on          map[string]bool
-	debounce    time.Duration
-	timeout     time.Duration
-	maxAttempts int // 1 + Retries
+	on               map[string]bool
+	debounce         time.Duration
+	timeout          time.Duration
+	maxAttempts      int // 1 + Retries
+	templateBackends map[string][]string
 
 	// ctx is cancelled by Close so an in-flight backend Send (which the done
 	// channel alone cannot interrupt — done is only observed by run and
@@ -150,19 +155,20 @@ func New(backends []Backend, opts Options, clk clock.Clock, st *store.Store, log
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Dispatcher{
-		backends:    backends,
-		clk:         clk,
-		store:       st,
-		log:         log,
-		on:          on,
-		debounce:    opts.Debounce,
-		timeout:     opts.Timeout,
-		maxAttempts: 1 + retries,
-		ctx:         ctx,
-		cancel:      cancel,
-		queue:       make(chan job, queueCap),
-		done:        make(chan struct{}),
-		lastSent:    map[string]time.Time{},
+		backends:         backends,
+		clk:              clk,
+		store:            st,
+		log:              log,
+		on:               on,
+		debounce:         opts.Debounce,
+		timeout:          opts.Timeout,
+		maxAttempts:      1 + retries,
+		templateBackends: opts.TemplateBackends,
+		ctx:              ctx,
+		cancel:           cancel,
+		queue:            make(chan job, queueCap),
+		done:             make(chan struct{}),
+		lastSent:         map[string]time.Time{},
 	}
 }
 
@@ -232,7 +238,7 @@ func (d *Dispatcher) run() {
 // process handles one job end to end: resolve the session, build+redact the
 // Notification, apply debounce, and dispatch to every backend with retry.
 func (d *Dispatcher) process(j job) {
-	name, cwd := d.resolveSession(j.sessionID)
+	name, cwd, template := d.resolveSession(j.sessionID)
 	n := d.buildNotification(j, name, cwd)
 
 	// Debounce on (session_id, reason_kind, summary). The summary is the
@@ -260,7 +266,7 @@ func (d *Dispatcher) process(j job) {
 		return
 	}
 
-	for _, be := range d.backends {
+	for _, be := range d.backendsFor(template) {
 		d.deliver(be, n)
 	}
 }
@@ -357,13 +363,31 @@ func (d *Dispatcher) backoff(dur time.Duration) bool {
 // A session deleted between blocking and delivery is not fatal: we degrade to
 // the session ID as the name and an empty cwd and still send, rather than drop
 // a real block on a benign race.
-func (d *Dispatcher) resolveSession(sessionID string) (name, cwd string) {
+func (d *Dispatcher) resolveSession(sessionID string) (name, cwd, template string) {
 	sess, err := d.store.GetSession(d.ctx, sessionID)
 	if err != nil {
 		d.log.Debug("notify: session lookup failed, sending degraded", "session_id", sessionID, "err", err)
-		return sessionID, ""
+		return sessionID, "", ""
 	}
-	return sess.Name, sess.Cwd
+	return sess.Name, sess.Cwd, sess.Template
+}
+
+func (d *Dispatcher) backendsFor(template string) []Backend {
+	names, restricted := d.templateBackends[template]
+	if !restricted {
+		return d.backends
+	}
+	allowed := make(map[string]bool, len(names))
+	for _, name := range names {
+		allowed[name] = true
+	}
+	out := make([]Backend, 0, len(names))
+	for _, backend := range d.backends {
+		if allowed[backend.Name()] {
+			out = append(out, backend)
+		}
+	}
+	return out
 }
 
 // buildNotification assembles and redacts the Notification. Both Summary and
