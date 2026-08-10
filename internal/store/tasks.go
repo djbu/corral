@@ -61,6 +61,7 @@ type Task struct {
 	Branch         string
 	BaseCommit     string
 	Model          string
+	Template       string
 	PermissionMode string
 	Status         TaskStatus
 	Attempts       int
@@ -87,6 +88,7 @@ type CreateTaskParams struct {
 	Worktree       string
 	Branch         string
 	Model          string
+	Template       string
 	PermissionMode string
 	Status         TaskStatus
 	MaxAttempts    int // <= 0 defaults to 1, matching the column's DEFAULT 1
@@ -118,13 +120,13 @@ func (s *Store) createTaskTx(ctx context.Context, q dbtx, p CreateTaskParams) er
 
 	_, err := q.ExecContext(ctx, `
 		INSERT INTO tasks (
-			id, dag_id, name, prompt, repo, cwd, worktree, branch, model,
+			id, dag_id, name, prompt, repo, cwd, worktree, branch, model, template_name,
 			permission_mode, status, attempts, max_attempts, session_id,
 			cost_usd, budget_usd, created_ms, updated_ms
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, 0, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, 0, ?, ?, ?)
 	`,
 		p.ID, p.DAGID, p.Name, p.Prompt, p.Repo, p.Cwd, nullableStr(p.Worktree),
-		nullableStr(p.Branch), nullableStr(p.Model), nullableStr(p.PermissionMode),
+		nullableStr(p.Branch), nullableStr(p.Model), nullableStr(p.Template), nullableStr(p.PermissionMode),
 		string(status), maxAttempts, nullableFloatPtr(p.BudgetUSD), now, now,
 	)
 	if err != nil {
@@ -209,13 +211,13 @@ func (s *Store) UpdateTask(ctx context.Context, id string, mutate func(*Task)) (
 		_, err = tx.ExecContext(ctx, `
 			UPDATE tasks SET
 				name = ?, prompt = ?, repo = ?, cwd = ?, worktree = ?, branch = ?, base_commit = ?,
-				model = ?, permission_mode = ?, status = ?, attempts = ?,
+				model = ?, template_name = ?, permission_mode = ?, status = ?, attempts = ?,
 				max_attempts = ?, session_id = ?, cost_usd = ?, budget_usd = ?,
 				updated_ms = ?
 			WHERE id = ?
 		`,
 			t.Name, t.Prompt, t.Repo, t.Cwd, nullableStr(t.Worktree), nullableStr(t.Branch), nullableStr(t.BaseCommit),
-			nullableStr(t.Model), nullableStr(t.PermissionMode), string(t.Status), t.Attempts,
+			nullableStr(t.Model), nullableStr(t.Template), nullableStr(t.PermissionMode), string(t.Status), t.Attempts,
 			t.MaxAttempts, nullableStr(t.SessionID), t.CostUSD, nullableFloatPtr(t.BudgetUSD),
 			t.UpdatedMs, t.ID,
 		)
@@ -635,21 +637,21 @@ func (s *Store) SubmitDAG(ctx context.Context, sub DAGSubmission) error {
 }
 
 const taskSelectColumns = `SELECT
-	id, dag_id, name, prompt, repo, cwd, worktree, branch, base_commit, model,
+	id, dag_id, name, prompt, repo, cwd, worktree, branch, base_commit, model, template_name,
 	permission_mode, status, attempts, max_attempts, session_id,
 	cost_usd, budget_usd, created_ms, updated_ms`
 
 func scanTask(row rowScanner) (*Task, error) {
 	var (
-		t                                                   Task
-		status                                              string
-		worktree, branch, baseCommit, model, permMode, sess sql.NullString
-		budgetUSD                                           sql.NullFloat64
+		t                                                             Task
+		status                                                        string
+		worktree, branch, baseCommit, model, template, permMode, sess sql.NullString
+		budgetUSD                                                     sql.NullFloat64
 	)
 
 	err := row.Scan(
 		&t.ID, &t.DAGID, &t.Name, &t.Prompt, &t.Repo, &t.Cwd, &worktree, &branch, &baseCommit,
-		&model, &permMode, &status, &t.Attempts, &t.MaxAttempts, &sess,
+		&model, &template, &permMode, &status, &t.Attempts, &t.MaxAttempts, &sess,
 		&t.CostUSD, &budgetUSD, &t.CreatedMs, &t.UpdatedMs,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -664,6 +666,7 @@ func scanTask(row rowScanner) (*Task, error) {
 	t.Branch = branch.String
 	t.BaseCommit = baseCommit.String
 	t.Model = model.String
+	t.Template = template.String
 	t.PermissionMode = permMode.String
 	t.SessionID = sess.String
 	if budgetUSD.Valid {

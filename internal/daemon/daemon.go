@@ -409,6 +409,7 @@ func (d *Daemon) startup(ctx context.Context) error {
 		StateDir:      d.cfg.StateDir,
 		ClaudeHome:    claudeHome,
 		MaxConcurrent: d.cfg.MaxHeadlessTasks,
+		Templates:     templates,
 	}, orchClaudeBin)
 	d.orchestrator.Start()
 
@@ -494,6 +495,7 @@ func (d *Daemon) startup(ctx context.Context) error {
 		Store:              d.store,
 		Review:             review.New(d.store, d.clk),
 		MaxPendingDAGTasks: d.cfg.MaxPendingDAGTasks,
+		Templates:          templates,
 	})
 	srv.RegisterDashboard(api.DashboardDeps{
 		Store:    d.store,

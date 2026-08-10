@@ -14,6 +14,7 @@ import (
 	"github.com/djbu/corral/internal/claude/sessions"
 	"github.com/djbu/corral/internal/claude/streamjson"
 	"github.com/djbu/corral/internal/clock"
+	"github.com/djbu/corral/internal/config"
 	"github.com/djbu/corral/internal/git"
 	"github.com/djbu/corral/internal/session"
 	"github.com/djbu/corral/internal/store"
@@ -74,6 +75,9 @@ type Config struct {
 	// (config-trust-boundary posture, §8.2). "" disables the harvest check —
 	// classifyOrphan then always respawns (err-toward-respawn).
 	ClaudeHome string
+	// Templates is the daemon-start, operator-owned registry. Task rows only
+	// carry a selected name; the trusted registry supplies the env allowlist.
+	Templates map[string]config.Template
 }
 
 func (c Config) withDefaults() Config {
@@ -477,6 +481,13 @@ func (o *Orchestrator) launchTask(ctx context.Context, task *store.Task, deps []
 		Prompt:         task.Prompt,
 		PermissionMode: task.PermissionMode,
 		DepWorktrees:   depWorktrees,
+	}
+	if task.Template != "" {
+		if template, ok := o.cfg.Templates[task.Template]; ok {
+			spec.EnvPassthrough = template.EnvPassthrough
+		} else {
+			return fmt.Errorf("task %s references unavailable template %q", task.ID, task.Template)
+		}
 	}
 	if _, err := o.reg.Spawn(ctx, spec); err != nil {
 		return fmt.Errorf("spawning: %w", err)

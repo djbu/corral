@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/djbu/corral/internal/config"
 )
 
 // newDagsTestServer mirrors newTestServer (handlers_meta_test.go) for the
@@ -15,6 +17,39 @@ func newDagsTestServer(t *testing.T, deps DagsDeps) *Server {
 	s := New()
 	s.RegisterDags(deps)
 	return s
+}
+
+func TestHandleCreateDag_TemplateIsAuthorizedAuditedAndApplied(t *testing.T) {
+	budget := 1.25
+	deps := newDagsTestDeps(t)
+	deps.Templates = map[string]config.Template{
+		"review": {Name: "review", Model: "trusted-model", BudgetUSD: &budget},
+	}
+	srv := newDagsTestServer(t, deps)
+
+	rec := doVersioned(t, srv.Handler(), http.MethodPost, "/v1/dags", mustMarshal(t, createDagRequest{
+		Nodes: []dagNodeRequest{{Name: "check", Prompt: "review it", Repo: "/repo", Model: "untrusted-model", Template: "review"}},
+	}))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201: %s", rec.Code, rec.Body.String())
+	}
+	var got dagDetailResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Tasks) != 1 || got.Tasks[0].Template != "review" || got.Tasks[0].Model != "trusted-model" {
+		t.Fatalf("task = %+v, want audited review template and trusted model", got.Tasks)
+	}
+	if task, err := deps.Store.GetTask(t.Context(), got.Tasks[0].ID); err != nil || task.BudgetUSD == nil || *task.BudgetUSD != budget {
+		t.Fatalf("stored task/budget = %+v/%v, want %v", task, err, budget)
+	}
+
+	bad := doVersioned(t, srv.Handler(), http.MethodPost, "/v1/dags", mustMarshal(t, createDagRequest{
+		Nodes: []dagNodeRequest{{Name: "bad", Prompt: "no", Repo: "/repo", Template: "unknown"}},
+	}))
+	if bad.Code != http.StatusBadRequest {
+		t.Fatalf("unknown template status = %d, want 400: %s", bad.Code, bad.Body.String())
+	}
 }
 
 func newDagsTestDeps(t *testing.T) DagsDeps {
