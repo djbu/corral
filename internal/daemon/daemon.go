@@ -335,21 +335,23 @@ func (d *Daemon) startup(ctx context.Context) error {
 	}
 
 	registry := supervisor.New(d.store, d.engine, checkpointerAdapter{d.checkpointer}, d.clk, supervisor.Config{
-		StateDir:          d.cfg.StateDir,
-		SockPath:          d.sockPath,
-		SettingSources:    sessionCfg.SettingSources,
-		EnvPassthrough:    sessionCfg.EnvPassthrough,
-		Term:              sessionCfg.Term,
-		OutputLogMaxBytes: sessionCfg.OutputLogMaxBytes,
-		EnvSnapshot:       envSnapshot,
-		CorralVersion:     version.Version,
-		APIVersion:        version.APIVersion,
-		RecoveryGrace:     grace,
-		PingInterval:      attachCfg.PingInterval,
-		PingTimeout:       attachCfg.PingTimeout,
-		RelayCommand:      relayCmd,
-		ClaudeHome:        claudeHome,
-		MinFreeBytes:      d.cfg.MinFreeBytes,
+		StateDir:               d.cfg.StateDir,
+		SockPath:               d.sockPath,
+		SettingSources:         sessionCfg.SettingSources,
+		EnvPassthrough:         sessionCfg.EnvPassthrough,
+		Term:                   sessionCfg.Term,
+		OutputLogMaxBytes:      sessionCfg.OutputLogMaxBytes,
+		EnvSnapshot:            envSnapshot,
+		CorralVersion:          version.Version,
+		APIVersion:             version.APIVersion,
+		RecoveryGrace:          grace,
+		PingInterval:           attachCfg.PingInterval,
+		PingTimeout:            attachCfg.PingTimeout,
+		RelayCommand:           relayCmd,
+		ClaudeHome:             claudeHome,
+		MinFreeBytes:           d.cfg.MinFreeBytes,
+		MaxInteractiveSessions: d.cfg.MaxInteractiveSessions,
+		MaxHeadlessTasks:       d.cfg.MaxHeadlessTasks,
 	}, d.log)
 	d.supervisor = registry
 
@@ -397,8 +399,9 @@ func (d *Daemon) startup(ctx context.Context) error {
 		}
 	}
 	d.orchestrator = orchestrator.New(registry, d.store, d.clk, d.log, orchestrator.Config{
-		StateDir:   d.cfg.StateDir,
-		ClaudeHome: claudeHome,
+		StateDir:      d.cfg.StateDir,
+		ClaudeHome:    claudeHome,
+		MaxConcurrent: d.cfg.MaxHeadlessTasks,
 	}, orchClaudeBin)
 	d.orchestrator.Start()
 
@@ -480,7 +483,11 @@ func (d *Daemon) startup(ctx context.Context) error {
 		Engine:   d.engine,
 		Registry: registry,
 	})
-	srv.RegisterDags(api.DagsDeps{Store: d.store, Review: review.New(d.store, d.clk)})
+	srv.RegisterDags(api.DagsDeps{
+		Store:              d.store,
+		Review:             review.New(d.store, d.clk),
+		MaxPendingDAGTasks: d.cfg.MaxPendingDAGTasks,
+	})
 	srv.RegisterDashboard(api.DashboardDeps{
 		Store:    d.store,
 		Engine:   d.engine,

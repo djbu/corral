@@ -121,6 +121,10 @@ type Orchestrator struct {
 
 	inFlight      map[string]inFlightAttempt // task ID -> attempt this process spawned
 	nextAttemptAt map[string]time.Time       // task ID -> earliest time a retry may launch
+	// dagCursor is the next candidate in the deterministic ActiveDAGs order.
+	// It is an in-memory fairness hint only: durable task states remain the
+	// source of truth across a daemon restart.
+	dagCursor int
 }
 
 // New builds an Orchestrator. log defaults to slog.Default(). claudeBin
@@ -304,66 +308,81 @@ func (o *Orchestrator) reconcileOrphans(ctx context.Context) {
 	}
 }
 
-// launchReady spawns a fresh attempt for every ready task it can, across
-// dagIDs, until the global MaxConcurrent cap is hit.
+// launchReady chooses one eligible task at a time, rotating through active
+// DAGs after every launch. A large DAG therefore cannot fill every headless
+// slot simply because it sorts before smaller DAGs; retries, dependency and
+// budget gates are still evaluated before a task is admitted.
 func (o *Orchestrator) launchReady(ctx context.Context, dagIDs []string) {
-	for _, dagID := range dagIDs {
-		if ctx.Err() != nil || len(o.inFlight) >= o.cfg.MaxConcurrent {
+	if len(dagIDs) == 0 {
+		return
+	}
+	for ctx.Err() == nil && len(o.inFlight) < o.cfg.MaxConcurrent {
+		launched := false
+		for offset := 0; offset < len(dagIDs); offset++ {
+			index := (o.dagCursor + offset) % len(dagIDs)
+			if !o.launchOneReady(ctx, dagIDs[index]) {
+				continue
+			}
+			o.dagCursor = (index + 1) % len(dagIDs)
+			launched = true
+			break
+		}
+		if !launched {
 			return
 		}
-
-		tasks, err := o.store.ListTasks(ctx, dagID)
-		if err != nil {
-			o.log.Error("orchestrator: listing tasks", "dag_id", dagID, "err", err)
-			continue
-		}
-		deps, err := o.store.TaskDeps(ctx, dagID)
-		if err != nil {
-			o.log.Error("orchestrator: listing task deps", "dag_id", dagID, "err", err)
-			continue
-		}
-		if err := DetectCycle(tasks, deps); err != nil {
-			o.log.Error("orchestrator: cyclic dag, skipping", "dag_id", dagID, "err", err)
-			continue
-		}
-
-		over, err := o.dagOverBudget(ctx, dagID)
-		if err != nil {
-			o.log.Error("orchestrator: checking dag budget", "dag_id", dagID, "err", err)
-			continue
-		}
-		if over {
-			o.cancelRemaining(ctx, tasks)
-			continue // gate-next: start no new tasks in an over-budget dag
-		}
-
-		ready, err := o.store.ReadyTasks(ctx, dagID)
-		if err != nil {
-			o.log.Error("orchestrator: listing ready tasks", "dag_id", dagID, "err", err)
-			continue
-		}
-
-		byID := make(map[string]*store.Task, len(tasks))
-		for _, t := range tasks {
-			byID[t.ID] = t
-		}
-
-		for _, task := range ready {
-			if len(o.inFlight) >= o.cfg.MaxConcurrent {
-				return
-			}
-			if _, ok := o.inFlight[task.ID]; ok {
-				continue
-			}
-			if next, wait := o.nextAttemptAt[task.ID]; wait && o.clk.Now().Before(next) {
-				continue
-			}
-
-			if err := o.launchTask(ctx, task, deps, byID); err != nil {
-				o.log.Error("orchestrator: launching task", "task_id", task.ID, "err", err)
-			}
-		}
 	}
+}
+
+// launchOneReady applies every pre-existing DAG gate and launches at most one
+// task. It returns true only once a task has entered inFlight, which makes it
+// the unit of M9's round-robin scheduler.
+func (o *Orchestrator) launchOneReady(ctx context.Context, dagID string) bool {
+	tasks, err := o.store.ListTasks(ctx, dagID)
+	if err != nil {
+		o.log.Error("orchestrator: listing tasks", "dag_id", dagID, "err", err)
+		return false
+	}
+	deps, err := o.store.TaskDeps(ctx, dagID)
+	if err != nil {
+		o.log.Error("orchestrator: listing task deps", "dag_id", dagID, "err", err)
+		return false
+	}
+	if err := DetectCycle(tasks, deps); err != nil {
+		o.log.Error("orchestrator: cyclic dag, skipping", "dag_id", dagID, "err", err)
+		return false
+	}
+	over, err := o.dagOverBudget(ctx, dagID)
+	if err != nil {
+		o.log.Error("orchestrator: checking dag budget", "dag_id", dagID, "err", err)
+		return false
+	}
+	if over {
+		o.cancelRemaining(ctx, tasks)
+		return false
+	}
+	ready, err := o.store.ReadyTasks(ctx, dagID)
+	if err != nil {
+		o.log.Error("orchestrator: listing ready tasks", "dag_id", dagID, "err", err)
+		return false
+	}
+	byID := make(map[string]*store.Task, len(tasks))
+	for _, task := range tasks {
+		byID[task.ID] = task
+	}
+	for _, task := range ready {
+		if _, ok := o.inFlight[task.ID]; ok {
+			continue
+		}
+		if next, wait := o.nextAttemptAt[task.ID]; wait && o.clk.Now().Before(next) {
+			continue
+		}
+		if err := o.launchTask(ctx, task, deps, byID); err != nil {
+			o.log.Error("orchestrator: launching task", "task_id", task.ID, "err", err)
+			return false
+		}
+		return true
+	}
+	return false
 }
 
 // launchTask resolves task's worktree (if requested), builds its headless

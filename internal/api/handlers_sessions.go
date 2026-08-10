@@ -413,6 +413,13 @@ func (d SessionsDeps) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	updated, err := d.Registry.Spawn(ctx, spec)
 	if err != nil {
+		var capacity *supervisor.CapacityError
+		if errors.As(err, &capacity) {
+			writeError(w, http.StatusTooManyRequests, CodeCapacityExhausted, err.Error(), map[string]any{
+				"mode": capacity.Mode, "limit": capacity.Limit, "in_use": capacity.InUse,
+			})
+			return
+		}
 		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
 		return
 	}

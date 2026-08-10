@@ -60,6 +60,15 @@ func filterRepoLayer(file string, l *layer) (*layer, []Rejection) {
 	if l.Daemon.MinFreeBytes != nil {
 		reject("daemon.min_free_bytes")
 	}
+	if l.Daemon.MaxInteractiveSessions != nil {
+		reject("daemon.max_interactive_sessions")
+	}
+	if l.Daemon.MaxHeadlessTasks != nil {
+		reject("daemon.max_headless_tasks")
+	}
+	if l.Daemon.MaxPendingDAGTasks != nil {
+		reject("daemon.max_pending_dag_tasks")
+	}
 
 	// [session] — only model, scrollback_lines, term are repo-settable.
 	if l.Session.ClaudeBin != nil {

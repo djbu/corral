@@ -1,7 +1,7 @@
 # Plan ejecutable después de M6
 
 **Estado:** M7 cerrado en `v0.7.0`; M8 cerrado en la release privada estable
-`v0.8.0`. **Punto de partida de M9:** tag anotado `v0.8.0`.
+`v0.8.0`; M9 en ejecución. **Punto de partida de M9:** tag anotado `v0.8.0`.
 
 **M7A:** integrado en
 [`djbu/corral#1`](https://github.com/djbu/corral/pull/1). Los pasos 46–47
@@ -280,6 +280,9 @@ cuota ni deriva silenciosa de Claude Code.
 ### Pasos
 
 #### 60. Límites y backpressure
+
+**Estado:** contrato y foundation de admisión implementados; retención y
+telemetría de presión se completan junto con soak (paso 61).
 
 - máximo configurable de sesiones interactivas y tareas headless;
 - cola justa con prioridad interactiva;

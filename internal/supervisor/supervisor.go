@@ -92,10 +92,34 @@ type Config struct {
 	// tests; nil uses diskspace.FreeBytes.
 	MinFreeBytes int64
 	FreeBytes    func(string) (int64, error)
+	// MaxInteractiveSessions and MaxHeadlessTasks are independent daemon
+	// admission caps. Zero values retain M8-compatible defaults for direct
+	// unit-test construction; daemon startup supplies explicit operator policy.
+	MaxInteractiveSessions int
+	MaxHeadlessTasks       int
 }
 
 // ErrLowDisk identifies a spawn rejected by the state filesystem guard.
 var ErrLowDisk = errors.New("supervisor: insufficient free disk space")
+
+// ErrCapacity identifies a spawn rejected before it creates any process or
+// spawn-side artifact because its mode has exhausted daemon capacity.
+var ErrCapacity = errors.New("supervisor: capacity exhausted")
+
+// CapacityError describes a rejected admission without exposing paths or
+// credentials. It unwraps to ErrCapacity so API and orchestrator callers can
+// make a stable policy decision without parsing its human-readable message.
+type CapacityError struct {
+	Mode  session.Mode
+	Limit int
+	InUse int
+}
+
+func (e *CapacityError) Error() string {
+	return fmt.Sprintf("%s: mode=%s limit=%d in_use=%d", ErrCapacity, e.Mode, e.Limit, e.InUse)
+}
+
+func (e *CapacityError) Unwrap() error { return ErrCapacity }
 
 // Registry is the concrete, in-process live-session tracker: it implements
 // daemon.LiveSessionLister via ListLive, and owns Spawn/Kill/Get/List — the
@@ -113,6 +137,10 @@ type Registry struct {
 	mu    sync.Mutex
 	live  map[string]*LiveSession // keyed by session ID
 	names map[string]string       // name -> ID
+	// pending holds capacity reservations between admission and register.
+	// It closes the race where two concurrent Spawn calls both observe one
+	// remaining slot before either process enters live.
+	pending map[string]bool // session ID -> headless
 
 	// activityMu/lastActivityTouch throttle touchActivity's DB writes
 	// (below) — kept separate from mu, which guards live/names, so a slow
@@ -139,8 +167,55 @@ func New(st *store.Store, engine state.Engine, checkpointer Checkpointer, clk cl
 		log:               log,
 		live:              make(map[string]*LiveSession),
 		names:             make(map[string]string),
+		pending:           make(map[string]bool),
 		lastActivityTouch: map[string]int64{},
 	}
+}
+
+func (r *Registry) interactiveLimit() int {
+	if r.cfg.MaxInteractiveSessions <= 0 {
+		return 16
+	}
+	return r.cfg.MaxInteractiveSessions
+}
+
+func (r *Registry) headlessLimit() int {
+	if r.cfg.MaxHeadlessTasks <= 0 {
+		return 4
+	}
+	return r.cfg.MaxHeadlessTasks
+}
+
+func (r *Registry) reserveCapacity(id string, mode session.Mode) error {
+	headless := mode == session.ModeHeadless
+	limit := r.interactiveLimit()
+	if headless {
+		limit = r.headlessLimit()
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	inUse := 0
+	for _, ls := range r.live {
+		if ls.Headless == headless {
+			inUse++
+		}
+	}
+	for _, pendingHeadless := range r.pending {
+		if pendingHeadless == headless {
+			inUse++
+		}
+	}
+	if inUse >= limit {
+		return &CapacityError{Mode: mode, Limit: limit, InUse: inUse}
+	}
+	r.pending[id] = headless
+	return nil
+}
+
+func (r *Registry) releaseCapacity(id string) {
+	r.mu.Lock()
+	delete(r.pending, id)
+	r.mu.Unlock()
 }
 
 // touchActivity bumps the session's last_activity_ms, throttled to at most
@@ -215,6 +290,7 @@ func (r *Registry) Get(idOrName string) (*LiveSession, bool) {
 func (r *Registry) register(ls *LiveSession, name string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	delete(r.pending, ls.SessionID)
 	r.live[ls.SessionID] = ls
 	r.names[name] = ls.SessionID
 }
@@ -279,6 +355,12 @@ func normalizeSize(rows, cols uint16) (uint16, uint16) {
 // and reaper goroutines Spawn starts outlive any request context and use
 // context.Background() for their own store/event writes.
 func (r *Registry) Spawn(ctx context.Context, spec session.Spec) (*session.Session, error) {
+	if err := r.reserveCapacity(spec.ID, spec.Mode); err != nil {
+		r.recordPreSpawnFailure(ctx, spec.ID, err)
+		return nil, err
+	}
+	defer r.releaseCapacity(spec.ID)
+
 	if r.cfg.MinFreeBytes > 0 {
 		freeBytes := r.cfg.FreeBytes
 		if freeBytes == nil {

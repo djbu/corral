@@ -17,15 +17,18 @@ type layer struct {
 }
 
 type daemonLayer struct {
-	Socket        *string `toml:"socket"`
-	StateDir      *string `toml:"state_dir"`
-	LogLevel      *string `toml:"log_level"`
-	LogFormat     *string `toml:"log_format"`
-	ShutdownGrace *string `toml:"shutdown_grace"`
-	Listen        *string `toml:"listen"`
-	TLSCert       *string `toml:"tls_cert"`
-	TLSKey        *string `toml:"tls_key"`
-	MinFreeBytes  *string `toml:"min_free_bytes"`
+	Socket                 *string `toml:"socket"`
+	StateDir               *string `toml:"state_dir"`
+	LogLevel               *string `toml:"log_level"`
+	LogFormat              *string `toml:"log_format"`
+	ShutdownGrace          *string `toml:"shutdown_grace"`
+	Listen                 *string `toml:"listen"`
+	TLSCert                *string `toml:"tls_cert"`
+	TLSKey                 *string `toml:"tls_key"`
+	MinFreeBytes           *string `toml:"min_free_bytes"`
+	MaxInteractiveSessions *int    `toml:"max_interactive_sessions"`
+	MaxHeadlessTasks       *int    `toml:"max_headless_tasks"`
+	MaxPendingDAGTasks     *int    `toml:"max_pending_dag_tasks"`
 }
 
 type sessionLayer struct {
@@ -208,6 +211,18 @@ func mergeDaemon(dst, src *daemonLayer, srcSource sourceFunc, sources map[string
 	if src.MinFreeBytes != nil {
 		dst.MinFreeBytes = src.MinFreeBytes
 		sources["daemon.min_free_bytes"] = srcSource("daemon.min_free_bytes")
+	}
+	if src.MaxInteractiveSessions != nil {
+		dst.MaxInteractiveSessions = src.MaxInteractiveSessions
+		sources["daemon.max_interactive_sessions"] = srcSource("daemon.max_interactive_sessions")
+	}
+	if src.MaxHeadlessTasks != nil {
+		dst.MaxHeadlessTasks = src.MaxHeadlessTasks
+		sources["daemon.max_headless_tasks"] = srcSource("daemon.max_headless_tasks")
+	}
+	if src.MaxPendingDAGTasks != nil {
+		dst.MaxPendingDAGTasks = src.MaxPendingDAGTasks
+		sources["daemon.max_pending_dag_tasks"] = srcSource("daemon.max_pending_dag_tasks")
 	}
 }
 

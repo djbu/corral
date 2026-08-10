@@ -1034,6 +1034,38 @@ func TestOrchestrator_DAGOverBudget_GatesAndCancels(t *testing.T) {
 	}
 }
 
+func TestOrchestrator_RoundRobinAcrossDAGs(t *testing.T) {
+	clk := clocktest.NewFake(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	st := newTestStore(t, clk)
+	reg := &fakeRegistry{}
+	repo := t.TempDir()
+	ctx := context.Background()
+	for _, dagID := range []string{"dag-a", "dag-b"} {
+		if err := st.CreateDAGBudget(ctx, dagID, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mkTask(t, st, "dag-a", "a-1", "a-1", repo, 1)
+	mkTask(t, st, "dag-a", "a-2", "a-2", repo, 1)
+	mkTask(t, st, "dag-b", "b-1", "b-1", repo, 1)
+	mkTask(t, st, "dag-b", "b-2", "b-2", repo, 1)
+
+	orch := New(reg, st, clk, nil, Config{TaskTimeout: time.Hour, MaxConcurrent: 4, StateDir: t.TempDir()}, "/usr/bin/true")
+	orch.tickOnce(ctx)
+	if got := reg.spawnCount(); got != 4 {
+		t.Fatalf("spawn count = %d, want 4", got)
+	}
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	got := []string{reg.spawns[0].Name, reg.spawns[1].Name, reg.spawns[2].Name, reg.spawns[3].Name}
+	want := []string{"a-1-a1", "b-1-a1", "a-2-a1", "b-2-a1"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("spawn order = %v, want %v", got, want)
+		}
+	}
+}
+
 // TestOrchestrator_SuccessfulOverBudgetAttempt_StaysSucceeded is §7's
 // central rule: budget never rewrites the outcome of a turn that already
 // happened. A SUCCEEDING attempt that itself pushes the dag over budget

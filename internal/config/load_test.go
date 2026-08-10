@@ -50,6 +50,9 @@ func TestLoadDaemon_DefaultsOnly(t *testing.T) {
 	if sources["daemon.min_free_bytes"] != "default" {
 		t.Errorf(`Sources["daemon.min_free_bytes"] = %q, want "default"`, sources["daemon.min_free_bytes"])
 	}
+	if d.MaxInteractiveSessions != 16 || d.MaxHeadlessTasks != 4 || d.MaxPendingDAGTasks != 1000 {
+		t.Fatalf("M9 daemon capacity defaults = %+v", d)
+	}
 }
 
 func TestLoadDaemonMinFreeBytesEnv(t *testing.T) {
@@ -67,6 +70,32 @@ func TestLoadDaemonMinFreeBytesEnv(t *testing.T) {
 	}
 }
 
+func TestLoadDaemonCapacityLimits(t *testing.T) {
+	withHome(t)
+	t.Setenv("CORRAL_DAEMON_MAX_INTERACTIVE_SESSIONS", "7")
+	t.Setenv("CORRAL_DAEMON_MAX_HEADLESS_TASKS", "3")
+	t.Setenv("CORRAL_DAEMON_MAX_PENDING_DAG_TASKS", "91")
+	d, sources, err := LoadDaemon()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.MaxInteractiveSessions != 7 || d.MaxHeadlessTasks != 3 || d.MaxPendingDAGTasks != 91 {
+		t.Fatalf("daemon capacity = %+v", d)
+	}
+	if sources["daemon.max_headless_tasks"] != "env CORRAL_DAEMON_MAX_HEADLESS_TASKS" {
+		t.Fatalf("source = %q", sources["daemon.max_headless_tasks"])
+	}
+}
+
+func TestLoadDaemonRejectsNonPositiveCapacity(t *testing.T) {
+	home := withHome(t)
+	writeFile(t, filepath.Join(home, ".corral", "config.toml"), "[daemon]\nmax_headless_tasks = 0\n")
+	_, _, err := LoadDaemon()
+	if err == nil || !strings.Contains(err.Error(), "daemon.max_headless_tasks") {
+		t.Fatalf("err = %v, want max_headless_tasks validation", err)
+	}
+}
+
 func TestRepoCannotSetMinFreeBytes(t *testing.T) {
 	withHome(t)
 	_, sub := setupRepo(t)
@@ -78,6 +107,20 @@ func TestRepoCannotSetMinFreeBytes(t *testing.T) {
 	}
 	if len(rejected) != 1 || rejected[0].Key != "daemon.min_free_bytes" {
 		t.Fatalf("rejected = %+v", rejected)
+	}
+}
+
+func TestRepoCannotSetCapacityLimits(t *testing.T) {
+	withHome(t)
+	_, sub := setupRepo(t)
+	repoPath := filepath.Join(sub, ".corral.toml")
+	writeFile(t, repoPath, "[daemon]\nmax_interactive_sessions = 999\nmax_headless_tasks = 999\nmax_pending_dag_tasks = 999\n")
+	_, _, _, rejected, err := LoadSession(sub, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"daemon.max_interactive_sessions", "daemon.max_headless_tasks", "daemon.max_pending_dag_tasks"} {
+		assertRejected(t, rejected, repoPath, key)
 	}
 }
 

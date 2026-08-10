@@ -18,8 +18,9 @@ import (
 // DagsDeps is everything handlers_dags.go's routes need. daemon.go
 // constructs one at startup and passes it to RegisterDags.
 type DagsDeps struct {
-	Store  *store.Store
-	Review *review.Service
+	Store              *store.Store
+	Review             *review.Service
+	MaxPendingDAGTasks int
 }
 
 // RegisterDags registers POST /v1/dags, GET /v1/dags, and GET
@@ -197,6 +198,13 @@ func (d DagsDeps) handleCreate(w http.ResponseWriter, r *http.Request) {
 
 	if len(req.Nodes) == 0 {
 		writeError(w, http.StatusBadRequest, CodeBadRequest, "dag must have at least one node", nil)
+		return
+	}
+	if d.MaxPendingDAGTasks > 0 && len(req.Nodes) > d.MaxPendingDAGTasks {
+		writeError(w, http.StatusTooManyRequests, CodeCapacityExhausted,
+			"dag submission exceeds pending task capacity", map[string]any{
+				"limit": d.MaxPendingDAGTasks, "requested": len(req.Nodes),
+			})
 		return
 	}
 
