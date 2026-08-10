@@ -1,0 +1,42 @@
+name: upgrade smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Annotated private v0.7.0 release-candidate tag to exercise
+        required: true
+        type: string
+
+concurrency:
+  group: upgrade-smoke-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  upgrade:
+    name: upgrade (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    steps:
+      - name: Check out M7F harness and complete history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up pinned Go toolchain
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .go-version
+          cache: true
+
+      - name: Verify RC exists and run the upgrade contract
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/release/smoke-upgrade.sh "${{ inputs.release_tag }}"

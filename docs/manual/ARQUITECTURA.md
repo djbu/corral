@@ -347,8 +347,11 @@ primer learning loop verificado. M7A ya estableció el repositorio privado,
 identidad legal y CI protegida. M7B añade el pipeline reproducible de releases
 y M7C el lifecycle seguro y los servicios de usuario. M7D añade instalación
 privada/offline verificable y prepara Homebrew privado. M7E añade backup,
-restore, GC y protección ante poco disco; M7 no se cierra hasta completar el
-smoke de upgrade.
+restore, GC y protección ante poco disco. M7F añade el harness de promoción
+sobre runners efímeros macOS/Linux: instala el artefacto privado real sobre
+`v0.6.0`, valida migración y recovery, ejercita PTY y TLS/token, y comprueba
+que uninstall conserva los datos. M7 no se cierra hasta que esa matriz y la
+release final estén verdes.
 
 El proyecto continúa en pre-alpha. El orden, dependencias y gates están en el
 [plan ejecutable post-M6](../roadmap/POST_M6.md). Los pendientes principales

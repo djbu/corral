@@ -567,6 +567,12 @@ Antes de actualizar:
 4. arranque el daemon, que aplicará migraciones dentro del lock;
 5. ejecute `corral --version`, `corral doctor`, `corral config` y `corral ls`.
 
+La compatibilidad `v0.6.0 → v0.7.0` se valida además en runners limpios de
+macOS y Linux antes de promover la release. El smoke conserva una sesión viva,
+prueba recovery, restart, kill/wake, attach, backup/restore y repite el acceso
+por TLS con un token que luego revoca. Esta matriz es una barrera de release;
+no reemplaza el backup previo de sus propios datos.
+
 No edite `corral.db` a mano, copie sólo el archivo DB mientras está en WAL ni
 reutilice simultáneamente el mismo `state_dir` desde dos daemons.
 
