@@ -86,6 +86,10 @@ var envSpecs = []envSpec{
 		l.Session.ClaudeBin = strPtr(v)
 		return nil
 	}},
+	{"session.template", "CORRAL_SESSION_TEMPLATE", func(l *layer, v string) error {
+		l.Session.Template = strPtr(v)
+		return nil
+	}},
 	{"session.claude_version", "CORRAL_SESSION_CLAUDE_VERSION", func(l *layer, v string) error {
 		l.Session.ClaudeVersion = strPtr(v)
 		return nil

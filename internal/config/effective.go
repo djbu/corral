@@ -53,6 +53,7 @@ func Effective(cwd string) (EffectiveResult, error) {
 		"daemon.max_headless_tasks":       fmt.Sprintf("%d", daemon.MaxHeadlessTasks),
 		"daemon.max_pending_dag_tasks":    fmt.Sprintf("%d", daemon.MaxPendingDAGTasks),
 		"session.claude_bin":              sess.ClaudeBin,
+		"session.template":                sess.Template,
 		"session.claude_version":          sess.ClaudeVersion,
 		"session.model":                   sess.Model,
 		"session.setting_sources":         sess.SettingSources,

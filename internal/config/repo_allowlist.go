@@ -25,6 +25,7 @@ func filterRepoLayer(file string, l *layer) (*layer, []Rejection) {
 			Model:           l.Session.Model,
 			ScrollbackLines: l.Session.ScrollbackLines,
 			Term:            l.Session.Term,
+			Template:        l.Session.Template,
 		},
 	}
 

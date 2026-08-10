@@ -21,6 +21,7 @@ type SessionInfo struct {
 	Attached        bool    `json:"attached"`
 	PID             int     `json:"pid"`
 	Model           string  `json:"model"`
+	Template        string  `json:"template"`
 	ClaudeSessionID string  `json:"claude_session_id"`
 	Rows            int     `json:"rows"`
 	Cols            int     `json:"cols"`
@@ -58,12 +59,13 @@ func (c *Client) ListSessions(ctx context.Context) ([]SessionInfo, error) {
 
 // CreateSessionRequest is the POST /v1/sessions request body.
 type CreateSessionRequest struct {
-	Name  string `json:"name,omitempty"`
-	Cwd   string `json:"cwd"`
-	Mode  string `json:"mode,omitempty"`
-	Model string `json:"model,omitempty"`
-	Rows  uint16 `json:"rows,omitempty"`
-	Cols  uint16 `json:"cols,omitempty"`
+	Name     string `json:"name,omitempty"`
+	Cwd      string `json:"cwd"`
+	Mode     string `json:"mode,omitempty"`
+	Model    string `json:"model,omitempty"`
+	Template string `json:"template,omitempty"`
+	Rows     uint16 `json:"rows,omitempty"`
+	Cols     uint16 `json:"cols,omitempty"`
 }
 
 // CreateSession calls POST /v1/sessions.

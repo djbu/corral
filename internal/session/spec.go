@@ -32,8 +32,12 @@ type Spec struct {
 	SettingsPath   string            // pinned settings file (written before spawn)
 	ExtraArgs      []string          // reserved; empty in M1
 	Env            map[string]string // the complete child environment. Nothing else is inherited.
-	Rows, Cols     uint16            // initial PTY size (default 40x120 when nothing is attached); unused for ModeHeadless
-	ResumeFrom     string            // "" = fresh (--session-id); else --resume <this>
+	// EnvPassthrough overrides the daemon's default allowed extra environment
+	// names when non-nil. Templates use this to narrow a session to their
+	// user-authorized list against the frozen daemon environment snapshot.
+	EnvPassthrough []string
+	Rows, Cols     uint16 // initial PTY size (default 40x120 when nothing is attached); unused for ModeHeadless
+	ResumeFrom     string // "" = fresh (--session-id); else --resume <this>
 
 	// Prompt is the one-shot -p prompt (design doc §5.1). Meaningful only
 	// for ModeHeadless; empty for ModeInteractive. BuildArgv's persisted

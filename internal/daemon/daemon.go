@@ -251,6 +251,13 @@ func (d *Daemon) startup(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("daemon: loading default session config: %w", err)
 	}
+	templates, err := config.LoadTemplates()
+	if err != nil {
+		return fmt.Errorf("daemon: loading session templates: %w", err)
+	}
+	for _, template := range templates {
+		sessionCfg.EnvPassthrough = appendUniqueEnvNames(sessionCfg.EnvPassthrough, template.EnvPassthrough)
+	}
 
 	// Step 6: freeze the child-env snapshot. Captured now (daemon
 	// startup), never at spawn time — design doc §7.2's "spawn behavior
@@ -660,6 +667,20 @@ func snapshotKeyNames(snapshot map[string]string) []string {
 		names = append(names, k)
 	}
 	return names
+}
+
+func appendUniqueEnvNames(dst, extra []string) []string {
+	seen := make(map[string]bool, len(dst)+len(extra))
+	for _, name := range dst {
+		seen[name] = true
+	}
+	for _, name := range extra {
+		if !seen[name] {
+			dst = append(dst, name)
+			seen[name] = true
+		}
+	}
+	return dst
 }
 
 // probeClaudeBin resolves the default claude_bin and runs `claude

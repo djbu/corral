@@ -12,7 +12,7 @@ import (
 	"github.com/djbu/corral/internal/config"
 )
 
-// cmdNew implements `corral new [--cwd DIR] [--name NAME] [--model MODEL]
+// cmdNew implements `corral new [--cwd DIR] [--name NAME] [--model MODEL] [--template NAME]
 // [--rows N] [--cols N] [--no-attach]` (design doc §9.2): resolves --cwd to
 // an absolute path client-side (default $PWD), POSTs it to the daemon, and
 // prints an attach hint — attaching itself is step 10's `corral attach`.
@@ -22,6 +22,7 @@ func cmdNew(args []string, stdout, stderr io.Writer) int {
 	cwdFlag := fs.String("cwd", "", "working directory for the session (default: current directory)")
 	name := fs.String("name", "", "session name (default: <basename(cwd)>-<n>)")
 	model := fs.String("model", "", "claude --model override")
+	template := fs.String("template", "", "user-authorized session template")
 	rows := fs.Uint("rows", 0, "initial PTY rows (default: 40)")
 	cols := fs.Uint("cols", 0, "initial PTY cols (default: 120)")
 	noAttach := fs.Bool("no-attach", false, "do not attach after creating the session")
@@ -56,11 +57,12 @@ func cmdNew(args []string, stdout, stderr io.Writer) int {
 	c := client.New(cfg.Socket, stderr)
 
 	sess, err := c.CreateSession(context.Background(), client.CreateSessionRequest{
-		Name:  *name,
-		Cwd:   abs,
-		Model: *model,
-		Rows:  uint16(*rows),
-		Cols:  uint16(*cols),
+		Name:     *name,
+		Cwd:      abs,
+		Model:    *model,
+		Template: *template,
+		Rows:     uint16(*rows),
+		Cols:     uint16(*cols),
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "corral: new: %v\n", err)
