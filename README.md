@@ -6,11 +6,12 @@
 
 A daemon that supervises Claude Code sessions: knows their exact state via hooks (never terminal scraping), checkpoints idle sessions to disk and resumes them on demand, orchestrates task DAGs with per-task model tiering and budgets, and answers you on your phone when an agent is blocked.
 
-**Status: pre-alpha — M6 complete (`v0.6.0`), M7 in progress.** corral now includes supervised interactive sessions, checkpoint/resume and idle reaping, headless task-DAG orchestration, opt-in remote access through TLS + bearer tokens, and a verified per-repository permission-learning loop. M7A established the private canonical repository and protected macOS/Linux CI; M7B adds reproducible private release artifacts; M7C adds safe daemon lifecycle commands and per-user launchd/systemd operation. Start with the human-facing [usage guide](docs/manual/GUIA_DE_USO.md), [architecture manual](docs/manual/ARQUITECTURA.md), or [private release runbook](docs/manual/RELEASES_PRIVADAS.md). The ordered work lives in the [post-M6 execution plan](docs/roadmap/POST_M6.md).
+**Status: pre-alpha — M6 complete (`v0.6.0`), M7 in progress.** corral now includes supervised interactive sessions, checkpoint/resume and idle reaping, headless task-DAG orchestration, opt-in remote access through TLS + bearer tokens, and a verified per-repository permission-learning loop. M7A established the private canonical repository and protected macOS/Linux CI; M7B adds reproducible private release artifacts; M7C adds safe daemon lifecycle commands and per-user launchd/systemd operation; M7D adds verified private/offline installation and private Homebrew formula staging. Start with the human-facing [usage guide](docs/manual/GUIA_DE_USO.md), [architecture manual](docs/manual/ARQUITECTURA.md), or [private release runbook](docs/manual/RELEASES_PRIVADAS.md). The ordered work lives in the [post-M6 execution plan](docs/roadmap/POST_M6.md).
 
 ## Try it
 
 ```sh
+# build the current development checkout
 go build -o corral ./cmd/corral
 
 ./corral daemon                # starts the background daemon

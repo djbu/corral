@@ -72,7 +72,23 @@ gh release download v0.7.0-rc.1 \
 También puede usar un `GH_TOKEN` de alcance mínimo. No guarde el token en el
 repositorio ni lo pase en una URL.
 
-## 5. Verificar e instalar manualmente
+## 5. Instalar automáticamente
+
+Desde un checkout privado que contenga M7D, use una versión explícita:
+
+```sh
+export GH_TOKEN='token-read-only'
+scripts/install.sh --version 0.7.0-rc.1
+```
+
+`CORRAL_GITHUB_TOKEN` y `GITHUB_TOKEN` son alternativas. El instalador descarga
+con `gh`, verifica SHA-256, inventario y metadata, y reemplaza
+`$HOME/.local/bin/corral` atómicamente. `--prefix`, `--dry-run`, `--archive` y
+`--checksums` cubren prefijos alternativos, inspección y traslado offline. Para
+retirar sólo el binario, sin borrar estado ni servicio, use
+`scripts/install.sh --uninstall`.
+
+## 6. Verificar e instalar manualmente
 
 Desde el checkout correspondiente al tag:
 
@@ -94,7 +110,23 @@ En macOS, al no existir todavía notarización, Gatekeeper puede exigir una
 confirmación manual. No quite atributos de cuarentena a un archivo que no haya
 pasado primero checksum y verificación de versión.
 
-## 6. Rollback operativo
+## 7. Homebrew privado preparado
+
+No existe un tap público. Cuando los artefactos estén en `dist`, el mantenedor
+puede generar una fórmula con los cuatro hashes reales:
+
+```sh
+scripts/release/render-homebrew-formula.sh \
+  0.7.0-rc.1 dist/corral_0.7.0-rc.1_checksums.txt \
+  /ruta/al/tap-privado/Formula/corral.rb
+```
+
+El consumidor autentica la descarga privada mediante
+`HOMEBREW_GITHUB_API_TOKEN`. La publicación y el smoke real del tap se reservan
+para el gate limpio del paso 54; la plantilla jamás se publica con hashes
+ficticios.
+
+## 8. Rollback operativo
 
 Si el binario nuevo falla pero no dañó el formato de datos:
 
@@ -108,7 +140,7 @@ Si hubo una migración de base de datos, restaure el backup previo. Una versión
 vieja frente a un schema nuevo debe fallar claramente; no edite
 `PRAGMA user_version` ni tablas a mano.
 
-## 7. Revocar una release defectuosa
+## 9. Revocar una release defectuosa
 
 No reemplace bytes bajo el mismo nombre:
 

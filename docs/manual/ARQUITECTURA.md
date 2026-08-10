@@ -288,6 +288,8 @@ restrictivos. No se recomienda editar la base ni los settings generados.
 | `test/fakeclaude` | Sustituto determinista de Claude para pruebas |
 | `.goreleaser.yml` | Matriz y metadata reproducible de artefactos M7B |
 | `scripts/release` | Gates independientes para tags, CI y archivos |
+| `scripts/install.sh` | Instalación M7D privada/offline con reemplazo atómico |
+| `packaging/homebrew` | Tap privado preparado; fórmula generada desde checksums |
 
 ### Cadena de suministro de M7B
 
@@ -304,21 +306,39 @@ idénticos. El contrato detallado vive en
 [`docs/design/m7b.md`](../design/m7b.md) y la operación humana en el
 [runbook de releases privadas](RELEASES_PRIVADAS.md).
 
+### Frontera de instalación de M7D
+
+El instalador no confía en el nombre de una descarga por sí solo. Deriva el
+asset desde versión, kernel y CPU; exige la entrada SHA-256 correspondiente;
+rechaza rutas peligrosas e inventarios inesperados; y ejecuta el binario
+extraído para comprobar su metadata. Sólo después crea un temporal dentro de
+`<prefix>/bin` y lo renombra sobre el destino, por lo que un fallo previo o un
+filesystem distinto no deja una actualización parcial.
+
+La autenticación online vive únicamente en el entorno del proceso y la realiza
+GitHub CLI. El camino offline aplica exactamente las mismas verificaciones. La
+plantilla Homebrew se materializa desde los cuatro hashes reales y exige un
+token de sólo lectura en runtime; no existe todavía un tap público ni una
+fórmula con checksums ficticios. El contrato está en
+[`docs/design/m7d.md`](../design/m7d.md).
+
 ## 10. Qué está completo y qué no
 
 La línea funcional M0–M6 está cerrada en `v0.6.0`: sesiones interactivas,
 hooks, notificaciones, checkpoint/recovery, DAGs, acceso remoto, dashboard y el
 primer learning loop verificado. M7A ya estableció el repositorio privado,
 identidad legal y CI protegida. M7B añade el pipeline reproducible de releases
-y M7C el lifecycle seguro y los servicios de usuario; M7 no se cierra hasta
-completar instalador, operación de datos y smoke de upgrade.
+y M7C el lifecycle seguro y los servicios de usuario. M7D añade instalación
+privada/offline verificable y prepara Homebrew privado; M7 no se cierra hasta
+completar operación de datos y el smoke de upgrade.
 
 El proyecto continúa en pre-alpha. El orden, dependencias y gates están en el
 [plan ejecutable post-M6](../roadmap/POST_M6.md). Los pendientes principales
 son:
 
-1. instalador, Homebrew privado, firma y notarización;
-2. completar el smoke de publicación, instalación y upgrade de `v0.7.0`;
+1. backup, GC, protección ante poco disco y restore;
+2. completar el smoke de publicación, instalación y upgrade de `v0.7.0`,
+   incluida la fórmula Homebrew privada;
 3. comandos seguros para aceptar o descartar worktrees desde `corral review`;
 4. E2E con navegador real, además del E2E HTTP ya existente;
 5. Windows, modo multiusuario/equipo y más notificadores;
