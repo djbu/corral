@@ -1,0 +1,46 @@
+# typed: false
+# frozen_string_literal: true
+
+# Private, checksum-pinned package for corral release artifacts.
+class Corral < Formula
+  desc "Local-first supervisor and control plane for Claude Code sessions"
+  homepage "https://github.com/djbu/corral"
+  version "@VERSION@"
+  license "Apache-2.0"
+
+  token = ENV.fetch("HOMEBREW_GITHUB_API_TOKEN", nil)
+  odie "HOMEBREW_GITHUB_API_TOKEN is required for the private corral release" if token.to_s.empty?
+  private_headers = ["Accept: application/octet-stream", "Authorization: Bearer #{token}"]
+
+  on_macos do
+    if Hardware::CPU.arm?
+      url "https://github.com/djbu/corral/releases/download/v@VERSION@/corral_@VERSION@_darwin_arm64.tar.gz",
+          headers: private_headers
+      sha256 "@DARWIN_ARM64@"
+    else
+      url "https://github.com/djbu/corral/releases/download/v@VERSION@/corral_@VERSION@_darwin_amd64.tar.gz",
+          headers: private_headers
+      sha256 "@DARWIN_AMD64@"
+    end
+  end
+
+  on_linux do
+    if Hardware::CPU.arm?
+      url "https://github.com/djbu/corral/releases/download/v@VERSION@/corral_@VERSION@_linux_arm64.tar.gz",
+          headers: private_headers
+      sha256 "@LINUX_ARM64@"
+    else
+      url "https://github.com/djbu/corral/releases/download/v@VERSION@/corral_@VERSION@_linux_amd64.tar.gz",
+          headers: private_headers
+      sha256 "@LINUX_AMD64@"
+    end
+  end
+
+  def install
+    bin.install "corral"
+  end
+
+  test do
+    assert_match "corral #{version} (", shell_output("#{bin}/corral --version")
+  end
+end

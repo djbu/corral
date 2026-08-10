@@ -1,6 +1,6 @@
 # Guía humana para usar corral
 
-Esta guía cubre el baseline funcional `v0.6.0` y el trabajo M7A–M7C de
+Esta guía cubre el baseline funcional `v0.6.0` y el trabajo M7A–M7D de
 distribución y operación privada. corral está
 en pre-alpha: úselo primero en repositorios con control de versiones y revise
 siempre los cambios producidos por agentes.
@@ -44,10 +44,45 @@ go build \
   -o "$HOME/.local/bin/corral" ./cmd/corral
 ```
 
-Todavía no hay instalador automático; el binario es la unidad de instalación.
-M7C sí puede registrar ese binario como servicio de usuario. Para descargar,
-comprobar e instalar un artefacto del
-repositorio privado, siga el [runbook de releases privadas](RELEASES_PRIVADAS.md).
+Para instalar una release privada de forma autenticada desde este checkout:
+
+```sh
+export GH_TOKEN='token-read-only-con-acceso-a-djbu/corral'
+scripts/install.sh --version 0.7.0-rc.1
+export PATH="$HOME/.local/bin:$PATH"
+corral --version
+```
+
+También se reconoce `CORRAL_GITHUB_TOKEN` o `GITHUB_TOKEN`; el token nunca se
+acepta como argumento. El script necesita `gh`, instala por defecto en
+`$HOME/.local/bin/corral`, verifica el checksum y la versión antes de reemplazar
+atómicamente un binario anterior. Consulte el plan sin descargar ni escribir:
+
+```sh
+scripts/install.sh --version 0.7.0-rc.1 --dry-run
+scripts/install.sh --version 0.7.0-rc.1 --prefix "$HOME/apps/corral"
+```
+
+Para instalación offline, transporte el archive correcto y el archivo de
+checksums de la misma release:
+
+```sh
+scripts/install.sh --version 0.7.0-rc.1 \
+  --archive /media/release/corral_0.7.0-rc.1_darwin_arm64.tar.gz \
+  --checksums /media/release/corral_0.7.0-rc.1_checksums.txt
+```
+
+El nombre debe coincidir con el OS/CPU detectado. Un checksum inválido, un tar
+inseguro o una versión incorrecta abortan sin tocar la instalación existente.
+Para retirar sólo el binario y conservar `~/.corral`, logs y configuración:
+
+```sh
+scripts/install.sh --uninstall
+```
+
+Primero ejecute `corral service uninstall` si también quiere retirar el job de
+launchd/systemd. El [runbook de releases privadas](RELEASES_PRIVADAS.md)
+explica descarga manual, rollback y revocación.
 
 ## 3. Diagnóstico inicial
 

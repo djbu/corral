@@ -9,6 +9,8 @@ pasaron localmente y en la matriz GitHub Actions de macOS/Linux. **M7B:**
 implementado y validado de extremo a extremo en
 [`djbu/corral#2`](https://github.com/djbu/corral/pull/2); contrato en
 `docs/design/m7b.md` y evidencia en `docs/dogfood/m7b.md`.
+**M7C:** integrado mediante `djbu/corral#3`. **M7D:** implementa el paso 52;
+contrato en `docs/design/m7d.md` y evidencia en `docs/dogfood/m7d.md`.
 
 Este documento ordena los pendientes que quedaron después de M6. No es una
 lista de deseos: cada fase tiene dependencias, entregables, pruebas y una
@@ -156,6 +158,9 @@ sesiones recuperables.
 ordenadamente y uninstall no borra datos del usuario sin confirmación aparte.
 
 #### 52. Instalador privado y preparación de Homebrew
+
+**Estado M7D:** implementado y validado localmente; el smoke autenticado sobre
+release/VM limpia se repite como parte del paso 54.
 
 - implementar un instalador que detecte OS/arquitectura;
 - descargar una versión explícita desde la release privada usando credenciales
@@ -431,7 +436,7 @@ La primera tanda concreta es:
 - [x] 49 — workflow de prerelease/release;
 - [x] 50 — `daemon status|stop|restart`;
 - [x] 51 — servicio launchd/systemd;
-- [ ] 52 — instalador privado y fórmula Homebrew no publicada, una vez estable
+- [x] 52 — instalador privado y fórmula Homebrew no publicada, una vez estable
   el ciclo del servicio;
 - [ ] 53 — backup/GC/disco;
 - [ ] 54 — smoke limpio y tag `v0.7.0`.

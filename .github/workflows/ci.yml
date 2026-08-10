@@ -46,6 +46,12 @@ jobs:
       - name: Check dashboard JavaScript
         run: node --check internal/api/dashboard/app.js
 
+      - name: Test private installer
+        run: scripts/install/test-install.sh
+
+      - name: Test private Homebrew formula renderer
+        run: scripts/release/test-homebrew-formula.sh
+
       - name: Vet
         run: go vet ./...
 
