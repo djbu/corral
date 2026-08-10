@@ -43,6 +43,16 @@ func TestWriteDoctorReport(t *testing.T) {
 	})
 }
 
+func TestWriteClaudeCompatibility(t *testing.T) {
+	// /bin/echo is an operator-selected test binary; it cannot execute a
+	// repository value and makes the observed version deterministic.
+	var buf bytes.Buffer
+	writeClaudeCompatibility(&buf, "/bin/echo", ">=2.1.0 <2.2.0")
+	// echo receives --version, which has no semver, so this locks down the
+	// fail-closed diagnostic branch for a policy that cannot be verified.
+	mustContain(t, buf.String(), "cannot verify")
+}
+
 func mustContain(t *testing.T, haystack, needle string) {
 	t.Helper()
 	if !strings.Contains(haystack, needle) {

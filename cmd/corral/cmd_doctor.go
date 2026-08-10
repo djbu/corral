@@ -10,6 +10,7 @@ import (
 
 	"github.com/djbu/corral/internal/claude/automode"
 	"github.com/djbu/corral/internal/claude/settings"
+	"github.com/djbu/corral/internal/claude/versionprobe"
 	"github.com/djbu/corral/internal/config"
 )
 
@@ -41,15 +42,45 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	// repo layer — a cloned repo must not redirect the probed binary), falling
 	// back to the "claude" default LoadSession bakes in when config fails.
 	bin := "claude"
+	constraint := ""
 	cwd, _ := os.Getwd()
 	if sess, _, _, _, err := config.LoadSession(cwd, nil); err == nil && sess.ClaudeBin != "" {
 		bin = sess.ClaudeBin
+		constraint = sess.ClaudeVersion
 	}
 
 	foreign := settings.ForeignHookEvents(claudeHome)
 	res := automode.Detect(context.Background(), bin)
 	writeDoctorReport(stdout, foreign, res)
+	writeClaudeCompatibility(stdout, bin, constraint)
 	return exitOK
+}
+
+func writeClaudeCompatibility(w io.Writer, bin, constraint string) {
+	fmt.Fprintln(w, "\nClaude Code compatibility:")
+	observed, err := versionprobe.Probe(context.Background(), bin)
+	if err != nil {
+		fmt.Fprintln(w, "  could not determine Claude Code version")
+		if constraint != "" {
+			fmt.Fprintf(w, "  policy: %s (cannot verify)\n", constraint)
+		}
+		return
+	}
+	fmt.Fprintf(w, "  observed: %s\n", observed)
+	if constraint == "" {
+		fmt.Fprintln(w, "  policy: none")
+		return
+	}
+	compatible, err := versionprobe.Compatible(observed, constraint)
+	if err != nil {
+		fmt.Fprintf(w, "  policy invalid: %s\n", constraint)
+		return
+	}
+	if compatible {
+		fmt.Fprintf(w, "  policy: %s (compatible)\n", constraint)
+	} else {
+		fmt.Fprintf(w, "  drift: observed %s is outside %s\n", observed, constraint)
+	}
 }
 
 // writeDoctorReport renders the doctor report, split from cmdDoctor's

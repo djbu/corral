@@ -31,6 +31,7 @@ func defaultsLayer() *layer {
 		},
 		Session: sessionLayer{
 			ClaudeBin:         strPtr("claude"),
+			ClaudeVersion:     strPtr(""),
 			Model:             strPtr(""),
 			SettingSources:    strPtr("user,project,local"),
 			EnvPassthrough:    strsPtr([]string{}),
@@ -328,6 +329,7 @@ func resolveSession(l *sessionLayer) (Session, error) {
 	}
 	return Session{
 		ClaudeBin:         derefStr(l.ClaudeBin),
+		ClaudeVersion:     derefStr(l.ClaudeVersion),
 		Model:             derefStr(l.Model),
 		SettingSources:    derefStr(l.SettingSources),
 		EnvPassthrough:    passthrough,

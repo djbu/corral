@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/djbu/corral/internal/answer"
+	"github.com/djbu/corral/internal/claude/versionprobe"
 	"github.com/djbu/corral/internal/config"
 	"github.com/djbu/corral/internal/session"
 	"github.com/djbu/corral/internal/state"
@@ -55,6 +56,7 @@ type sessionResponse struct {
 	Attached        bool    `json:"attached"`
 	PID             int     `json:"pid"`
 	Model           string  `json:"model"`
+	ClaudeVersion   string  `json:"claude_version"`
 	ClaudeSessionID string  `json:"claude_session_id"`
 	Rows            int     `json:"rows"`
 	Cols            int     `json:"cols"`
@@ -105,6 +107,7 @@ func toSessionResponse(sess *session.Session, attached bool) sessionResponse {
 		Attached:        attached,
 		PID:             sess.PID,
 		Model:           sess.Model,
+		ClaudeVersion:   sess.ClaudeVersion,
 		ClaudeSessionID: sess.ClaudeSessionID,
 		Rows:            sess.Rows,
 		Cols:            sess.Cols,
@@ -363,6 +366,28 @@ func (d SessionsDeps) handleCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		claudeBin = resolved
 	}
+	observed, probeErr := versionprobe.Probe(ctx, claudeBin)
+	observedVersion := ""
+	if probeErr == nil {
+		observedVersion = observed.String()
+	}
+	if probeErr != nil && sessCfg.ClaudeVersion != "" {
+		writeError(w, http.StatusConflict, CodeClaudeVersionIncompatible,
+			"cannot verify Claude Code version required by repository policy", map[string]any{"expected": sessCfg.ClaudeVersion})
+		return
+	}
+	if probeErr == nil && sessCfg.ClaudeVersion != "" {
+		compatible, err := versionprobe.Compatible(observed, sessCfg.ClaudeVersion)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error(), nil)
+			return
+		}
+		if !compatible {
+			writeError(w, http.StatusConflict, CodeClaudeVersionIncompatible,
+				"observed Claude Code version is outside repository policy", map[string]any{"expected": sessCfg.ClaudeVersion, "observed": observed.String()})
+			return
+		}
+	}
 	model := body.Model
 	if model == "" {
 		model = sessCfg.Model
@@ -375,6 +400,7 @@ func (d SessionsDeps) handleCreate(w http.ResponseWriter, r *http.Request) {
 		Mode:           mode,
 		Cwd:            body.Cwd,
 		ClaudeBin:      claudeBin,
+		ClaudeVersion:  observedVersion,
 		Model:          model,
 		SettingsPath:   "", // filled in by Registry.Spawn once settings.Pin runs
 		SettingSources: sessCfg.SettingSources,
