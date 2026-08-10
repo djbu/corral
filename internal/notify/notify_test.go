@@ -208,6 +208,26 @@ func TestDispatcherHappyPathBothBackends(t *testing.T) {
 	}
 }
 
+func TestDispatcher_TemplateProfileRestrictsExistingBackends(t *testing.T) {
+	fc := clocktest.NewFake(time.Unix(1_700_000_000, 0))
+	st := openTestStore(t, fc)
+	makeSession(t, st, "s1", "profiled", "/tmp/x")
+	if _, err := st.UpdateSession(t.Context(), "s1", func(s *session.Session) { s.Template = "review" }); err != nil {
+		t.Fatal(err)
+	}
+	ntfy, webhook := &recordingBackend{name: "ntfy"}, &recordingBackend{name: "webhook"}
+	d := New([]Backend{ntfy, webhook}, Options{Timeout: time.Second, TemplateBackends: map[string][]string{"review": {"ntfy"}}}, fc, st, nil)
+	done := make(chan struct{}, 1)
+	d.afterJob = func() { done <- struct{}{} }
+	d.Start()
+	defer d.Close()
+	d.NotifyBlocked("s1", blockReason("permission"))
+	recv(t, done, "profiled notification")
+	if ntfy.calls() != 1 || webhook.calls() != 0 {
+		t.Fatalf("backend calls ntfy/webhook = %d/%d, want 1/0", ntfy.calls(), webhook.calls())
+	}
+}
+
 func TestDispatcherRedactsBeforeEgress(t *testing.T) {
 	fc := clocktest.NewFake(time.Unix(1_700_000_000, 0))
 	st := openTestStore(t, fc)

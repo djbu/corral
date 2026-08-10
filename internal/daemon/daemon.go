@@ -251,10 +251,11 @@ func (d *Daemon) startup(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("daemon: loading default session config: %w", err)
 	}
-	templates, err := config.LoadTemplates()
+	templateRegistry, err := config.LoadTemplateRegistry()
 	if err != nil {
 		return fmt.Errorf("daemon: loading session templates: %w", err)
 	}
+	templates := templateRegistry.Templates
 	for _, template := range templates {
 		sessionCfg.EnvPassthrough = appendUniqueEnvNames(sessionCfg.EnvPassthrough, template.EnvPassthrough)
 	}
@@ -314,11 +315,18 @@ func (d *Daemon) startup(ctx context.Context) error {
 		return err
 	}
 	if backends := buildNotifyBackends(notifyCfg); notifyCfg.Enabled && len(backends) > 0 {
+		templateBackends := make(map[string][]string)
+		for name, template := range templates {
+			if template.NotifyProfile != "" {
+				templateBackends[name] = templateRegistry.NotifyProfiles[template.NotifyProfile].Backends
+			}
+		}
 		d.notifier = notify.New(backends, notify.Options{
-			On:       notifyCfg.On,
-			Debounce: notifyCfg.Debounce,
-			Timeout:  notifyCfg.Timeout,
-			Retries:  notifyCfg.Retries,
+			On:               notifyCfg.On,
+			Debounce:         notifyCfg.Debounce,
+			Timeout:          notifyCfg.Timeout,
+			Retries:          notifyCfg.Retries,
+			TemplateBackends: templateBackends,
 		}, d.clk, d.store, d.log)
 		d.notifier.Start()
 		notifier = d.notifier
