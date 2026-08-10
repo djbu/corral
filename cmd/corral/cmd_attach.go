@@ -155,6 +155,16 @@ func cmdAttach(args []string, stdout, stderr io.Writer) int {
 				case ackCh <- struct{}{}:
 				default:
 				}
+				// Goodbye is the daemon's terminal acknowledgement of our
+				// GoodbyeClose. Return success here instead of reading once more:
+				// the daemon closes immediately after this frame, and letting the
+				// following EOF race the stdin goroutine's success made a clean
+				// detach nondeterministically report "connection closed".
+				select {
+				case resultCh <- outcome{stdout: "[detached]\n", code: exitOK}:
+				default:
+				}
+				return
 			case proto.TypeDetached:
 				var d proto.Detached
 				_ = proto.DecodeJSON(f.Payload, &d)
