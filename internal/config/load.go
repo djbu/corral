@@ -23,6 +23,7 @@ func defaultsLayer() *layer {
 			Listen:        strPtr(""),
 			TLSCert:       strPtr(""),
 			TLSKey:        strPtr(""),
+			MinFreeBytes:  strPtr("256MiB"),
 		},
 		Session: sessionLayer{
 			ClaudeBin:         strPtr("claude"),
@@ -267,6 +268,10 @@ func resolveDaemon(l *daemonLayer) (Daemon, error) {
 	if err != nil {
 		return Daemon{}, fmt.Errorf("config: daemon.shutdown_grace=%q: %w", derefStr(l.ShutdownGrace), err)
 	}
+	minFree, err := ParseBytes(derefStr(l.MinFreeBytes))
+	if err != nil {
+		return Daemon{}, fmt.Errorf("config: daemon.min_free_bytes=%q: %w", derefStr(l.MinFreeBytes), err)
+	}
 	return Daemon{
 		Socket:        expandHome(derefStr(l.Socket)),
 		StateDir:      expandHome(derefStr(l.StateDir)),
@@ -275,9 +280,10 @@ func resolveDaemon(l *daemonLayer) (Daemon, error) {
 		ShutdownGrace: grace,
 		// Listen is a network address, not a path — it is never
 		// home-expanded. TLSCert/TLSKey ARE file paths, so they are.
-		Listen:  derefStr(l.Listen),
-		TLSCert: expandHome(derefStr(l.TLSCert)),
-		TLSKey:  expandHome(derefStr(l.TLSKey)),
+		Listen:       derefStr(l.Listen),
+		TLSCert:      expandHome(derefStr(l.TLSCert)),
+		TLSKey:       expandHome(derefStr(l.TLSKey)),
+		MinFreeBytes: minFree,
 	}, nil
 }
 

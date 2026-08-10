@@ -348,6 +348,7 @@ func (d *Daemon) startup(ctx context.Context) error {
 		PingTimeout:       attachCfg.PingTimeout,
 		RelayCommand:      relayCmd,
 		ClaudeHome:        claudeHome,
+		MinFreeBytes:      d.cfg.MinFreeBytes,
 	}, d.log)
 	d.supervisor = registry
 

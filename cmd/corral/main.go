@@ -27,10 +27,12 @@ type cmdFunc func(args []string, stdout, stderr io.Writer) int
 
 // commands is the dispatch table from subcommand name to implementation.
 var commands = map[string]cmdFunc{
+	"backup":     cmdBackup,
 	"config":     cmdConfig,
 	"daemon":     cmdDaemon,
 	"daemon-run": cmdDaemonRun,
 	"doctor":     cmdDoctor,
+	"gc":         cmdGC,
 	"ls":         cmdLs,
 	"new":        cmdNew,
 	"kill":       cmdKill,
@@ -40,6 +42,7 @@ var commands = map[string]cmdFunc{
 	"hook-relay": cmdHookRelay,
 	"run":        cmdRun,
 	"review":     cmdReview,
+	"restore":    cmdRestore,
 	"service":    cmdService,
 	"token":      cmdToken,
 	"learnings":  cmdLearnings,

@@ -178,6 +178,9 @@ checksum inválido aborta sin reemplazar el binario.
 
 #### 53. Operación de datos
 
+**Estado M7E:** implementado; contrato en `docs/design/m7e.md` y evidencia en
+`docs/dogfood/m7e.md`.
+
 - añadir `corral backup` con snapshot consistente de SQLite;
 - añadir `corral gc --dry-run` y políticas por edad/tamaño;
 - ejecutar WAL checkpoint de forma segura y `VACUUM` sólo bajo condiciones
@@ -438,7 +441,7 @@ La primera tanda concreta es:
 - [x] 51 — servicio launchd/systemd;
 - [x] 52 — instalador privado y fórmula Homebrew no publicada, una vez estable
   el ciclo del servicio;
-- [ ] 53 — backup/GC/disco;
+- [x] 53 — backup/GC/disco;
 - [ ] 54 — smoke limpio y tag `v0.7.0`.
 
 El orden 50→51→52 es deliberado: no se debe distribuir un servicio antes de

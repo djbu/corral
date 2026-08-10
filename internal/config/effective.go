@@ -48,6 +48,7 @@ func Effective(cwd string) (EffectiveResult, error) {
 		"daemon.listen":                 daemon.Listen,
 		"daemon.tls_cert":               daemon.TLSCert,
 		"daemon.tls_key":                daemon.TLSKey,
+		"daemon.min_free_bytes":         fmt.Sprintf("%d", daemon.MinFreeBytes),
 		"session.claude_bin":            sess.ClaudeBin,
 		"session.model":                 sess.Model,
 		"session.setting_sources":       sess.SettingSources,

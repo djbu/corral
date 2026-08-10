@@ -23,6 +23,7 @@ import (
 	"github.com/djbu/corral/internal/claude/settings"
 	"github.com/djbu/corral/internal/claude/streamjson"
 	"github.com/djbu/corral/internal/clock"
+	"github.com/djbu/corral/internal/diskspace"
 	corralgit "github.com/djbu/corral/internal/git"
 	"github.com/djbu/corral/internal/proto"
 	"github.com/djbu/corral/internal/screen"
@@ -85,7 +86,16 @@ type Config struct {
 	// pre-existing ("foreign") hooks a user configured outside corral.
 	// Read-only: corral must never write to ClaudeHome.
 	ClaudeHome string
+	// MinFreeBytes rejects every spawn before it can create settings, logs,
+	// processes or spawn-side store updates. The caller's minimal attempt row
+	// may already exist for audit. FreeBytes is injectable for deterministic
+	// tests; nil uses diskspace.FreeBytes.
+	MinFreeBytes int64
+	FreeBytes    func(string) (int64, error)
 }
+
+// ErrLowDisk identifies a spawn rejected by the state filesystem guard.
+var ErrLowDisk = errors.New("supervisor: insufficient free disk space")
 
 // Registry is the concrete, in-process live-session tracker: it implements
 // daemon.LiveSessionLister via ListLive, and owns Spawn/Kill/Get/List — the
@@ -269,6 +279,24 @@ func normalizeSize(rows, cols uint16) (uint16, uint16) {
 // and reaper goroutines Spawn starts outlive any request context and use
 // context.Background() for their own store/event writes.
 func (r *Registry) Spawn(ctx context.Context, spec session.Spec) (*session.Session, error) {
+	if r.cfg.MinFreeBytes > 0 {
+		freeBytes := r.cfg.FreeBytes
+		if freeBytes == nil {
+			freeBytes = diskspace.FreeBytes
+		}
+		free, err := freeBytes(r.cfg.StateDir)
+		if err != nil {
+			spawnErr := fmt.Errorf("supervisor: checking free disk before spawn %s: %w", spec.ID, err)
+			r.recordPreSpawnFailure(ctx, spec.ID, spawnErr)
+			return nil, spawnErr
+		}
+		if free < r.cfg.MinFreeBytes {
+			r.log.Error("supervisor: spawn rejected: low disk", "session_id", spec.ID, "free_bytes", free, "min_free_bytes", r.cfg.MinFreeBytes)
+			spawnErr := fmt.Errorf("%w: state_dir=%s free_bytes=%d min_free_bytes=%d", ErrLowDisk, r.cfg.StateDir, free, r.cfg.MinFreeBytes)
+			r.recordPreSpawnFailure(ctx, spec.ID, spawnErr)
+			return nil, spawnErr
+		}
+	}
 	rows, cols := normalizeSize(spec.Rows, spec.Cols)
 	spec.Rows, spec.Cols = rows, cols
 
@@ -365,6 +393,18 @@ func (r *Registry) Spawn(ctx context.Context, spec session.Spec) (*session.Sessi
 	r.runGoroutines(ls, spec.ID, spec.Name)
 
 	return updated, nil
+}
+
+func (r *Registry) recordPreSpawnFailure(ctx context.Context, id string, spawnErr error) {
+	if r.store == nil {
+		return
+	}
+	if _, err := r.store.UpdateSession(ctx, id, func(sess *session.Session) {
+		sess.Status = session.StatusFailed
+	}); err != nil {
+		r.log.Error("supervisor: recording pre-spawn failure", "session_id", id, "err", err)
+	}
+	r.appendEvent(ctx, id, session.EventSessionSpawnFailed, map[string]any{"error": spawnErr.Error()})
 }
 
 func (r *Registry) adoptedPermissionRules(ctx context.Context, spec session.Spec) ([]string, error) {

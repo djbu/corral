@@ -17,6 +17,23 @@ var ErrSchemaTooNew = errors.New("store: database schema is newer than this bina
 
 var migrationFileRE = regexp.MustCompile(`^(\d{4})_[^/]+\.sql$`)
 
+// LatestSchemaVersion returns the newest embedded migration version known to
+// this binary. It is used by backup/restore validation before any database is
+// allowed to replace the live store.
+func LatestSchemaVersion() (int, error) {
+	files, err := listMigrations(migrationsFS())
+	if err != nil {
+		return 0, err
+	}
+	var highest int
+	for _, f := range files {
+		if f.version > highest {
+			highest = f.version
+		}
+	}
+	return highest, nil
+}
+
 // migrationFile is one parsed "NNNN_slug.sql" migration file.
 type migrationFile struct {
 	version int
