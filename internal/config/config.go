@@ -49,7 +49,10 @@ type Daemon struct {
 
 // Session is the resolved session-scope configuration.
 type Session struct {
-	ClaudeBin         string
+	ClaudeBin string
+	// ClaudeVersion is an optional repository-compatible semver constraint.
+	// The repo may set this policy but never the binary it probes or executes.
+	ClaudeVersion     string
 	Model             string
 	SettingSources    string
 	EnvPassthrough    []string

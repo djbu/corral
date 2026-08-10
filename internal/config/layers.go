@@ -33,6 +33,7 @@ type daemonLayer struct {
 
 type sessionLayer struct {
 	ClaudeBin         *string   `toml:"claude_bin"`
+	ClaudeVersion     *string   `toml:"claude_version"`
 	Model             *string   `toml:"model"`
 	SettingSources    *string   `toml:"setting_sources"`
 	EnvPassthrough    *[]string `toml:"env_passthrough"`
@@ -230,6 +231,10 @@ func mergeSession(dst, src *sessionLayer, srcSource sourceFunc, sources map[stri
 	if src.ClaudeBin != nil {
 		dst.ClaudeBin = src.ClaudeBin
 		sources["session.claude_bin"] = srcSource("session.claude_bin")
+	}
+	if src.ClaudeVersion != nil {
+		dst.ClaudeVersion = src.ClaudeVersion
+		sources["session.claude_version"] = srcSource("session.claude_version")
 	}
 	if src.Model != nil {
 		dst.Model = src.Model

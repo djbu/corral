@@ -60,6 +60,7 @@ type Session struct {
 	Mode             Mode
 	Cwd              string
 	ClaudeBin        string
+	ClaudeVersion    string   // observed normalized Claude Code semver; "" when probe failed
 	Model            string   // "" = NULL = claude default
 	Argv             []string // persisted as argv_json
 	EnvKeys          []string // persisted as env_keys_json — names only, never values

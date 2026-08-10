@@ -114,8 +114,8 @@ func TestMigration0002_PreservesDataAndEvents(t *testing.T) {
 	// Open always runs every pending migration, not just 0002 — this
 	// fixture starts at schema 1, so it lands on the newest known version
 	// (7, since 0007_task_reviews.sql), not 2.
-	if v != 7 {
-		t.Fatalf("SchemaVersion = %d, want 7", v)
+	if v != 8 {
+		t.Fatalf("SchemaVersion = %d, want 8", v)
 	}
 
 	if n := countRows(t, st.db, "sessions"); n != len(v1Fixture) {
