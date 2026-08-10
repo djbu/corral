@@ -1,0 +1,8 @@
+{
+  "assets": [
+    {"name": "corral_0.7.0-rc.1_darwin_amd64.tar.gz", "apiUrl": "https://api.github.com/repos/djbu/corral/releases/assets/1001"},
+    {"name": "corral_0.7.0-rc.1_darwin_arm64.tar.gz", "apiUrl": "https://api.github.com/repos/djbu/corral/releases/assets/1002"},
+    {"name": "corral_0.7.0-rc.1_linux_amd64.tar.gz", "apiUrl": "https://api.github.com/repos/djbu/corral/releases/assets/1003"},
+    {"name": "corral_0.7.0-rc.1_linux_arm64.tar.gz", "apiUrl": "https://api.github.com/repos/djbu/corral/releases/assets/1004"}
+  ]
+}

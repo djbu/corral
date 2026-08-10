@@ -334,9 +334,11 @@ filesystem distinto no deja una actualización parcial.
 
 La autenticación online vive únicamente en el entorno del proceso y la realiza
 GitHub CLI. El camino offline aplica exactamente las mismas verificaciones. La
-plantilla Homebrew se materializa desde los cuatro hashes reales y exige un
-token de sólo lectura en runtime; no existe todavía un tap público ni una
-fórmula con checksums ficticios. El contrato está en
+plantilla Homebrew se materializa desde los cuatro hashes reales y, para el
+repositorio privado, desde los cuatro endpoints API inmutables de los assets;
+la URL web de descarga privada responde 404 aunque curl reciba Bearer. La
+fórmula exige un token de sólo lectura en runtime; no existe todavía un tap
+público ni una fórmula con checksums ficticios. El contrato está en
 [`docs/design/m7d.md`](../design/m7d.md).
 
 ## 10. Qué está completo y qué no

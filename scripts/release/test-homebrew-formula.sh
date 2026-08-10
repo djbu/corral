@@ -13,7 +13,8 @@ for target in darwin_amd64 darwin_arm64 linux_amd64 linux_arm64; do
 done
 
 formula="$tmp/Formula/corral.rb"
-"$root/scripts/release/render-homebrew-formula.sh" "$version" "$checksums" "$formula"
+assets="$root/scripts/release/testdata/release-assets.json"
+"$root/scripts/release/render-homebrew-formula.sh" "$version" "$checksums" "$formula" "$assets"
 if command -v ruby >/dev/null 2>&1; then
   ruby -c "$formula" >/dev/null
 fi
@@ -24,6 +25,6 @@ fi
 grep -q "version \"$version\"" "$formula"
 grep -q 'HOMEBREW_GITHUB_API_TOKEN is required' "$formula"
 [[ "$(grep -c 'sha256 "' "$formula")" == "4" ]]
-[[ "$(grep -c 'releases/download/v' "$formula")" == "4" ]]
+[[ "$(grep -c 'api.github.com/repos/djbu/corral/releases/assets/' "$formula")" == "4" ]]
 
 echo "homebrew test: private formula rendered with four target checksums"
