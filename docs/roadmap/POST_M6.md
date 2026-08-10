@@ -3,9 +3,10 @@
 **Estado:** propuesto para ejecución. **Punto de partida:** `8517aac`, con
 `v0.6.0` apuntando al commit validado `b4b1151`.
 
-**M7A:** implementado en el PR privado
+**M7A:** integrado en
 [`djbu/corral#1`](https://github.com/djbu/corral/pull/1). Los pasos 46–47
-pasaron localmente y en la matriz GitHub Actions de macOS/Linux.
+pasaron localmente y en la matriz GitHub Actions de macOS/Linux. **M7B:** en
+ejecución sobre los pasos 48–49; contrato en `docs/design/m7b.md`.
 
 Este documento ordena los pendientes que quedaron después de M6. No es una
 lista de deseos: cada fase tiene dependencias, entregables, pruebas y una

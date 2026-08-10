@@ -1,13 +1,14 @@
 # Guía humana para usar corral
 
-Esta guía parte de un checkout de `v0.6.0` y cubre el flujo diario. corral está
+Esta guía cubre el baseline funcional `v0.6.0` y el trabajo de distribución
+privada de M7. corral está
 en pre-alpha: úselo primero en repositorios con control de versiones y revise
 siempre los cambios producidos por agentes.
 
 ## 1. Requisitos
 
 - macOS o Linux;
-- Go 1.26 para compilar este checkout;
+- Go 1.26.5 para compilar este checkout, fijado en `.go-version`;
 - Claude Code instalado, autenticado y disponible como `claude`;
 - Git para tareas con `--worktree` y para `corral review`.
 
@@ -30,16 +31,22 @@ export PATH="$HOME/.local/bin:$PATH"
 corral --version
 ```
 
-Un build directo muestra versión `dev`. Para incrustar la versión del tag:
+Un build directo muestra versión `dev`. Las releases inyectan versión, commit
+completo y API mediante `.goreleaser.yml`; no improvise esos flags para un
+artefacto distribuible.
+
+Para una instalación de desarrollo todavía puede incrustar una identidad
+local:
 
 ```sh
 go build \
-  -ldflags "-X github.com/djbu/corral/internal/version.Version=0.6.0 -X github.com/djbu/corral/internal/version.Commit=$(git rev-parse --short HEAD)" \
+  -ldflags "-X github.com/djbu/corral/internal/version.Version=dev-local -X github.com/djbu/corral/internal/version.Commit=$(git rev-parse HEAD)" \
   -o "$HOME/.local/bin/corral" ./cmd/corral
 ```
 
 Todavía no hay instalador ni servicio launchd/systemd. El binario es la unidad
-de instalación.
+de instalación. Para descargar, comprobar e instalar un artefacto del
+repositorio privado, siga el [runbook de releases privadas](RELEASES_PRIVADAS.md).
 
 ## 3. Diagnóstico inicial
 

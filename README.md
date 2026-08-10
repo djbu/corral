@@ -6,7 +6,7 @@
 
 A daemon that supervises Claude Code sessions: knows their exact state via hooks (never terminal scraping), checkpoints idle sessions to disk and resumes them on demand, orchestrates task DAGs with per-task model tiering and budgets, and answers you on your phone when an agent is blocked.
 
-**Status: pre-alpha — M6 complete (`v0.6.0`)**. corral now includes supervised interactive sessions, checkpoint/resume and idle reaping, headless task-DAG orchestration, opt-in remote access through TLS + bearer tokens, and a verified per-repository permission-learning loop. Start with the human-facing [usage guide](docs/manual/GUIA_DE_USO.md) or [architecture manual](docs/manual/ARQUITECTURA.md). The ordered work after M6 lives in the [post-M6 execution plan](docs/roadmap/POST_M6.md). See [RUNBOOK.md](RUNBOOK.md) for the product thesis, [docs/design/m6.md](docs/design/m6.md) for the implementation contract, and [docs/dogfood/m6.md](docs/dogfood/m6.md) for the release evidence.
+**Status: pre-alpha — M6 complete (`v0.6.0`), M7 in progress.** corral now includes supervised interactive sessions, checkpoint/resume and idle reaping, headless task-DAG orchestration, opt-in remote access through TLS + bearer tokens, and a verified per-repository permission-learning loop. M7A established the private canonical repository and protected macOS/Linux CI; M7B adds reproducible private release artifacts. Start with the human-facing [usage guide](docs/manual/GUIA_DE_USO.md), [architecture manual](docs/manual/ARQUITECTURA.md), or [private release runbook](docs/manual/RELEASES_PRIVADAS.md). The ordered work lives in the [post-M6 execution plan](docs/roadmap/POST_M6.md).
 
 ## Try it
 
