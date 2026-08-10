@@ -385,7 +385,11 @@ func (d *Daemon) startup(ctx context.Context) error {
 	// Step 13: idle reaper, started only after recovery has finished so a
 	// resumed session's freshly-set last_activity_ms is never observed as
 	// stale by a reap running concurrently with recovery itself.
-	d.reaper = reaper.New(registry, d.store, d.clk, d.log, stateCfg.IdleTimeout)
+	templateIdleTimeouts := make(map[string]time.Duration, len(templates))
+	for name, template := range templates {
+		templateIdleTimeouts[name] = template.IdleTimeout
+	}
+	d.reaper = reaper.New(registry, d.store, d.clk, d.log, stateCfg.IdleTimeout, templateIdleTimeouts)
 	d.reaper.Start()
 
 	// Step 21: the task-DAG orchestrator (m4.md §8). Wired unconditionally,
