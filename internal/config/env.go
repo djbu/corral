@@ -57,6 +57,30 @@ var envSpecs = []envSpec{
 		l.Daemon.MinFreeBytes = strPtr(v)
 		return nil
 	}},
+	{"daemon.max_interactive_sessions", "CORRAL_DAEMON_MAX_INTERACTIVE_SESSIONS", func(l *layer, v string) error {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("config: CORRAL_DAEMON_MAX_INTERACTIVE_SESSIONS=%q: %w", v, err)
+		}
+		l.Daemon.MaxInteractiveSessions = intPtr(n)
+		return nil
+	}},
+	{"daemon.max_headless_tasks", "CORRAL_DAEMON_MAX_HEADLESS_TASKS", func(l *layer, v string) error {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("config: CORRAL_DAEMON_MAX_HEADLESS_TASKS=%q: %w", v, err)
+		}
+		l.Daemon.MaxHeadlessTasks = intPtr(n)
+		return nil
+	}},
+	{"daemon.max_pending_dag_tasks", "CORRAL_DAEMON_MAX_PENDING_DAG_TASKS", func(l *layer, v string) error {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("config: CORRAL_DAEMON_MAX_PENDING_DAG_TASKS=%q: %w", v, err)
+		}
+		l.Daemon.MaxPendingDAGTasks = intPtr(n)
+		return nil
+	}},
 
 	{"session.claude_bin", "CORRAL_SESSION_CLAUDE_BIN", func(l *layer, v string) error {
 		l.Session.ClaudeBin = strPtr(v)

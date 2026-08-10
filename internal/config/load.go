@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -15,15 +16,18 @@ import (
 func defaultsLayer() *layer {
 	return &layer{
 		Daemon: daemonLayer{
-			Socket:        strPtr("~/.corral/corral.sock"),
-			StateDir:      strPtr("~/.corral"),
-			LogLevel:      strPtr("info"),
-			LogFormat:     strPtr("text"),
-			ShutdownGrace: strPtr("5s"),
-			Listen:        strPtr(""),
-			TLSCert:       strPtr(""),
-			TLSKey:        strPtr(""),
-			MinFreeBytes:  strPtr("256MiB"),
+			Socket:                 strPtr("~/.corral/corral.sock"),
+			StateDir:               strPtr("~/.corral"),
+			LogLevel:               strPtr("info"),
+			LogFormat:              strPtr("text"),
+			ShutdownGrace:          strPtr("5s"),
+			Listen:                 strPtr(""),
+			TLSCert:                strPtr(""),
+			TLSKey:                 strPtr(""),
+			MinFreeBytes:           strPtr("256MiB"),
+			MaxInteractiveSessions: intPtr(16),
+			MaxHeadlessTasks:       intPtr(4),
+			MaxPendingDAGTasks:     intPtr(1000),
 		},
 		Session: sessionLayer{
 			ClaudeBin:         strPtr("claude"),
@@ -272,6 +276,18 @@ func resolveDaemon(l *daemonLayer) (Daemon, error) {
 	if err != nil {
 		return Daemon{}, fmt.Errorf("config: daemon.min_free_bytes=%q: %w", derefStr(l.MinFreeBytes), err)
 	}
+	maxInteractive, err := positiveDaemonInt("max_interactive_sessions", l.MaxInteractiveSessions)
+	if err != nil {
+		return Daemon{}, err
+	}
+	maxHeadless, err := positiveDaemonInt("max_headless_tasks", l.MaxHeadlessTasks)
+	if err != nil {
+		return Daemon{}, err
+	}
+	maxPending, err := positiveDaemonInt("max_pending_dag_tasks", l.MaxPendingDAGTasks)
+	if err != nil {
+		return Daemon{}, err
+	}
 	return Daemon{
 		Socket:        expandHome(derefStr(l.Socket)),
 		StateDir:      expandHome(derefStr(l.StateDir)),
@@ -280,11 +296,25 @@ func resolveDaemon(l *daemonLayer) (Daemon, error) {
 		ShutdownGrace: grace,
 		// Listen is a network address, not a path — it is never
 		// home-expanded. TLSCert/TLSKey ARE file paths, so they are.
-		Listen:       derefStr(l.Listen),
-		TLSCert:      expandHome(derefStr(l.TLSCert)),
-		TLSKey:       expandHome(derefStr(l.TLSKey)),
-		MinFreeBytes: minFree,
+		Listen:                 derefStr(l.Listen),
+		TLSCert:                expandHome(derefStr(l.TLSCert)),
+		TLSKey:                 expandHome(derefStr(l.TLSKey)),
+		MinFreeBytes:           minFree,
+		MaxInteractiveSessions: maxInteractive,
+		MaxHeadlessTasks:       maxHeadless,
+		MaxPendingDAGTasks:     maxPending,
 	}, nil
+}
+
+func positiveDaemonInt(key string, value *int) (int, error) {
+	if value == nil || *value <= 0 {
+		raw := ""
+		if value != nil {
+			raw = strconv.Itoa(*value)
+		}
+		return 0, fmt.Errorf("config: daemon.%s=%q: must be a positive integer", key, raw)
+	}
+	return *value, nil
 }
 
 func resolveSession(l *sessionLayer) (Session, error) {

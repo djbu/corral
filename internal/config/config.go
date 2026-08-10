@@ -36,6 +36,15 @@ type Daemon struct {
 	// MinFreeBytes rejects new spawns before state_dir runs out of space.
 	// It is daemon/operator policy and can never be set by a repo file.
 	MinFreeBytes int64
+	// MaxInteractiveSessions and MaxHeadlessTasks are independent admission
+	// caps. They are daemon/operator policy so a repository cannot consume
+	// capacity by raising either value.
+	MaxInteractiveSessions int
+	MaxHeadlessTasks       int
+	// MaxPendingDAGTasks bounds a single accepted DAG submission before it
+	// creates durable work. It is deliberately separate from live headless
+	// capacity: queued tasks are durable but do not own a process slot.
+	MaxPendingDAGTasks int
 }
 
 // Session is the resolved session-scope configuration.

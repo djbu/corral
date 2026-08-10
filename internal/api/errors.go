@@ -33,6 +33,7 @@ const (
 	CodeTaskNotFound        Code = "task_not_found"
 	CodeReviewConflict      Code = "review_conflict"
 	CodeReviewPreflight     Code = "review_preflight"
+	CodeCapacityExhausted   Code = "capacity_exhausted"
 	CodeLearningNotFound    Code = "learning_not_found"
 	CodeLearningConflict    Code = "learning_conflict"
 	// CodeForbidden: token's scope='session' subtree does not include the

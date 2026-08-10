@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -165,6 +167,27 @@ func TestHandleCreateDag_HappyPath(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("LIST did not contain created dag %q: %+v", got.DAGID, listGot.Dags)
+	}
+}
+
+func TestHandleCreateDag_RejectsCapacityBeforePersistence(t *testing.T) {
+	deps := newDagsTestDeps(t)
+	deps.MaxPendingDAGTasks = 1
+	srv := newDagsTestServer(t, deps)
+	reqBody := createDagRequest{Nodes: []dagNodeRequest{
+		{Name: "one", Prompt: "one", Repo: "/repo"},
+		{Name: "two", Prompt: "two", Repo: "/repo"},
+	}}
+
+	rec := doVersioned(t, srv.Handler(), http.MethodPost, "/v1/dags", mustMarshal(t, reqBody))
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429, body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), string(CodeCapacityExhausted)) {
+		t.Fatalf("body = %s, want capacity code", rec.Body.String())
+	}
+	if got, err := deps.Store.ListDAGBudgets(context.Background()); err != nil || len(got) != 0 {
+		t.Fatalf("DAG persisted despite rejection: dags=%+v err=%v", got, err)
 	}
 }
 
