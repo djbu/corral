@@ -1,7 +1,8 @@
 # Evidencia M7C — lifecycle y servicio de usuario
 
 **Fecha:** 2026-08-10 (America/Bogota)
-**PR/SHA:** se completan al integrar la rama M7C.
+**PR:** [`djbu/corral#3`](https://github.com/djbu/corral/pull/3)
+**Commit funcional:** `aa96ac1` (`feat: add safe daemon and service lifecycle`)
 
 ## Alcance validado
 
@@ -74,4 +75,6 @@ Gates locales verdes sobre el árbol M7C final:
 - `go test -race ./...`;
 - `plutil -lint` sobre el plist renderizado en macOS.
 
-La CI protegida macOS/Linux y el SHA/PR se añaden después de publicar la rama.
+La primera ejecución de CI protegida de la PR #3 terminó verde en
+`test (macos-latest)` y `test (ubuntu-latest)`. El merge commit final queda
+registrado por la propia PR protegida.

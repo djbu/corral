@@ -131,8 +131,7 @@ de extremo a extremo antes de habilitar la release final.
 
 #### 50. Ciclo de vida del daemon
 
-**Estado M7C:** implementado y validado en la rama M7C; pendiente únicamente de
-integración protegida.
+**Estado M7C:** implementado y validado mediante PR `djbu/corral#3`.
 
 - añadir `corral daemon status|stop|restart` sin depender de comandos shell;
 - hacer idempotentes start, stop y restart;
@@ -144,8 +143,7 @@ sesiones recuperables.
 
 #### 51. Servicio del usuario
 
-**Estado M7C:** implementado y validado en la rama M7C; pendiente únicamente de
-integración protegida.
+**Estado M7C:** implementado y validado mediante PR `djbu/corral#3`.
 
 - añadir `corral service install|status|uninstall`;
 - launchd en macOS y systemd user service en Linux;

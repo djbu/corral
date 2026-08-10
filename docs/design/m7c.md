@@ -1,6 +1,6 @@
 # M7C — Ciclo de vida del daemon y servicio de usuario
 
-**Estado:** implementado; pendiente de integración protegida.
+**Estado:** implementado y validado; integración mediante PR `djbu/corral#3`.
 **Alcance:** pasos 50–51 de `docs/roadmap/POST_M6.md`.
 
 ## 1. Objetivo
