@@ -217,9 +217,14 @@ if [[ "$(uname -s)" == Darwin && -z "${CORRAL_SMOKE_RELEASE_DIR:-}" && "${CORRAL
     --dir "$release_dir" --pattern "corral_${tag#v}_checksums.txt"
   "$root/scripts/release/render-homebrew-formula.sh" "${tag#v}" \
     "$release_dir/corral_${tag#v}_checksums.txt" "$formula"
-  HOMEBREW_GITHUB_API_TOKEN="${GH_TOKEN:-$GITHUB_TOKEN}" brew install --formula "$formula"
-  brew test corral
-  brew uninstall corral
+  tap=djbu/corral-smoke
+  brew tap-new --no-git "$tap"
+  tap_root="$(brew --repository "$tap")"
+  install -m 0644 "$formula" "$tap_root/Formula/corral.rb"
+  HOMEBREW_GITHUB_API_TOKEN="${GH_TOKEN:-$GITHUB_TOKEN}" brew install "$tap/corral"
+  brew test "$tap/corral"
+  brew uninstall "$tap/corral"
+  brew untap "$tap"
 fi
 
 step "M7F smoke passed on $(uname -s)/$(uname -m)"
