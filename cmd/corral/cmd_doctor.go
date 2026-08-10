@@ -52,11 +52,11 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	foreign := settings.ForeignHookEvents(claudeHome)
 	res := automode.Detect(context.Background(), bin)
 	writeDoctorReport(stdout, foreign, res)
-	writeClaudeCompatibility(stdout, bin, constraint)
+	writeClaudeCompatibility(stdout, bin, constraint, cwd)
 	return exitOK
 }
 
-func writeClaudeCompatibility(w io.Writer, bin, constraint string) {
+func writeClaudeCompatibility(w io.Writer, bin, constraint, cwd string) {
 	fmt.Fprintln(w, "\nClaude Code compatibility:")
 	observed, err := versionprobe.Probe(context.Background(), bin)
 	if err != nil {
@@ -67,6 +67,12 @@ func writeClaudeCompatibility(w io.Writer, bin, constraint string) {
 		return
 	}
 	fmt.Fprintf(w, "  observed: %s\n", observed)
+	golden := filepath.Join(cwd, "test", "contract", "testdata", "claude-golden", observed.String()+".json")
+	if _, err := os.Stat(golden); err != nil {
+		fmt.Fprintf(w, "  golden corpus missing: %s\n", observed)
+	} else {
+		fmt.Fprintf(w, "  golden corpus: %s\n", observed)
+	}
 	if constraint == "" {
 		fmt.Fprintln(w, "  policy: none")
 		return
