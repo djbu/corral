@@ -255,23 +255,42 @@ restrictivos. No se recomienda editar la base ni los settings generados.
 | `internal/claude` | Contratos específicos de Claude Code |
 | `internal/config` | Capas de configuración y frontera repo/operador |
 | `internal/git` | Worktrees aislados para tareas |
+| `internal/version` | Identidad de versión, commit y compatibilidad API |
 | `test/fakeclaude` | Sustituto determinista de Claude para pruebas |
+| `.goreleaser.yml` | Matriz y metadata reproducible de artefactos M7B |
+| `scripts/release` | Gates independientes para tags, CI y archivos |
+
+### Cadena de suministro de M7B
+
+Un tag anotado no publica inmediatamente una release visible. El workflow
+comprueba primero que el SHA ya pasó CI en macOS y Linux. GoReleaser compila
+cuatro binarios con Go 1.26.5, rutas recortadas, CGO deshabilitado y timestamps
+del commit; después crea archives, SHA-256 y SBOMs SPDX.
+
+La publicación nace como draft privado. Un verificador separado abre cada
+archive, rechaza rutas inseguras, comprueba inventario, checksums, SBOM y la
+metadata `versión|commit|API` embebida. Sólo entonces el draft se vuelve
+visible. Dos clones en rutas distintas deben producir archives byte a byte
+idénticos. El contrato detallado vive en
+[`docs/design/m7b.md`](../design/m7b.md) y la operación humana en el
+[runbook de releases privadas](RELEASES_PRIVADAS.md).
 
 ## 10. Qué está completo y qué no
 
 La línea funcional M0–M6 está cerrada en `v0.6.0`: sesiones interactivas,
 hooks, notificaciones, checkpoint/recovery, DAGs, acceso remoto, dashboard y el
-primer learning loop verificado.
+primer learning loop verificado. M7A ya estableció el repositorio privado,
+identidad legal y CI protegida. M7B añade el pipeline reproducible de releases;
+M7 no se cierra hasta completar daemon, servicios, instalador, operación de
+datos y smoke de upgrade.
 
 El proyecto continúa en pre-alpha. El orden, dependencias y gates están en el
 [plan ejecutable post-M6](../roadmap/POST_M6.md). Los pendientes principales
 son:
 
-1. empaquetado de releases para macOS/Linux, instalador, Homebrew, firma y
-   notarización;
+1. instalador, Homebrew privado, firma y notarización;
 2. `corral service install` para launchd/systemd y operación al iniciar sesión;
-3. crear el repositorio privado `djbu/corral`, subir tags y automatizar
-   artefactos de release privados;
+3. completar el smoke de publicación, instalación y upgrade de `v0.7.0`;
 4. comandos seguros para aceptar o descartar worktrees desde `corral review`;
 5. E2E con navegador real, además del E2E HTTP ya existente;
 6. Windows, modo multiusuario/equipo y más notificadores;
