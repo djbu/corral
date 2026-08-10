@@ -29,6 +29,7 @@ flowchart LR
     Web -->|"HTTPS + token"| API
     Notify --> Daemon["Daemon corral"]
     API --> Daemon
+    UserMgr["launchd / systemd --user"] --> Daemon
 
     Daemon --> Supervisor["Supervisor de sesiones"]
     Daemon --> State["Motor de estado"]
@@ -58,6 +59,29 @@ socket Unix. Su estado operativo vive bajo `~/.corral/` por defecto.
 El daemon conecta los demás subsistemas. También coordina un cierre ordenado:
 deja de aceptar trabajo, finaliza streams, checkpointa sesiones, cierra los
 workers y elimina socket y PID.
+
+`corral daemon status|stop|restart` forma la capa de lifecycle. El socket/API
+demuestra que el proceso atiende y el `flock` demuestra exclusión; el PID file
+es sólo diagnóstico y nunca se usa como destino de una señal. Mientras mantiene
+el lock, el daemon publica atómicamente `starting`, `running` o `stopping` en
+`daemon.state`. Esto permite distinguir un arranque lento, un cierre en curso,
+restos obsoletos de un crash y un lock vivo cuya API no responde.
+
+### Servicio de usuario
+
+`internal/service` genera una definición determinista para launchd en macOS o
+systemd de usuario en Linux. Ambas ejecutan la ruta absoluta del binario como
+`corral daemon --foreground`, arrancan con la sesión del usuario y reinician
+después de un crash. Un stop limpio no se convierte en un bucle de reinicios.
+
+`corral service install` entrega ordenadamente un daemon manual al manager,
+escribe el descriptor mediante rename atómico y lo habilita. No copia variables
+de entorno, tokens ni configuración al plist/unit, y rechaza root. Uninstall
+elimina sólo el descriptor: el estado y el binario tienen propietarios y ciclos
+de vida separados. El descriptor incluye el SHA-256 no secreto del ejecutable;
+por eso reemplazar el binario en la misma ruta y reinstalar sí activa un restart.
+Los comandos `daemon start/restart` detectan un descriptor instalado y vuelven
+a arrancarlo mediante su manager, evitando perder supervisión tras un restart.
 
 ### Supervisor de sesiones
 
@@ -232,7 +256,11 @@ Con la configuración predeterminada:
 | `~/.corral/corral.sock` | API local |
 | `~/.corral/daemon.pid` | PID del daemon |
 | `~/.corral/daemon.lock` | Exclusión de instancia única |
+| `~/.corral/daemon.state` | Transición `starting`, `running` o `stopping` |
 | `~/.corral/daemon.log` | Log del daemon separado |
+| `~/.corral/service.log` | stdout/stderr del job launchd, cuando aplica |
+| `~/Library/LaunchAgents/com.djbu.corral.plist` | Servicio de usuario macOS |
+| `~/.config/systemd/user/corral.service` | Servicio de usuario Linux |
 | `~/.corral/` | Settings fijados, logs de sesión y demás estado privado |
 
 El directorio se fuerza a modo `0700`; los archivos sensibles usan permisos
@@ -256,6 +284,7 @@ restrictivos. No se recomienda editar la base ni los settings generados.
 | `internal/config` | Capas de configuración y frontera repo/operador |
 | `internal/git` | Worktrees aislados para tareas |
 | `internal/version` | Identidad de versión, commit y compatibilidad API |
+| `internal/service` | Descriptores y operación launchd/systemd por usuario |
 | `test/fakeclaude` | Sustituto determinista de Claude para pruebas |
 | `.goreleaser.yml` | Matriz y metadata reproducible de artefactos M7B |
 | `scripts/release` | Gates independientes para tags, CI y archivos |
@@ -280,23 +309,22 @@ idénticos. El contrato detallado vive en
 La línea funcional M0–M6 está cerrada en `v0.6.0`: sesiones interactivas,
 hooks, notificaciones, checkpoint/recovery, DAGs, acceso remoto, dashboard y el
 primer learning loop verificado. M7A ya estableció el repositorio privado,
-identidad legal y CI protegida. M7B añade el pipeline reproducible de releases;
-M7 no se cierra hasta completar daemon, servicios, instalador, operación de
-datos y smoke de upgrade.
+identidad legal y CI protegida. M7B añade el pipeline reproducible de releases
+y M7C el lifecycle seguro y los servicios de usuario; M7 no se cierra hasta
+completar instalador, operación de datos y smoke de upgrade.
 
 El proyecto continúa en pre-alpha. El orden, dependencias y gates están en el
 [plan ejecutable post-M6](../roadmap/POST_M6.md). Los pendientes principales
 son:
 
 1. instalador, Homebrew privado, firma y notarización;
-2. `corral service install` para launchd/systemd y operación al iniciar sesión;
-3. completar el smoke de publicación, instalación y upgrade de `v0.7.0`;
-4. comandos seguros para aceptar o descartar worktrees desde `corral review`;
-5. E2E con navegador real, además del E2E HTTP ya existente;
-6. Windows, modo multiusuario/equipo y más notificadores;
-7. las siguientes familias de aprendizaje: memoria operacional, routing de
+2. completar el smoke de publicación, instalación y upgrade de `v0.7.0`;
+3. comandos seguros para aceptar o descartar worktrees desde `corral review`;
+4. E2E con navegador real, además del E2E HTTP ya existente;
+5. Windows, modo multiusuario/equipo y más notificadores;
+6. las siguientes familias de aprendizaje: memoria operacional, routing de
    modelo, síntesis de skills y corpus de regresión;
-8. funciones avanzadas de flota descritas en el runbook, como scheduling por
+7. funciones avanzadas de flota descritas en el runbook, como scheduling por
    cuota y una superficie MCP.
 
 Estas extensiones no impiden usar el núcleo actual, pero sí importan antes de

@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -59,23 +60,17 @@ func (d *Daemon) shutdown(ctx context.Context, grace time.Duration) error {
 		d.log.Warn("shutdown: closing listener", "err", err)
 	}
 
-	// Step 2: attached clients would be told the daemon is shutting down
-	// here.
-	// TODO(step10): no attach handler exists yet (step 8 has no attached
-	// clients to notify), so this is a genuine no-op today.
+	// Step 2: closing each child below also closes its attach transport. There
+	// is no separate shutdown control frame in attach protocol v1.
 
 	// Step 3: checkpoint every live session concurrently.
 	//
-	// TODO(step9): d.supervisor is the LiveSessionLister seam
-	// (daemon.go); it always reports zero live sessions until step 9's
-	// registry replaces the noLiveSessions{} stub, so this loop currently
-	// never iterates, but the concurrent-checkpoint machinery itself is
-	// real and exercised by internal/checkpoint's own tests.
+	// Interactive and headless children share this process-group checkpoint
+	// path; headless entries intentionally have no PTY fields.
 	d.checkpointLive(ctx, d.supervisor.ListLive(), grace)
 
 	// Step 4: wait for output-log/screen goroutines and close output
 	// logs.
-	// TODO(step9/step10): no such goroutines exist yet in step 8.
 
 	// Step 4b: stop the notifier. Close cancels any in-flight backend Send and
 	// drops queued-but-undelivered jobs, so it returns promptly even against a
@@ -105,6 +100,9 @@ func (d *Daemon) shutdown(ctx context.Context, grace time.Duration) error {
 	}
 	if err := removeIfExists(d.pidPath); err != nil {
 		d.log.Warn("shutdown: removing pidfile", "err", err)
+	}
+	if err := removeIfExists(filepath.Join(d.cfg.StateDir, lifecycleFilename)); err != nil {
+		d.log.Warn("shutdown: removing lifecycle marker", "err", err)
 	}
 	if err := ReleaseLock(d.lockFile); err != nil {
 		d.log.Warn("shutdown: releasing lock", "err", err)

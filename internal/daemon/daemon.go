@@ -50,12 +50,6 @@ var envSnapshotWhitelist = []string{
 
 // LiveSessionLister is the seam shutdown (and the second-signal force-kill
 // escalation in signals.go) drain through to find sessions to act on.
-//
-// TODO(step9): internal/supervisor's registry (supervisor.go, not yet
-// written) implements this by listing its actually-tracked LiveSessions.
-// Step 8 wires noLiveSessions{}, which always reports none, since nothing
-// spawns a session yet — daemon.go's `supervisor` field below is exactly
-// where step 9 plugs the real registry in.
 type LiveSessionLister interface {
 	ListLive() []*supervisor.LiveSession
 }
@@ -225,6 +219,9 @@ func (d *Daemon) startup(ctx context.Context) error {
 		return err
 	}
 	d.lockFile = lockFile
+	if err := writeLifecycleState(d.cfg.StateDir, LifecycleStarting); err != nil {
+		return err
+	}
 
 	// Step 5: open the store, migrating inside the flock.
 	st, err := store.Open(filepath.Join(d.cfg.StateDir, "corral.db"), d.clk)
@@ -525,6 +522,9 @@ func (d *Daemon) startup(ctx context.Context) error {
 		d.log.Warn("recording daemon.started event", "err", err)
 	}
 	d.log.Info("daemon started", "pid", os.Getpid(), "socket", d.sockPath)
+	if err := writeLifecycleState(d.cfg.StateDir, LifecycleRunning); err != nil {
+		return err
+	}
 
 	return nil
 }
