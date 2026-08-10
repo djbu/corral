@@ -194,9 +194,9 @@ GC nunca borra evidencia todavía referenciada.
 
 #### 54. Smoke de instalación y upgrade
 
-**Estado M7F:** harness reproducible implementado; ejecución con release
-candidate y promoción final pendientes. Contrato en `docs/design/m7f.md` y
-evidencia en `docs/dogfood/m7f.md`.
+**Estado M7F:** completado con `v0.7.0-rc.2` en runners limpios macOS/Ubuntu;
+promoción final `v0.7.0`. Contrato en `docs/design/m7f.md` y evidencia en
+`docs/dogfood/m7f.md`.
 
 - VM limpia por plataforma: instalar `v0.6.0`, crear estado y sesión fake;
 - actualizar al release candidate `v0.7.0`;

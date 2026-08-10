@@ -1,7 +1,7 @@
 # Guía humana para usar corral
 
-Esta guía cubre el baseline funcional `v0.6.0` y el trabajo M7A–M7D de
-distribución y operación privada. corral está
+Esta guía cubre el baseline funcional `v0.7.0`, incluida su distribución y
+operación privada verificadas. corral está
 en pre-alpha: úselo primero en repositorios con control de versiones y revise
 siempre los cambios producidos por agentes.
 

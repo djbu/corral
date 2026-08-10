@@ -112,18 +112,22 @@ pasado primero checksum y verificación de versión.
 
 ## 7. Homebrew privado preparado
 
-No existe un tap público. Cuando los artefactos estén en `dist`, el mantenedor
-puede generar una fórmula con los cuatro hashes reales:
+No existe un tap público. Para una release privada, capture también los
+endpoints API de sus assets; las URLs web `/releases/download/...` responden
+404 a curl para un repositorio privado:
 
 ```sh
+gh release view v0.7.0 --repo djbu/corral --json assets \
+  > dist/corral_0.7.0_assets.json
 scripts/release/render-homebrew-formula.sh \
-  0.7.0-rc.1 dist/corral_0.7.0-rc.1_checksums.txt \
-  /ruta/al/tap-privado/Formula/corral.rb
+  0.7.0 dist/corral_0.7.0_checksums.txt \
+  /ruta/al/tap-privado/Formula/corral.rb \
+  dist/corral_0.7.0_assets.json
 ```
 
 El consumidor autentica la descarga privada mediante
-`HOMEBREW_GITHUB_API_TOKEN`. La publicación y el smoke real del tap se reservan
-para el gate limpio del paso 54; la plantilla jamás se publica con hashes
+`HOMEBREW_GITHUB_API_TOKEN`. El gate limpio del paso 54 instaló y probó la
+fórmula real desde un tap efímero; la plantilla jamás se publica con hashes
 ficticios.
 
 ## 8. Rollback operativo
