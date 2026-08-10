@@ -40,6 +40,7 @@ var commands = map[string]cmdFunc{
 	"hook-relay": cmdHookRelay,
 	"run":        cmdRun,
 	"review":     cmdReview,
+	"service":    cmdService,
 	"token":      cmdToken,
 	"learnings":  cmdLearnings,
 }

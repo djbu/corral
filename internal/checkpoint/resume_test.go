@@ -182,6 +182,45 @@ func TestResumeCheckpointer_CheckpointStopsProcessGroupAndPersists(t *testing.T)
 	}
 }
 
+// A headless child has pipes instead of a PTY, but shutdown owns it through
+// the same process-group contract. This regression test proves an active
+// one-shot is terminated and durably checkpointed without dereferencing PTY
+// fields that are intentionally nil for headless sessions.
+func TestResumeCheckpointer_CheckpointStopsActiveHeadlessSession(t *testing.T) {
+	st, _ := openTestStore(t)
+	_, err := st.CreateSession(context.Background(), store.CreateSessionParams{
+		ID: "headless-1", Name: "headless-1", Mode: session.ModeHeadless,
+		Cwd: t.TempDir(), ClaudeBin: "/usr/local/bin/claude",
+		DesiredState: session.DesiredRunning, Status: session.StatusRunning,
+		PID: 1234, PGID: 1234, ProcStartNs: 1,
+	})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	cmd := spawnGroupLeader(t)
+	c := NewResumeCheckpointer(st, clock.Real(), 200*time.Millisecond, t.TempDir(), map[string]string{"PATH": "/bin"}, nil, "xterm-256color", "/tmp/corral.sock")
+	tok, err := c.Checkpoint(context.Background(), &supervisor.LiveSession{
+		SessionID: "headless-1", PGID: cmd.Process.Pid, Headless: true,
+	}, "daemon_shutdown")
+	if err != nil {
+		t.Fatalf("Checkpoint: %v", err)
+	}
+	if tok.ClaudeSessionID != "headless-1" {
+		t.Fatalf("ClaudeSessionID=%q, want headless-1", tok.ClaudeSessionID)
+	}
+	if err := cmd.Wait(); err == nil {
+		t.Fatal("headless child exited normally; want termination by checkpoint")
+	}
+	got, err := st.GetSession(context.Background(), "headless-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != session.StatusExited || got.DesiredState != session.DesiredRunning {
+		t.Fatalf("post-shutdown status=%q desired=%q", got.Status, got.DesiredState)
+	}
+}
+
 func TestResumeCheckpointer_CheckpointTurnBoundaryVerified(t *testing.T) {
 	st, _ := openTestStore(t)
 	cwd := "/tmp/work-turnboundary"

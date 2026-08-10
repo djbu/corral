@@ -59,6 +59,9 @@ func (d *Daemon) beginShutdown(ctx context.Context, grace time.Duration) bool {
 	}
 	d.shuttingDown = true
 	d.mu.Unlock()
+	if err := writeLifecycleState(d.cfg.StateDir, LifecycleStopping); err != nil {
+		d.log.Warn("writing stopping lifecycle marker", "err", err)
+	}
 
 	go func() {
 		if err := d.shutdown(ctx, grace); err != nil {
