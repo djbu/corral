@@ -1,0 +1,94 @@
+version: 2
+
+project_name: corral
+
+builds:
+  - id: corral
+    main: ./cmd/corral
+    binary: corral
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+      - -buildvcs=false
+      - -mod=readonly
+    ldflags:
+      - -s -w
+      - -X github.com/djbu/corral/internal/version.Version={{ .Version }}
+      - -X github.com/djbu/corral/internal/version.Commit={{ .FullCommit }}
+      - -X github.com/djbu/corral/internal/version.ReleaseMetadata=v1|{{ .Version }}|{{ .FullCommit }}|1
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: archives
+    ids:
+      - corral
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - src: LICENSE
+        info:
+          group: root
+          owner: root
+          mode: 0644
+          mtime: "{{ .CommitDate }}"
+      - src: README.md
+        info:
+          group: root
+          owner: root
+          mode: 0644
+          mtime: "{{ .CommitDate }}"
+    builds_info:
+      group: root
+      owner: root
+      mode: 0755
+      mtime: "{{ .CommitDate }}"
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+  algorithm: sha256
+
+sboms:
+  - id: archive-sboms
+    artifacts: archive
+    documents:
+      - "${artifact}.sbom.json"
+    cmd: syft
+    args:
+      - "${artifact}"
+      - --output
+      - "spdx-json=${document}"
+    env:
+      - SYFT_FILE_METADATA_CATALOGER_ENABLED=true
+
+metadata:
+  mod_timestamp: "{{ .CommitTimestamp }}"
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+
+release:
+  github:
+    owner: djbu
+    name: corral
+  draft: true
+  prerelease: auto
+  mode: replace
+  include_meta: true
+  header: |
+    Private preview release. macOS binaries are not signed or notarized yet.
+
+source:
+  enabled: false
