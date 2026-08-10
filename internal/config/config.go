@@ -50,6 +50,9 @@ type Daemon struct {
 // Session is the resolved session-scope configuration.
 type Session struct {
 	ClaudeBin string
+	// Template is a selection only. Repositories may name a user-authorized
+	// template but never supply the template values themselves.
+	Template string
 	// ClaudeVersion is an optional repository-compatible semver constraint.
 	// The repo may set this policy but never the binary it probes or executes.
 	ClaudeVersion     string

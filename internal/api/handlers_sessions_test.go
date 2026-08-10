@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -82,6 +83,47 @@ func newSessionsTestDeps(t *testing.T) SessionsDeps {
 func setUnresolvableClaudeBin(t *testing.T) {
 	t.Helper()
 	t.Setenv("CORRAL_SESSION_CLAUDE_BIN", filepath.Join(t.TempDir(), "no-such-claude-binary"))
+}
+
+func writeUserTemplates(t *testing.T, raw string) {
+	t.Helper()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, ".corral")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "templates.toml"), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHandleCreateSession_TemplateIsAuthorizedAndAudited(t *testing.T) {
+	deps := newSessionsTestDeps(t)
+	setUnresolvableClaudeBin(t)
+	writeUserTemplates(t, "[[template]]\nname=\"review\"\nmodel=\"template-model\"\n")
+	srv := newSessionsTestServer(t, deps)
+	body := []byte(`{"cwd":"` + t.TempDir() + `","name":"templated","template":"review"}`)
+	rec := doVersioned(t, srv.Handler(), http.MethodPost, "/v1/sessions", body)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want spawn failure after durable create; body=%s", rec.Code, rec.Body.String())
+	}
+	sess, err := deps.Store.GetSessionByName(t.Context(), "templated")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.Template != "review" || sess.Model != "template-model" {
+		t.Fatalf("session template/model = %q/%q", sess.Template, sess.Model)
+	}
+	events, err := deps.Store.ListEvents(t.Context(), sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) == 0 || !strings.Contains(events[0].DataJSON, `"template":"review"`) {
+		t.Fatalf("session.created audit = %+v", events)
+	}
 }
 
 func assertAPIVersionHeader(t *testing.T, rec *httptest.ResponseRecorder) {

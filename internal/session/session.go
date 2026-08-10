@@ -60,6 +60,7 @@ type Session struct {
 	Mode             Mode
 	Cwd              string
 	ClaudeBin        string
+	Template         string   // user-authorized template name, "" when none
 	ClaudeVersion    string   // observed normalized Claude Code semver; "" when probe failed
 	Model            string   // "" = NULL = claude default
 	Argv             []string // persisted as argv_json

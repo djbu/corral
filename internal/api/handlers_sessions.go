@@ -56,6 +56,7 @@ type sessionResponse struct {
 	Attached        bool    `json:"attached"`
 	PID             int     `json:"pid"`
 	Model           string  `json:"model"`
+	Template        string  `json:"template"`
 	ClaudeVersion   string  `json:"claude_version"`
 	ClaudeSessionID string  `json:"claude_session_id"`
 	Rows            int     `json:"rows"`
@@ -107,6 +108,7 @@ func toSessionResponse(sess *session.Session, attached bool) sessionResponse {
 		Attached:        attached,
 		PID:             sess.PID,
 		Model:           sess.Model,
+		Template:        sess.Template,
 		ClaudeVersion:   sess.ClaudeVersion,
 		ClaudeSessionID: sess.ClaudeSessionID,
 		Rows:            sess.Rows,
@@ -304,12 +306,13 @@ func (d SessionsDeps) handleEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 type createSessionRequest struct {
-	Name  string `json:"name"`
-	Cwd   string `json:"cwd"`
-	Mode  string `json:"mode"`
-	Model string `json:"model"`
-	Rows  uint16 `json:"rows"`
-	Cols  uint16 `json:"cols"`
+	Name     string `json:"name"`
+	Cwd      string `json:"cwd"`
+	Mode     string `json:"mode"`
+	Model    string `json:"model"`
+	Template string `json:"template"`
+	Rows     uint16 `json:"rows"`
+	Cols     uint16 `json:"cols"`
 }
 
 func (d SessionsDeps) handleCreate(w http.ResponseWriter, r *http.Request) {
@@ -388,9 +391,24 @@ func (d SessionsDeps) handleCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	templateName := body.Template
+	if templateName == "" {
+		templateName = sessCfg.Template
+	}
+	var template config.Template
+	if templateName != "" {
+		template, err = config.ResolveTemplate(templateName)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, CodeBadRequest, err.Error(), nil)
+			return
+		}
+	}
 	model := body.Model
 	if model == "" {
 		model = sessCfg.Model
+	}
+	if template.Model != "" {
+		model = template.Model
 	}
 
 	id := newSessionID()
@@ -400,6 +418,7 @@ func (d SessionsDeps) handleCreate(w http.ResponseWriter, r *http.Request) {
 		Mode:           mode,
 		Cwd:            body.Cwd,
 		ClaudeBin:      claudeBin,
+		Template:       templateName,
 		ClaudeVersion:  observedVersion,
 		Model:          model,
 		SettingsPath:   "", // filled in by Registry.Spawn once settings.Pin runs
@@ -420,7 +439,11 @@ func (d SessionsDeps) handleCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
 		return
 	}
-	if _, err := d.Store.AppendEvent(ctx, id, session.EventSessionCreated, "{}"); err != nil {
+	createdData := "{}"
+	if templateName != "" {
+		createdData = fmt.Sprintf(`{"template":%q}`, templateName)
+	}
+	if _, err := d.Store.AppendEvent(ctx, id, session.EventSessionCreated, createdData); err != nil {
 		// Non-fatal: the session row exists and spawning still proceeds.
 		_ = err
 	}
@@ -433,6 +456,7 @@ func (d SessionsDeps) handleCreate(w http.ResponseWriter, r *http.Request) {
 		ClaudeBin:      claudeBin,
 		Model:          model,
 		PermissionMode: sessCfg.PermissionMode,
+		EnvPassthrough: template.EnvPassthrough,
 		SettingSources: sessCfg.SettingSources,
 		Rows:           body.Rows,
 		Cols:           body.Cols,

@@ -404,7 +404,11 @@ func (r *Registry) Spawn(ctx context.Context, spec session.Spec) (*session.Sessi
 	if spec.SettingSources == "" {
 		spec.SettingSources = r.cfg.SettingSources
 	}
-	spec.Env = BuildEnv(spec, r.cfg.EnvSnapshot, r.cfg.EnvPassthrough, r.cfg.Term, r.cfg.SockPath, secret)
+	passthrough := r.cfg.EnvPassthrough
+	if spec.EnvPassthrough != nil {
+		passthrough = spec.EnvPassthrough
+	}
+	spec.Env = BuildEnv(spec, r.cfg.EnvSnapshot, passthrough, r.cfg.Term, r.cfg.SockPath, secret)
 
 	// Shared prologue ends here (secret, settings.Pin, BuildEnv all ran
 	// against spec above — headless keeps settings.Pin deliberately, per

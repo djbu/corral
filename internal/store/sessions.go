@@ -79,6 +79,7 @@ type CreateSessionParams struct {
 	Mode            session.Mode
 	Cwd             string
 	ClaudeBin       string
+	Template        string
 	ClaudeVersion   string
 	Model           string // "" persists as NULL
 	Argv            []string
@@ -111,13 +112,13 @@ func (s *Store) CreateSession(ctx context.Context, p CreateSessionParams) (*sess
 	now := s.clk.Now().UnixMilli()
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO sessions (
-			id, name, mode, cwd, claude_bin, claude_version, model, argv_json, env_keys_json,
+			id, name, mode, cwd, claude_bin, template_name, claude_version, model, argv_json, env_keys_json,
 			settings_path, setting_sources, claude_session_id,
 			desired_state, status, pid, pgid, proc_start_ns, rows, cols,
 			resume_count, created_at_ms, updated_at_ms, last_activity_ms
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
 	`,
-		p.ID, p.Name, string(p.Mode), p.Cwd, p.ClaudeBin, nullableStr(p.ClaudeVersion), nullableStr(p.Model),
+		p.ID, p.Name, string(p.Mode), p.Cwd, p.ClaudeBin, nullableStr(p.Template), nullableStr(p.ClaudeVersion), nullableStr(p.Model),
 		argvJSON, envKeysJSON, p.SettingsPath, p.SettingSources,
 		nullableStr(p.ClaudeSessionID), string(p.DesiredState), string(p.Status),
 		p.PID, p.PGID, p.ProcStartNs, p.Rows, p.Cols, now, now, now,
@@ -202,7 +203,7 @@ func (s *Store) UpdateSession(ctx context.Context, id string, mutate func(*sessi
 
 		_, err = tx.ExecContext(ctx, `
 			UPDATE sessions SET
-				name = ?, mode = ?, cwd = ?, claude_bin = ?, claude_version = ?, model = ?,
+				name = ?, mode = ?, cwd = ?, claude_bin = ?, template_name = ?, claude_version = ?, model = ?,
 				argv_json = ?, env_keys_json = ?, settings_path = ?,
 				setting_sources = ?, claude_session_id = ?, desired_state = ?,
 				status = ?, pid = ?, pgid = ?, proc_start_ns = ?, rows = ?,
@@ -213,7 +214,7 @@ func (s *Store) UpdateSession(ctx context.Context, id string, mutate func(*sessi
 				permission_mode = ?, last_prompt_id = ?, last_activity_ms = ?
 			WHERE id = ?
 		`,
-			sess.Name, string(sess.Mode), sess.Cwd, sess.ClaudeBin, nullableStr(sess.ClaudeVersion), nullableStr(sess.Model),
+			sess.Name, string(sess.Mode), sess.Cwd, sess.ClaudeBin, nullableStr(sess.Template), nullableStr(sess.ClaudeVersion), nullableStr(sess.Model),
 			argvJSON, envKeysJSON, sess.SettingsPath, sess.SettingSources,
 			nullableStr(sess.ClaudeSessionID), string(sess.DesiredState), string(sess.Status),
 			sess.PID, sess.PGID, sess.ProcStartNs, sess.Rows, sess.Cols,
@@ -240,7 +241,7 @@ func (s *Store) UpdateSession(ctx context.Context, id string, mutate func(*sessi
 }
 
 const sessionSelectColumns = `SELECT
-	id, name, mode, cwd, claude_bin, claude_version, model, argv_json, env_keys_json,
+	id, name, mode, cwd, claude_bin, template_name, claude_version, model, argv_json, env_keys_json,
 	settings_path, setting_sources, claude_session_id, desired_state,
 	status, pid, pgid, proc_start_ns, rows, cols, exit_code, exit_signal,
 	resume_count, created_at_ms, updated_at_ms, started_at_ms,
@@ -259,19 +260,19 @@ func scanSession(row rowScanner) (*session.Session, error) {
 
 func scanSessionRow(row rowScanner) (*session.Session, error) {
 	var (
-		sess                                              session.Session
-		mode, desiredState, status                        string
-		model, claudeVersion, claudeSessionID, exitSignal sql.NullString
-		argvJSON, envKeysJSON                             string
-		exitCode                                          sql.NullInt64
-		startedAtMs, lastAttachedAtMs, endedAtMs          sql.NullInt64
-		agentState                                        string
-		agentStateSinceMs, lastHookAtMs                   sql.NullInt64
-		blockedReasonJSON, permissionMode, lastPromptID   sql.NullString
+		sess                                                            session.Session
+		mode, desiredState, status                                      string
+		model, templateName, claudeVersion, claudeSessionID, exitSignal sql.NullString
+		argvJSON, envKeysJSON                                           string
+		exitCode                                                        sql.NullInt64
+		startedAtMs, lastAttachedAtMs, endedAtMs                        sql.NullInt64
+		agentState                                                      string
+		agentStateSinceMs, lastHookAtMs                                 sql.NullInt64
+		blockedReasonJSON, permissionMode, lastPromptID                 sql.NullString
 	)
 
 	err := row.Scan(
-		&sess.ID, &sess.Name, &mode, &sess.Cwd, &sess.ClaudeBin, &claudeVersion, &model,
+		&sess.ID, &sess.Name, &mode, &sess.Cwd, &sess.ClaudeBin, &templateName, &claudeVersion, &model,
 		&argvJSON, &envKeysJSON, &sess.SettingsPath, &sess.SettingSources,
 		&claudeSessionID, &desiredState, &status, &sess.PID, &sess.PGID,
 		&sess.ProcStartNs, &sess.Rows, &sess.Cols, &exitCode, &exitSignal,
@@ -291,6 +292,7 @@ func scanSessionRow(row rowScanner) (*session.Session, error) {
 	sess.DesiredState = session.DesiredState(desiredState)
 	sess.Status = session.Status(status)
 	sess.Model = model.String
+	sess.Template = templateName.String
 	sess.ClaudeVersion = claudeVersion.String
 	sess.ClaudeSessionID = claudeSessionID.String
 	sess.ExitSignal = exitSignal.String
