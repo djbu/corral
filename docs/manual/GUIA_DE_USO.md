@@ -1,7 +1,7 @@
 # Guía humana para usar corral
 
-Esta guía cubre el baseline funcional `v0.6.0` y el trabajo de distribución
-privada de M7. corral está
+Esta guía cubre el baseline funcional `v0.6.0` y el trabajo M7A–M7C de
+distribución y operación privada. corral está
 en pre-alpha: úselo primero en repositorios con control de versiones y revise
 siempre los cambios producidos por agentes.
 
@@ -44,8 +44,9 @@ go build \
   -o "$HOME/.local/bin/corral" ./cmd/corral
 ```
 
-Todavía no hay instalador ni servicio launchd/systemd. El binario es la unidad
-de instalación. Para descargar, comprobar e instalar un artefacto del
+Todavía no hay instalador automático; el binario es la unidad de instalación.
+M7C sí puede registrar ese binario como servicio de usuario. Para descargar,
+comprobar e instalar un artefacto del
 repositorio privado, siga el [runbook de releases privadas](RELEASES_PRIVADAS.md).
 
 ## 3. Diagnóstico inicial
@@ -115,6 +116,7 @@ Arranque separado del terminal:
 
 ```sh
 corral daemon
+corral daemon status
 corral ls
 ```
 
@@ -125,14 +127,63 @@ normal:
 tail -f "$HOME/.corral/daemon.log"
 ```
 
-No existe todavía `corral daemon stop`. Para un cierre ordenado, envíe SIGTERM
-al PID registrado:
+El ciclo normal no necesita leer PID files ni enviar señales:
 
 ```sh
-kill "$(cat "$HOME/.corral/daemon.pid")"
+corral daemon status
+corral daemon stop
+corral daemon restart
 ```
 
-No use SIGKILL salvo que el proceso no responda; evita el checkpoint ordenado.
+`start`, `stop` y `restart` son idempotentes. `restart` espera el checkpoint de
+las sesiones activas y sólo arranca el reemplazo después de liberar el lock.
+Si existe un servicio instalado, start/restart lo reactivan mediante
+launchd/systemd y no dejan un daemon detached fuera de su supervisor.
+Puede limitar una transición o cambiar la gracia de checkpoint:
+
+```sh
+corral daemon stop --grace 10s --timeout 30s
+corral daemon status --json
+```
+
+El PID es diagnóstico; estos comandos sólo solicitan shutdown por la API local
+y usan el lock como autoridad. Si el lock está ocupado pero la API no responde,
+fallan cerrados en vez de señalar un PID potencialmente reciclado. No use
+SIGKILL en el camino normal.
+
+### Arranque automático al iniciar sesión
+
+Instale primero `corral` en una ruta estable del usuario, por ejemplo
+`$HOME/.local/bin/corral`, y configure `session.claude_bin` con una ruta
+absoluta si el PATH de su sesión gráfica no contiene `claude`. Después:
+
+```sh
+corral service install
+corral service status
+```
+
+En macOS se crea
+`~/Library/LaunchAgents/com.djbu.corral.plist`; en Linux,
+`~/.config/systemd/user/corral.service`. La instalación hace un traspaso
+ordenado si había un daemon manual. El servicio arranca al iniciar la sesión y
+se reinicia tras un crash, pero no después de un stop limpio. Nunca ejecute
+estos comandos con `sudo`: el modo root se rechaza.
+
+El servicio carga defaults y `~/.corral/config.toml`; no captura overrides
+`CORRAL_*` del shell ni secretos dentro del descriptor. Persista la
+configuración que deba sobrevivir al login y use los mecanismos de
+autenticación normales de Claude para esa sesión de usuario.
+
+La reinstalación sin cambios es un no-op. Después de reemplazar el binario en
+la misma ruta, ejecute de nuevo `corral service install`; si la ruta cambió,
+también actualizará atómicamente el descriptor. Para retirarlo:
+
+```sh
+corral service uninstall
+```
+
+Uninstall detiene y elimina únicamente el plist/unit. Conserva el binario,
+`~/.corral`, la base, sesiones y logs.
 
 ## 6. Flujo interactivo diario
 
@@ -426,7 +477,7 @@ La copia más segura se hace con el daemon detenido para incluir SQLite, WAL y
 settings de forma coherente:
 
 ```sh
-kill "$(cat "$HOME/.corral/daemon.pid")"
+corral daemon stop
 cp -R "$HOME/.corral" "/ruta/segura/corral-backup"
 corral daemon
 ```
@@ -449,12 +500,26 @@ desde dos daemons.
 Ya hay una instancia usando ese `state_dir`. Revise:
 
 ```sh
-cat "$HOME/.corral/daemon.pid"
-ps -p "$(cat "$HOME/.corral/daemon.pid")"
+corral daemon status
+corral service status
 tail -n 100 "$HOME/.corral/daemon.log"
 ```
 
-No borre el lock mientras el proceso siga vivo.
+No borre el lock ni señale el PID. Si aparece `lock-held`, conserve el log y
+diagnostique el proceso/servicio que mantiene el lock.
+
+### El servicio está instalado pero inactivo
+
+```sh
+corral service status
+corral service install
+tail -n 100 "$HOME/.corral/service.log"
+tail -n 100 "$HOME/.corral/daemon.log"
+```
+
+`install` reactiva una definición instalada pero inactiva. En Linux también
+compruebe que existe una sesión de usuario con `systemctl --user status`; en
+macOS el servicio pertenece al dominio gráfico del usuario actual.
 
 ### `unknown (hooks not firing?)`
 
@@ -495,6 +560,8 @@ parcial.
 | Ver versión/ayuda | `corral --version`, `corral --help` |
 | Diagnóstico/config | `corral doctor`, `corral config --cwd DIR` |
 | Arrancar daemon | `corral daemon` |
+| Estado/parada/restart | `corral daemon status\|stop\|restart` |
+| Servicio de usuario | `corral service install\|status\|uninstall` |
 | Listar sesiones | `corral ls [--json]` |
 | Crear/entrar | `corral new --cwd DIR [--name N]` |
 | Reconectar | `corral attach NAME` |

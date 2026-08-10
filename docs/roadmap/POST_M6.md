@@ -131,6 +131,9 @@ de extremo a extremo antes de habilitar la release final.
 
 #### 50. Ciclo de vida del daemon
 
+**Estado M7C:** implementado y validado en la rama M7C; pendiente únicamente de
+integración protegida.
+
 - añadir `corral daemon status|stop|restart` sin depender de comandos shell;
 - hacer idempotentes start, stop y restart;
 - distinguir daemon ausente, PID obsoleto, lock vivo y shutdown en progreso;
@@ -140,6 +143,9 @@ de extremo a extremo antes de habilitar la release final.
 sesiones recuperables.
 
 #### 51. Servicio del usuario
+
+**Estado M7C:** implementado y validado en la rama M7C; pendiente únicamente de
+integración protegida.
 
 - añadir `corral service install|status|uninstall`;
 - launchd en macOS y systemd user service en Linux;
@@ -425,8 +431,8 @@ La primera tanda concreta es:
 - [x] 47 — CI normal macOS/Linux;
 - [x] 48 — build reproducible y checksums;
 - [x] 49 — workflow de prerelease/release;
-- [ ] 50 — `daemon status|stop|restart`;
-- [ ] 51 — servicio launchd/systemd;
+- [x] 50 — `daemon status|stop|restart`;
+- [x] 51 — servicio launchd/systemd;
 - [ ] 52 — instalador privado y fórmula Homebrew no publicada, una vez estable
   el ciclo del servicio;
 - [ ] 53 — backup/GC/disco;
