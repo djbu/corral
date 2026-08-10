@@ -1,7 +1,7 @@
 # Arquitectura de corral, explicada para humanos
 
 Este documento explica cómo funciona corral sin exigir que el lector conozca
-el historial M0–M6. Los documentos de `docs/design/` conservan los contratos y
+el historial M0–M8. Los documentos de `docs/design/` conservan los contratos y
 decisiones detalladas; este manual presenta el sistema que existe hoy.
 
 ## 1. La idea en una frase
@@ -381,13 +381,14 @@ sobre runners efímeros macOS/Linux: instala el artefacto privado real sobre
 `v0.6.0`, valida migración y recovery, ejercita PTY y TLS/token, y comprueba
 que uninstall conserva los datos. Esa matriz quedó verde con `v0.7.0-rc.2` y
 M7 se cierra con la release privada anotada `v0.7.0`. M8 añade el ciclo seguro
-de review descrito arriba; su release objetivo es `v0.8.0`.
+de review descrito arriba y queda cerrado en `v0.8.0` tras una matriz de upgrade
+desde `v0.7.0` en macOS/Linux.
 
 El proyecto continúa en pre-alpha. El orden, dependencias y gates están en el
 [plan ejecutable post-M6](../roadmap/POST_M6.md). Los pendientes principales
 son:
 
-1. promover M8 mediante sus RCs y la matriz de upgrade macOS/Linux;
+1. límites, backpressure y reconciliación prolongada de flota previstos en M9;
 2. Windows, modo multiusuario/equipo y más notificadores;
 3. las siguientes familias de aprendizaje: memoria operacional, routing de
    modelo, síntesis de skills y corpus de regresión;
