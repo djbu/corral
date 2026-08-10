@@ -21,6 +21,7 @@
   let openDagID = null;
   let dagDetail = null;
   let dagError = null;
+  const reviewViews = Object.create(null);
   let openLearningID = null;
   let learningDetail = null;
   let learningReport = null;
@@ -153,6 +154,44 @@
         dagError = String(err && err.message ? err.message : err);
         renderDags();
       });
+  }
+
+  function loadTaskReview(task, strategy, target) {
+    const view = reviewViews[task.id] || (reviewViews[task.id] = {});
+    view.loading = true;
+    view.error = null;
+    const query = new URLSearchParams({ strategy: strategy });
+    if (target) query.set('target', target);
+    return Promise.all([
+      apiFetch('/v1/tasks/' + encodeURIComponent(task.id) + '/review/preflight?' + query.toString()).then(readAPIJSON),
+      apiFetch('/v1/tasks/' + encodeURIComponent(task.id) + '/review/diff?full=1').then(readAPIJSON),
+    ]).then(function (parts) {
+      view.preflight = parts[0];
+      view.diff = parts[1].diff || '';
+    }).catch(function (err) {
+      view.error = String(err && err.message ? err.message : err);
+    }).finally(function () {
+      view.loading = false;
+      renderDags();
+    });
+  }
+
+  function mutateTaskReview(task, action, body) {
+    const view = reviewViews[task.id] || (reviewViews[task.id] = {});
+    view.loading = true;
+    view.error = null;
+    renderDags();
+    return apiFetch('/v1/tasks/' + encodeURIComponent(task.id) + '/review/' + action, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(readAPIJSON).then(function () {
+      return loadDag(openDagID);
+    }).catch(function (err) {
+      view.error = String(err && err.message ? err.message : err);
+      view.loading = false;
+      renderDags();
+    });
   }
 
   function loadLearning(id) {
@@ -709,7 +748,7 @@
       row.className = 'card task-row task-status-' + t.status;
       const line1 = document.createElement('div');
       line1.className = 'task-row-top';
-      line1.textContent = (t.name || t.id) + ' — ' + t.status;
+      line1.textContent = (t.name || t.id) + ' — ' + t.status + (t.review_status ? ' · ' + t.review_status : '');
       row.appendChild(line1);
       const line2 = document.createElement('div');
       line2.className = 'task-row-meta';
@@ -722,6 +761,9 @@
       });
       line2.textContent = bits.join(' · ');
       row.appendChild(line2);
+      if (t.review_status === 'pending_review') {
+        row.appendChild(renderTaskReview(t));
+      }
       taskList.appendChild(row);
     });
     box.appendChild(taskList);
@@ -743,6 +785,59 @@
     }
 
     return box;
+  }
+
+  function renderTaskReview(task) {
+    const wrap = document.createElement('div');
+    wrap.className = 'review-panel';
+    const view = reviewViews[task.id] || (reviewViews[task.id] = {});
+
+    if (!view.preflight && !view.loading) {
+      const inspect = document.createElement('button');
+      inspect.type = 'button';
+      inspect.textContent = 'Inspect review';
+      inspect.addEventListener('click', function () { loadTaskReview(task, 'branch', ''); });
+      wrap.appendChild(inspect);
+      return wrap;
+    }
+    if (view.loading) {
+      const loading = document.createElement('p'); loading.className = 'empty'; loading.textContent = 'Checking Git identities…'; wrap.appendChild(loading);
+    }
+    if (view.error) {
+      const err = document.createElement('p'); err.className = 'error-text'; err.textContent = view.error; wrap.appendChild(err);
+    }
+    const p = view.preflight;
+    if (!p) return wrap;
+
+    const identity = document.createElement('pre');
+    identity.className = 'review-identity';
+    identity.textContent = 'repo: ' + p.repo + '\nworktree: ' + p.worktree + '\nbranch: ' + p.branch + '\nbase: ' + p.base_commit + '\ntask HEAD: ' + p.task_head + (p.target_head ? '\ntarget ' + p.target_ref + ': ' + p.target_head : '');
+    wrap.appendChild(identity);
+    const diff = document.createElement('pre'); diff.className = 'review-diff'; diff.textContent = view.diff || '(no changes)'; wrap.appendChild(diff);
+    if (p.blockers && p.blockers.length) { const blockers=document.createElement('p'); blockers.className='error-text'; blockers.textContent='Blocked: '+p.blockers.join('; '); wrap.appendChild(blockers); }
+
+    const controls = document.createElement('div'); controls.className = 'review-controls';
+    const strategy = document.createElement('select');
+    ['merge','cherry-pick','branch'].forEach(function (value) { const o=document.createElement('option');o.value=value;o.textContent=value;if(value===p.strategy)o.selected=true;strategy.appendChild(o); });
+    const target = document.createElement('input'); target.type='text'; target.placeholder='target branch'; target.value=p.target_ref || 'main';
+    const preflight = document.createElement('button'); preflight.type='button'; preflight.textContent='Run preflight'; preflight.disabled=!!view.loading;
+    preflight.addEventListener('click',function(){loadTaskReview(task,strategy.value,strategy.value==='branch'?'':target.value.trim());});
+    const release = document.createElement('button'); release.type='button'; release.textContent='Release'; release.disabled=!!view.loading||!p.can_apply;
+    strategy.addEventListener('change',function(){release.disabled=true;});
+    target.addEventListener('input',function(){release.disabled=true;});
+    release.addEventListener('click',function(){
+      const targetName=p.strategy==='branch'?'':p.target_ref;
+      const message='Release task '+task.id+'?\nrepo: '+p.repo+'\nbranch: '+p.branch+'\ntask HEAD: '+p.task_head+(targetName?'\ntarget '+targetName+': '+p.target_head:'');
+      if(!window.confirm(message))return;
+      mutateTaskReview(task,'release',{strategy:p.strategy,target:targetName,expected_target_head:p.strategy==='branch'?'':p.target_head});
+    });
+    const discard = document.createElement('button'); discard.type='button'; discard.textContent='Discard (recoverable)'; discard.disabled=!!view.loading||p.task_dirty||!p.task_head;
+    discard.addEventListener('click',function(){
+      if(!window.confirm('Discard task '+task.id+'?\nrepo: '+p.repo+'\nworktree: '+p.worktree+'\nbranch: '+p.branch+'\nHEAD: '+p.task_head+'\nA recovery ref will be created.'))return;
+      mutateTaskReview(task,'discard',{expected_task_head:p.task_head,expected_repo:p.repo,expected_worktree:p.worktree,expected_branch:p.branch,force:false});
+    });
+    controls.appendChild(strategy);controls.appendChild(target);controls.appendChild(preflight);controls.appendChild(release);controls.appendChild(discard);wrap.appendChild(controls);
+    return wrap;
   }
 
   function start() {

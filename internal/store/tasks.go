@@ -59,6 +59,7 @@ type Task struct {
 	Cwd            string
 	Worktree       string
 	Branch         string
+	BaseCommit     string
 	Model          string
 	PermissionMode string
 	Status         TaskStatus
@@ -207,13 +208,13 @@ func (s *Store) UpdateTask(ctx context.Context, id string, mutate func(*Task)) (
 
 		_, err = tx.ExecContext(ctx, `
 			UPDATE tasks SET
-				name = ?, prompt = ?, repo = ?, cwd = ?, worktree = ?, branch = ?,
+				name = ?, prompt = ?, repo = ?, cwd = ?, worktree = ?, branch = ?, base_commit = ?,
 				model = ?, permission_mode = ?, status = ?, attempts = ?,
 				max_attempts = ?, session_id = ?, cost_usd = ?, budget_usd = ?,
 				updated_ms = ?
 			WHERE id = ?
 		`,
-			t.Name, t.Prompt, t.Repo, t.Cwd, nullableStr(t.Worktree), nullableStr(t.Branch),
+			t.Name, t.Prompt, t.Repo, t.Cwd, nullableStr(t.Worktree), nullableStr(t.Branch), nullableStr(t.BaseCommit),
 			nullableStr(t.Model), nullableStr(t.PermissionMode), string(t.Status), t.Attempts,
 			t.MaxAttempts, nullableStr(t.SessionID), t.CostUSD, nullableFloatPtr(t.BudgetUSD),
 			t.UpdatedMs, t.ID,
@@ -634,20 +635,20 @@ func (s *Store) SubmitDAG(ctx context.Context, sub DAGSubmission) error {
 }
 
 const taskSelectColumns = `SELECT
-	id, dag_id, name, prompt, repo, cwd, worktree, branch, model,
+	id, dag_id, name, prompt, repo, cwd, worktree, branch, base_commit, model,
 	permission_mode, status, attempts, max_attempts, session_id,
 	cost_usd, budget_usd, created_ms, updated_ms`
 
 func scanTask(row rowScanner) (*Task, error) {
 	var (
-		t                                       Task
-		status                                  string
-		worktree, branch, model, permMode, sess sql.NullString
-		budgetUSD                               sql.NullFloat64
+		t                                                   Task
+		status                                              string
+		worktree, branch, baseCommit, model, permMode, sess sql.NullString
+		budgetUSD                                           sql.NullFloat64
 	)
 
 	err := row.Scan(
-		&t.ID, &t.DAGID, &t.Name, &t.Prompt, &t.Repo, &t.Cwd, &worktree, &branch,
+		&t.ID, &t.DAGID, &t.Name, &t.Prompt, &t.Repo, &t.Cwd, &worktree, &branch, &baseCommit,
 		&model, &permMode, &status, &t.Attempts, &t.MaxAttempts, &sess,
 		&t.CostUSD, &budgetUSD, &t.CreatedMs, &t.UpdatedMs,
 	)
@@ -661,6 +662,7 @@ func scanTask(row rowScanner) (*Task, error) {
 	t.Status = TaskStatus(status)
 	t.Worktree = worktree.String
 	t.Branch = branch.String
+	t.BaseCommit = baseCommit.String
 	t.Model = model.String
 	t.PermissionMode = permMode.String
 	t.SessionID = sess.String

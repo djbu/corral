@@ -44,11 +44,27 @@ type Worktree struct {
 // on collision retry with a new branch name (e.g. the next attempt's
 // `-a<N>` suffix, §6.1) rather than expecting this call to be idempotent.
 func AddWorktree(ctx context.Context, repo, path, branch string) error {
-	_, err := run(ctx, repo, "worktree", "add", "-b", branch, path, "HEAD")
+	return AddWorktreeAt(ctx, repo, path, branch, "HEAD")
+}
+
+// AddWorktreeAt creates branch at an already-resolved commit. M8 uses this
+// to persist and check the exact fork point rather than later guessing it
+// from a moving target branch.
+func AddWorktreeAt(ctx context.Context, repo, path, branch, commit string) error {
+	_, err := run(ctx, repo, "worktree", "add", "-b", branch, path, commit)
 	if err != nil {
 		return fmt.Errorf("git: add worktree %s (branch %s) in %s: %w", path, branch, repo, err)
 	}
 	return nil
+}
+
+// RevParse resolves rev to an immutable object id in repo.
+func RevParse(ctx context.Context, repo, rev string) (string, error) {
+	out, err := run(ctx, repo, "rev-parse", "--verify", rev)
+	if err != nil {
+		return "", fmt.Errorf("git: resolving %s in %s: %w", rev, repo, err)
+	}
+	return strings.TrimSpace(out), nil
 }
 
 // RemoveWorktree deletes a worktree, running:

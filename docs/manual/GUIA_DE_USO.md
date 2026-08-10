@@ -334,9 +334,43 @@ corral review "$dag_id"
 corral review --diff "$dag_id"
 ```
 
-Use `--worktree` para aislar cambios de tareas automatizadas. Actualmente
-`review` sólo inspecciona: aceptar, integrar o descartar la rama se hace con Git
-después de revisión humana.
+Use `--worktree` para aislar cambios de tareas automatizadas. Al terminar, la
+tabla muestra el ID de la tarea y `pending_review`. Nada entra en la rama
+principal automáticamente.
+
+Antes de integrar, ejecute un preflight de sólo lectura contra la rama que está
+checkout en el repositorio principal:
+
+```sh
+task_id=<id-mostrado-por-corral-review>
+corral review preflight "$task_id" --strategy merge --target main --json
+```
+
+Guarde `target_head` de esa respuesta y úselo como identidad exacta:
+
+```sh
+corral review release "$task_id" \
+  --strategy merge --target main --expect <target_head>
+```
+
+También puede elegir `cherry-pick`. La estrategia `branch` marca el resultado
+como liberado pero sólo conserva rama y worktree; no toca la rama destino:
+
+```sh
+corral review release "$task_id" --strategy branch
+```
+
+Para rechazar el resultado, use el `task_head` del preflight. corral crea una
+ref `refs/corral/recovery/...`, conserva la rama y después retira el worktree:
+
+```sh
+corral review preflight "$task_id" --strategy branch --json
+corral review discard "$task_id" --expect <task_head>
+```
+
+Un worktree sucio bloquea el descarte. `--force` pierde cambios no committeados
+y por eso vuelve a comprobar repo, path, rama y commit antes de actuar. Release
+y discard son operaciones locales: nunca hacen `push`.
 
 `--permission-mode` sólo se admite como argumento explícito en el modo de una
 tarea. No puede venir de un archivo DAG ni del repositorio.
@@ -653,6 +687,9 @@ parcial.
 | Ejecutar tarea | `corral run --repo DIR [--worktree] PROMPT` |
 | Ejecutar DAG | `corral run --file dag.toml` |
 | Revisar resultados | `corral review [--diff] [DAG]` |
+| Validar integración | `corral review preflight TASK --strategy merge --target BRANCH` |
+| Integrar resultado | `corral review release TASK --strategy merge --target BRANCH --expect SHA` |
+| Descartar recuperable | `corral review discard TASK --expect SHA` |
 | Tokens remotos | `corral token create\|list\|revoke` |
 | Aprendizajes | `corral learnings scan\|list\|show\|adopt\|reject\|retire\|report` |
 

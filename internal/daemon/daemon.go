@@ -28,6 +28,7 @@ import (
 	"github.com/djbu/corral/internal/notify"
 	"github.com/djbu/corral/internal/orchestrator"
 	"github.com/djbu/corral/internal/reaper"
+	"github.com/djbu/corral/internal/review"
 	"github.com/djbu/corral/internal/session"
 	"github.com/djbu/corral/internal/state"
 	"github.com/djbu/corral/internal/store"
@@ -479,7 +480,7 @@ func (d *Daemon) startup(ctx context.Context) error {
 		Engine:   d.engine,
 		Registry: registry,
 	})
-	srv.RegisterDags(api.DagsDeps{Store: d.store})
+	srv.RegisterDags(api.DagsDeps{Store: d.store, Review: review.New(d.store, d.clk)})
 	srv.RegisterDashboard(api.DashboardDeps{
 		Store:    d.store,
 		Engine:   d.engine,

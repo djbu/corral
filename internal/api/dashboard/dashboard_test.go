@@ -39,6 +39,7 @@ func TestHandler_ServesAppJS(t *testing.T) {
 	for _, required := range []string{
 		"/v1/learnings/", "Pinned settings diff", "learningActionButton('Adopt', 'adopt')",
 		"learningActionButton('Reject', 'reject')", "learningActionButton('Retire', 'retire')",
+		"/review/preflight", "'/review/' + action", "Inspect review", "Discard (recoverable)",
 	} {
 		if !strings.Contains(rec.Body.String(), required) {
 			t.Errorf("app.js missing learning dashboard contract %q", required)

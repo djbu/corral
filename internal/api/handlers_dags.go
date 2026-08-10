@@ -5,18 +5,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/google/uuid"
 
 	"github.com/djbu/corral/internal/orchestrator"
+	"github.com/djbu/corral/internal/review"
 	"github.com/djbu/corral/internal/store"
 )
 
 // DagsDeps is everything handlers_dags.go's routes need. daemon.go
 // constructs one at startup and passes it to RegisterDags.
 type DagsDeps struct {
-	Store *store.Store
+	Store  *store.Store
+	Review *review.Service
 }
 
 // RegisterDags registers POST /v1/dags, GET /v1/dags, and GET
@@ -25,6 +28,10 @@ func (s *Server) RegisterDags(deps DagsDeps) {
 	s.Handle("POST /v1/dags", deps.handleCreate)
 	s.Handle("GET /v1/dags", deps.handleList)
 	s.Handle("GET /v1/dags/{id}", deps.handleGet)
+	s.Handle("GET /v1/tasks/{id}/review/preflight", deps.handleReviewPreflight)
+	s.Handle("GET /v1/tasks/{id}/review/diff", deps.handleReviewDiff)
+	s.Handle("POST /v1/tasks/{id}/review/release", deps.handleReviewRelease)
+	s.Handle("POST /v1/tasks/{id}/review/discard", deps.handleReviewDiscard)
 }
 
 // dagNodeRequest is one entry in createDagRequest.Nodes: a task-to-be,
@@ -60,17 +67,19 @@ type createDagRequest struct {
 // sessionResponse's style for fields that are "set or absent" rather than
 // "explicitly null vs unset".
 type dagTaskResponse struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	Status      string  `json:"status"`
-	CostUSD     float64 `json:"cost_usd"`
-	Worktree    string  `json:"worktree,omitempty"`
-	Branch      string  `json:"branch,omitempty"`
-	Model       string  `json:"model,omitempty"`
-	Attempts    int     `json:"attempts"`
-	MaxAttempts int     `json:"max_attempts"`
-	SessionID   string  `json:"session_id,omitempty"`
-	Repo        string  `json:"repo,omitempty"`
+	ID           string  `json:"id"`
+	Name         string  `json:"name"`
+	Status       string  `json:"status"`
+	CostUSD      float64 `json:"cost_usd"`
+	Worktree     string  `json:"worktree,omitempty"`
+	Branch       string  `json:"branch,omitempty"`
+	BaseCommit   string  `json:"base_commit,omitempty"`
+	ReviewStatus string  `json:"review_status,omitempty"`
+	Model        string  `json:"model,omitempty"`
+	Attempts     int     `json:"attempts"`
+	MaxAttempts  int     `json:"max_attempts"`
+	SessionID    string  `json:"session_id,omitempty"`
+	Repo         string  `json:"repo,omitempty"`
 }
 
 // dagEdgeResponse is one dependency edge in a dagDetailResponse, by task ID
@@ -104,19 +113,21 @@ type listDagsResponse struct {
 }
 
 // toDagTaskResponse converts a store.Task into wire shape.
-func toDagTaskResponse(t *store.Task) dagTaskResponse {
+func toDagTaskResponse(t *store.Task, reviewStatus string) dagTaskResponse {
 	return dagTaskResponse{
-		ID:          t.ID,
-		Name:        t.Name,
-		Status:      string(t.Status),
-		CostUSD:     t.CostUSD,
-		Worktree:    t.Worktree,
-		Branch:      t.Branch,
-		Model:       t.Model,
-		Attempts:    t.Attempts,
-		MaxAttempts: t.MaxAttempts,
-		SessionID:   t.SessionID,
-		Repo:        t.Repo,
+		ID:           t.ID,
+		Name:         t.Name,
+		Status:       string(t.Status),
+		CostUSD:      t.CostUSD,
+		Worktree:     t.Worktree,
+		Branch:       t.Branch,
+		BaseCommit:   t.BaseCommit,
+		ReviewStatus: reviewStatus,
+		Model:        t.Model,
+		Attempts:     t.Attempts,
+		MaxAttempts:  t.MaxAttempts,
+		SessionID:    t.SessionID,
+		Repo:         t.Repo,
 	}
 }
 
@@ -136,7 +147,13 @@ func (d DagsDeps) dagDetail(ctx context.Context, dagID string, budgetUSD *float6
 
 	taskResps := make([]dagTaskResponse, 0, len(tasks))
 	for _, t := range tasks {
-		taskResps = append(taskResps, toDagTaskResponse(t))
+		reviewStatus := ""
+		if rv, reviewErr := d.Store.GetTaskReview(ctx, t.ID); reviewErr == nil {
+			reviewStatus = string(rv.Status)
+		} else if !errors.Is(reviewErr, store.ErrNotFound) {
+			return dagDetailResponse{}, reviewErr
+		}
+		taskResps = append(taskResps, toDagTaskResponse(t, reviewStatus))
 	}
 	edgeResps := make([]dagEdgeResponse, 0, len(deps))
 	for _, dp := range deps {
@@ -356,4 +373,133 @@ func (d DagsDeps) handleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, detail)
+}
+
+func (d DagsDeps) reviewService() *review.Service {
+	if d.Review != nil {
+		return d.Review
+	}
+	return review.New(d.Store)
+}
+
+func (d DagsDeps) authorizeReviewTask(w http.ResponseWriter, r *http.Request, mutate bool) (*store.Task, bool) {
+	task, err := d.Store.GetTask(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, CodeTaskNotFound, "task not found", nil)
+		return nil, false
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
+		return nil, false
+	}
+	row, hasToken := TokenFromContext(r.Context())
+	if mutate && hasToken && row.Scope != "admin" {
+		writeError(w, http.StatusForbidden, CodeForbidden, "admin token required for review mutation", nil)
+		return nil, false
+	}
+	if !mutate {
+		if allowed, isScoped, scopeErr := tokenDAGScope(r.Context(), d.Store); scopeErr != nil {
+			writeError(w, http.StatusInternalServerError, CodeInternal, scopeErr.Error(), nil)
+			return nil, false
+		} else if isScoped && allowed != task.DAGID {
+			writeError(w, http.StatusForbidden, CodeForbidden, "token is not scoped to this task", nil)
+			return nil, false
+		}
+	}
+	return task, true
+}
+
+func (d DagsDeps) handleReviewPreflight(w http.ResponseWriter, r *http.Request) {
+	if _, ok := d.authorizeReviewTask(w, r, false); !ok {
+		return
+	}
+	p, err := d.reviewService().Preflight(r.Context(), r.PathValue("id"), review.Strategy(r.URL.Query().Get("strategy")), r.URL.Query().Get("target"))
+	if errors.Is(err, review.ErrNotReviewable) {
+		writeError(w, http.StatusConflict, CodeReviewConflict, err.Error(), nil)
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
+func (d DagsDeps) handleReviewDiff(w http.ResponseWriter, r *http.Request) {
+	if _, ok := d.authorizeReviewTask(w, r, false); !ok {
+		return
+	}
+	diff, err := d.reviewService().Diff(r.Context(), r.PathValue("id"), r.URL.Query().Get("full") == "1")
+	if errors.Is(err, review.ErrNotReviewable) {
+		writeError(w, http.StatusConflict, CodeReviewConflict, err.Error(), nil)
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"diff": diff})
+}
+
+func decodeStrictJSON(r *http.Request, dst any) error {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
+		return err
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("multiple JSON values")
+		}
+		return err
+	}
+	return nil
+}
+
+func writeReviewError(w http.ResponseWriter, err error, p review.Preflight) {
+	switch {
+	case errors.Is(err, review.ErrPreflight):
+		writeJSON(w, http.StatusConflict, map[string]any{"error": errorBody{Code: CodeReviewPreflight, Message: err.Error(), Details: map[string]any{}}, "preflight": p})
+	case errors.Is(err, review.ErrIdentityChanged), errors.Is(err, store.ErrReviewConflict), errors.Is(err, review.ErrNotReviewable):
+		writeError(w, http.StatusConflict, CodeReviewConflict, err.Error(), nil)
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, CodeTaskNotFound, "task not found", nil)
+	default:
+		writeError(w, http.StatusInternalServerError, CodeInternal, err.Error(), nil)
+	}
+}
+
+func (d DagsDeps) handleReviewRelease(w http.ResponseWriter, r *http.Request) {
+	if _, ok := d.authorizeReviewTask(w, r, true); !ok {
+		return
+	}
+	var req review.ReleaseRequest
+	if err := decodeStrictJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, CodeBadRequest, "invalid JSON body: "+err.Error(), nil)
+		return
+	}
+	result, err := d.reviewService().Release(r.Context(), r.PathValue("id"), req)
+	if err != nil {
+		writeReviewError(w, err, result.Preflight)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (d DagsDeps) handleReviewDiscard(w http.ResponseWriter, r *http.Request) {
+	if _, ok := d.authorizeReviewTask(w, r, true); !ok {
+		return
+	}
+	var req review.DiscardRequest
+	if err := decodeStrictJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, CodeBadRequest, "invalid JSON body: "+err.Error(), nil)
+		return
+	}
+	result, err := d.reviewService().Discard(r.Context(), r.PathValue("id"), req)
+	if err != nil {
+		writeReviewError(w, err, result.Preflight)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }

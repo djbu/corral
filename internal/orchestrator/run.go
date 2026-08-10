@@ -38,6 +38,7 @@ type Store interface {
 	TaskDeps(ctx context.Context, dagID string) ([]store.Dep, error)
 	GetTask(ctx context.Context, id string) (*store.Task, error)
 	UpdateTask(ctx context.Context, id string, mutate func(*store.Task)) (*store.Task, error)
+	MarkTaskSucceeded(ctx context.Context, taskID string) error
 	SetTaskSession(ctx context.Context, taskID, sessionID string) error
 	AddCost(ctx context.Context, taskID string, usd float64) error
 	GetDAGBudget(ctx context.Context, dagID string) (*store.DAGBudget, error)
@@ -378,7 +379,7 @@ func (o *Orchestrator) launchTask(ctx context.Context, task *store.Task, deps []
 	// schema comment documents as "worktree path once created, else repo"
 	// — i.e. already correct for a task that never requested a worktree.
 	cwd := task.Cwd
-	newWorktree, newBranch := "", ""
+	newWorktree, newBranch, baseCommit := "", "", ""
 	if task.Worktree != "" {
 		// A non-empty task.Worktree is this task's "a worktree was
 		// requested" signal (§3.2: "worktree path if --worktree, else
@@ -389,10 +390,17 @@ func (o *Orchestrator) launchTask(ctx context.Context, task *store.Task, deps []
 		// report for why the exact pre-resolution sentinel isn't nailed
 		// down yet. Every attempt gets its OWN fresh worktree/branch
 		// (never reused across retries), matching the worktree-per-task-
-		// isolation naming convention (§6.2): "<name>-a<N>".
+		// isolation naming convention. Including the DAG id makes branch
+		// ownership unambiguous even when several DAGs reuse the same task
+		// name; the worktree path was already namespaced this way.
 		newWorktree = filepath.Join(o.cfg.StateDir, "worktrees", task.DAGID, name)
-		newBranch = fmt.Sprintf("corral/task/%s", name)
-		if err := git.AddWorktree(ctx, task.Repo, newWorktree, newBranch); err != nil {
+		newBranch = fmt.Sprintf("corral/task/%s/%s", task.DAGID, name)
+		var err error
+		baseCommit, err = git.RevParse(ctx, task.Repo, "HEAD")
+		if err != nil {
+			return fmt.Errorf("resolving worktree base: %w", err)
+		}
+		if err := git.AddWorktreeAt(ctx, task.Repo, newWorktree, newBranch, baseCommit); err != nil {
 			return fmt.Errorf("adding worktree: %w", err)
 		}
 		cwd = newWorktree
@@ -434,6 +442,7 @@ func (o *Orchestrator) launchTask(ctx context.Context, task *store.Task, deps []
 		if newWorktree != "" {
 			t.Worktree = newWorktree
 			t.Branch = newBranch
+			t.BaseCommit = baseCommit
 		}
 	}); err != nil {
 		return fmt.Errorf("marking task running: %w", err)
@@ -629,9 +638,7 @@ func (o *Orchestrator) outcomeForSession(ctx context.Context, sessionID string) 
 // the budget forbids.
 func (o *Orchestrator) applyOutcome(ctx context.Context, task *store.Task, success, overBudget bool) error {
 	if success {
-		_, err := o.store.UpdateTask(ctx, task.ID, func(t *store.Task) {
-			t.Status = store.TaskSucceeded
-		})
+		err := o.store.MarkTaskSucceeded(ctx, task.ID)
 		delete(o.nextAttemptAt, task.ID)
 		return err
 	}

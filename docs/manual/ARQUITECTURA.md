@@ -34,11 +34,13 @@ flowchart LR
     Daemon --> Supervisor["Supervisor de sesiones"]
     Daemon --> State["Motor de estado"]
     Daemon --> Orch["Orquestador de DAGs"]
+    Daemon --> Review["Servicio de review"]
     Daemon --> Learn["Learning loop"]
     Daemon --> DB["SQLite + eventos"]
 
     Supervisor -->|"PTY interactivo"| ClaudeI["Claude Code interactivo"]
     Orch -->|"stream-json headless"| ClaudeH["Claude Code headless"]
+    Review -->|"preflight + mutación explícita"| Git["Repos y worktrees Git"]
     ClaudeI -->|"hooks estructurados"| Relay["hook-relay"]
     ClaudeH -->|"hooks + stream-json"| Relay
     Relay --> API
@@ -133,7 +135,30 @@ con éxito.
 
 Los nodos se ejecutan con Claude Code en modo `stream-json`, no en un PTY. El
 orquestador captura resultado y costo, aplica reintentos y límites, y puede
-crear un git worktree y una rama aislados por tarea.
+crear un git worktree y una rama aislados por tarea. La rama incluye DAG,
+nombre e intento (`corral/task/<dag-id>/<nombre>-a<N>`), de modo que dos DAGs
+pueden reutilizar nombres sin compartir refs.
+
+### Servicio de review
+
+Terminar una tarea y aceptar sus cambios son estados distintos. Cuando una
+tarea con worktree termina con éxito, el store conserva `succeeded` como estado
+de ejecución y crea un review `pending_review`. El commit base se capturó antes
+de crear el worktree; por eso el diff no depende del HEAD que tenga el repo más
+tarde.
+
+El servicio `internal/review` es la única frontera que muta Git para aceptar o
+descartar. Su preflight comprueba repo y worktree canónicos, ownership de la
+rama, base y HEAD exactos, limpieza, operación Git en curso, ancestry y
+conflictos. Release repite ese preflight bajo un lock por repositorio y exige el
+HEAD destino que vio la persona. Sólo entonces ejecuta merge, cherry-pick o
+conservación de rama. Nunca resuelve conflictos, hace push ni borra la rama.
+
+Discard también exige el HEAD exacto. Antes de retirar el worktree crea una ref
+`refs/corral/recovery/...` y conserva la rama. Un worktree sucio se rechaza por
+defecto; el modo force declara que perderá cambios no committeados y requiere
+repetir toda la identidad. El resultado terminal (`released` o `discarded`) y
+su evento auditable se persisten juntos después de que Git haya terminado.
 
 ### Store y eventos
 
@@ -142,6 +167,7 @@ SQLite es la fuente durable bajo `~/.corral/corral.db`. El esquema contiene:
 - sesiones y su intención de ejecución;
 - un log de eventos append-only;
 - tareas, dependencias y presupuestos de DAG;
+- base Git y decisión de review independiente por tarea;
 - hashes y metadatos de tokens de API;
 - candidatos, evidencia y mediciones del learning loop.
 
@@ -291,6 +317,7 @@ restrictivos. No se recomienda editar la base ni los settings generados.
 | `internal/state` | Máquina de estados basada en hooks |
 | `internal/checkpoint` | Checkpoint y resume |
 | `internal/orchestrator` | DAG, dependencias, reintentos y costos |
+| `internal/review` | Preflight y mutaciones Git comprobadas de release/discard |
 | `internal/api` | API, auth, scopes, SSE y dashboard embebido |
 | `internal/store` | SQLite, migraciones y consultas |
 | `internal/dataops` | Plan/aplicación de GC estrictamente bajo state_dir |
@@ -343,7 +370,7 @@ público ni una fórmula con checksums ficticios. El contrato está en
 
 ## 10. Qué está completo y qué no
 
-La línea funcional M0–M6 está cerrada en `v0.6.0`: sesiones interactivas,
+La línea funcional M0–M7 está cerrada en `v0.7.0`: sesiones interactivas,
 hooks, notificaciones, checkpoint/recovery, DAGs, acceso remoto, dashboard y el
 primer learning loop verificado. M7A ya estableció el repositorio privado,
 identidad legal y CI protegida. M7B añade el pipeline reproducible de releases
@@ -353,18 +380,18 @@ restore, GC y protección ante poco disco. M7F añade el harness de promoción
 sobre runners efímeros macOS/Linux: instala el artefacto privado real sobre
 `v0.6.0`, valida migración y recovery, ejercita PTY y TLS/token, y comprueba
 que uninstall conserva los datos. Esa matriz quedó verde con `v0.7.0-rc.2` y
-M7 se cierra con la release privada anotada `v0.7.0`.
+M7 se cierra con la release privada anotada `v0.7.0`. M8 añade el ciclo seguro
+de review descrito arriba; su release objetivo es `v0.8.0`.
 
 El proyecto continúa en pre-alpha. El orden, dependencias y gates están en el
 [plan ejecutable post-M6](../roadmap/POST_M6.md). Los pendientes principales
 son:
 
-1. comandos seguros para aceptar o descartar worktrees desde `corral review`;
-2. E2E con navegador real, además del E2E HTTP ya existente;
-3. Windows, modo multiusuario/equipo y más notificadores;
-4. las siguientes familias de aprendizaje: memoria operacional, routing de
+1. promover M8 mediante sus RCs y la matriz de upgrade macOS/Linux;
+2. Windows, modo multiusuario/equipo y más notificadores;
+3. las siguientes familias de aprendizaje: memoria operacional, routing de
    modelo, síntesis de skills y corpus de regresión;
-5. funciones avanzadas de flota descritas en el runbook, como scheduling por
+4. funciones avanzadas de flota descritas en el runbook, como scheduling por
    cuota y una superficie MCP.
 
 Estas extensiones no impiden usar el núcleo actual, pero sí importan antes de

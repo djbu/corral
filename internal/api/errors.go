@@ -30,6 +30,9 @@ const (
 	CodeSessionNotResumable Code = "session_not_resumable"
 	CodeDAGNotFound         Code = "dag_not_found"
 	CodeDAGCycle            Code = "dag_cycle"
+	CodeTaskNotFound        Code = "task_not_found"
+	CodeReviewConflict      Code = "review_conflict"
+	CodeReviewPreflight     Code = "review_preflight"
 	CodeLearningNotFound    Code = "learning_not_found"
 	CodeLearningConflict    Code = "learning_conflict"
 	// CodeForbidden: token's scope='session' subtree does not include the

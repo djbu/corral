@@ -58,6 +58,9 @@ jobs:
       - name: Test with race detector
         run: go test -race ./...
 
+      - name: Exercise review lifecycle
+        run: scripts/release/smoke-review.sh
+
       - name: Build static binary
         env:
           CGO_ENABLED: "0"
