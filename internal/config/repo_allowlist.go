@@ -205,6 +205,39 @@ func filterRepoLayer(file string, l *layer) (*layer, []Rejection) {
 	if len(l.Notify.Webhook.Headers) > 0 {
 		reject("notify.webhook.headers")
 	}
+	if l.Notify.Conversation.ReplyTTL != nil {
+		reject("notify.conversation.reply_ttl")
+	}
+	if l.Notify.Conversation.DedupeTTL != nil {
+		reject("notify.conversation.dedupe_ttl")
+	}
+	if l.Notify.Slack.Enabled != nil {
+		reject("notify.slack.enabled")
+	}
+	if l.Notify.Slack.BotToken != nil {
+		reject("notify.slack.bot_token")
+	}
+	if l.Notify.Slack.SigningSecret != nil {
+		reject("notify.slack.signing_secret")
+	}
+	if l.Notify.Slack.AllowedUsers != nil {
+		reject("notify.slack.allowed_users")
+	}
+	if l.Notify.Slack.AllowedChats != nil {
+		reject("notify.slack.allowed_chats")
+	}
+	if l.Notify.Telegram.Enabled != nil {
+		reject("notify.telegram.enabled")
+	}
+	if l.Notify.Telegram.BotToken != nil {
+		reject("notify.telegram.bot_token")
+	}
+	if l.Notify.Telegram.AllowedUsers != nil {
+		reject("notify.telegram.allowed_users")
+	}
+	if l.Notify.Telegram.AllowedChats != nil {
+		reject("notify.telegram.allowed_chats")
+	}
 
 	// [client] — nothing is repo-settable (design doc m5.md §7): a repo's
 	// .corral.toml is attacker-controlled content in any cloned repo; letting

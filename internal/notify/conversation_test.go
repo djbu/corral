@@ -19,7 +19,8 @@ func testConversation(t *testing.T) (*Conversation, *fakeInputWriter, *clocktest
 	setAgentState(t, st, "blocked-id", session.AgentBlocked)
 	writer := newFakeWriter()
 	return NewConversation(ConversationOptions{
-		ReplyTTL: 10 * time.Minute,
+		ReplyTTL:  10 * time.Minute,
+		DedupeTTL: 24 * time.Hour,
 		Access: map[string]ConversationAccess{
 			"slack": {AllowedSenders: map[string]struct{}{"user-1": {}, "private-user": {}}, AllowedChats: map[string]struct{}{"chat-1": {}, "private-chat": {}}},
 		},

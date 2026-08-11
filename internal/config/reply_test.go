@@ -51,3 +51,42 @@ func TestValidateReply(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateReply_ConversationBackendsFailClosed(t *testing.T) {
+	validSlack := Notify{Slack: NotifySlack{
+		Enabled: true, BotToken: "xoxb-test", SigningSecret: "signing", AllowedUsers: []string{"U1"}, AllowedChats: []string{"D1"},
+	}}
+	if err := ValidateReply(validSlack); err != nil {
+		t.Fatalf("valid Slack config: %v", err)
+	}
+	for _, mutate := range []func(*Notify){
+		func(n *Notify) { n.Slack.BotToken = "" },
+		func(n *Notify) { n.Slack.SigningSecret = "" },
+		func(n *Notify) { n.Slack.AllowedUsers = nil },
+		func(n *Notify) { n.Slack.AllowedChats = nil },
+	} {
+		n := validSlack
+		mutate(&n)
+		if err := ValidateReply(n); err == nil {
+			t.Fatal("incomplete enabled Slack config was accepted")
+		}
+	}
+
+	validTelegram := Notify{Telegram: NotifyTelegram{
+		Enabled: true, BotToken: "123:token", AllowedUsers: []string{"1"}, AllowedChats: []string{"2"},
+	}}
+	if err := ValidateReply(validTelegram); err != nil {
+		t.Fatalf("valid Telegram config: %v", err)
+	}
+	for _, mutate := range []func(*Notify){
+		func(n *Notify) { n.Telegram.BotToken = "" },
+		func(n *Notify) { n.Telegram.AllowedUsers = nil },
+		func(n *Notify) { n.Telegram.AllowedChats = nil },
+	} {
+		n := validTelegram
+		mutate(&n)
+		if err := ValidateReply(n); err == nil {
+			t.Fatal("incomplete enabled Telegram config was accepted")
+		}
+	}
+}

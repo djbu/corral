@@ -86,13 +86,16 @@ type stateLayer struct {
 // block writes it unquoted (retries=3) — BurntSushi/toml is strictly typed
 // and will not decode an unquoted TOML integer into a *string field.
 type notifyLayer struct {
-	Enabled  *bool              `toml:"enabled"`
-	On       *[]string          `toml:"on"`
-	Debounce *string            `toml:"debounce"`
-	Timeout  *string            `toml:"timeout"`
-	Retries  *int               `toml:"retries"`
-	Ntfy     notifyNtfyLayer    `toml:"ntfy"`
-	Webhook  notifyWebhookLayer `toml:"webhook"`
+	Enabled      *bool                   `toml:"enabled"`
+	On           *[]string               `toml:"on"`
+	Debounce     *string                 `toml:"debounce"`
+	Timeout      *string                 `toml:"timeout"`
+	Retries      *int                    `toml:"retries"`
+	Ntfy         notifyNtfyLayer         `toml:"ntfy"`
+	Webhook      notifyWebhookLayer      `toml:"webhook"`
+	Conversation notifyConversationLayer `toml:"conversation"`
+	Slack        notifySlackLayer        `toml:"slack"`
+	Telegram     notifyTelegramLayer     `toml:"telegram"`
 }
 
 type notifyNtfyLayer struct {
@@ -114,6 +117,26 @@ type notifyWebhookLayer struct {
 	Enabled *bool             `toml:"enabled"`
 	URL     *string           `toml:"url"`
 	Headers map[string]string `toml:"headers,omitempty"`
+}
+
+type notifyConversationLayer struct {
+	ReplyTTL  *string `toml:"reply_ttl"`
+	DedupeTTL *string `toml:"dedupe_ttl"`
+}
+
+type notifySlackLayer struct {
+	Enabled       *bool     `toml:"enabled"`
+	BotToken      *string   `toml:"bot_token"`
+	SigningSecret *string   `toml:"signing_secret"`
+	AllowedUsers  *[]string `toml:"allowed_users"`
+	AllowedChats  *[]string `toml:"allowed_chats"`
+}
+
+type notifyTelegramLayer struct {
+	Enabled      *bool     `toml:"enabled"`
+	BotToken     *string   `toml:"bot_token"`
+	AllowedUsers *[]string `toml:"allowed_users"`
+	AllowedChats *[]string `toml:"allowed_chats"`
 }
 
 // clientLayer is [client]'s section (design doc m5.md §7): entirely
@@ -379,6 +402,9 @@ func mergeNotify(dst, src *notifyLayer, srcSource sourceFunc, sources map[string
 	}
 	mergeNotifyNtfy(&dst.Ntfy, &src.Ntfy, srcSource, sources)
 	mergeNotifyWebhook(&dst.Webhook, &src.Webhook, srcSource, sources)
+	mergeNotifyConversation(&dst.Conversation, &src.Conversation, srcSource, sources)
+	mergeNotifySlack(&dst.Slack, &src.Slack, srcSource, sources)
+	mergeNotifyTelegram(&dst.Telegram, &src.Telegram, srcSource, sources)
 }
 
 func mergeNotifyNtfy(dst, src *notifyNtfyLayer, srcSource sourceFunc, sources map[string]string) {
@@ -432,6 +458,59 @@ func mergeNotifyWebhook(dst, src *notifyWebhookLayer, srcSource sourceFunc, sour
 	if src.Headers != nil {
 		dst.Headers = src.Headers
 		sources["notify.webhook.headers"] = srcSource("notify.webhook.headers")
+	}
+}
+
+func mergeNotifyConversation(dst, src *notifyConversationLayer, srcSource sourceFunc, sources map[string]string) {
+	if src.ReplyTTL != nil {
+		dst.ReplyTTL = src.ReplyTTL
+		sources["notify.conversation.reply_ttl"] = srcSource("notify.conversation.reply_ttl")
+	}
+	if src.DedupeTTL != nil {
+		dst.DedupeTTL = src.DedupeTTL
+		sources["notify.conversation.dedupe_ttl"] = srcSource("notify.conversation.dedupe_ttl")
+	}
+}
+
+func mergeNotifySlack(dst, src *notifySlackLayer, srcSource sourceFunc, sources map[string]string) {
+	if src.Enabled != nil {
+		dst.Enabled = src.Enabled
+		sources["notify.slack.enabled"] = srcSource("notify.slack.enabled")
+	}
+	if src.BotToken != nil {
+		dst.BotToken = src.BotToken
+		sources["notify.slack.bot_token"] = srcSource("notify.slack.bot_token")
+	}
+	if src.SigningSecret != nil {
+		dst.SigningSecret = src.SigningSecret
+		sources["notify.slack.signing_secret"] = srcSource("notify.slack.signing_secret")
+	}
+	if src.AllowedUsers != nil {
+		dst.AllowedUsers = src.AllowedUsers
+		sources["notify.slack.allowed_users"] = srcSource("notify.slack.allowed_users")
+	}
+	if src.AllowedChats != nil {
+		dst.AllowedChats = src.AllowedChats
+		sources["notify.slack.allowed_chats"] = srcSource("notify.slack.allowed_chats")
+	}
+}
+
+func mergeNotifyTelegram(dst, src *notifyTelegramLayer, srcSource sourceFunc, sources map[string]string) {
+	if src.Enabled != nil {
+		dst.Enabled = src.Enabled
+		sources["notify.telegram.enabled"] = srcSource("notify.telegram.enabled")
+	}
+	if src.BotToken != nil {
+		dst.BotToken = src.BotToken
+		sources["notify.telegram.bot_token"] = srcSource("notify.telegram.bot_token")
+	}
+	if src.AllowedUsers != nil {
+		dst.AllowedUsers = src.AllowedUsers
+		sources["notify.telegram.allowed_users"] = srcSource("notify.telegram.allowed_users")
+	}
+	if src.AllowedChats != nil {
+		dst.AllowedChats = src.AllowedChats
+		sources["notify.telegram.allowed_chats"] = srcSource("notify.telegram.allowed_chats")
 	}
 }
 

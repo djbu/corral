@@ -98,6 +98,9 @@ func defaultsNotifyLayer() *notifyLayer {
 			URL:     strPtr(""),
 			Headers: map[string]string{},
 		},
+		Conversation: notifyConversationLayer{ReplyTTL: strPtr("10m"), DedupeTTL: strPtr("24h")},
+		Slack:        notifySlackLayer{Enabled: boolPtr(false), BotToken: strPtr(""), SigningSecret: strPtr(""), AllowedUsers: strsPtr([]string{}), AllowedChats: strsPtr([]string{})},
+		Telegram:     notifyTelegramLayer{Enabled: boolPtr(false), BotToken: strPtr(""), AllowedUsers: strsPtr([]string{}), AllowedChats: strsPtr([]string{})},
 	}
 }
 
@@ -456,6 +459,14 @@ func resolveNotify(l *notifyLayer) (Notify, error) {
 	if err != nil {
 		return Notify{}, fmt.Errorf("config: notify.timeout=%q: %w", derefStr(l.Timeout), err)
 	}
+	replyTTL, err := time.ParseDuration(derefStr(l.Conversation.ReplyTTL))
+	if err != nil || replyTTL <= 0 {
+		return Notify{}, fmt.Errorf("config: notify.conversation.reply_ttl=%q: must be a positive duration", derefStr(l.Conversation.ReplyTTL))
+	}
+	dedupeTTL, err := time.ParseDuration(derefStr(l.Conversation.DedupeTTL))
+	if err != nil || dedupeTTL <= 0 {
+		return Notify{}, fmt.Errorf("config: notify.conversation.dedupe_ttl=%q: must be a positive duration", derefStr(l.Conversation.DedupeTTL))
+	}
 	retries := derefInt(l.Retries)
 	on := []string{"blocked"}
 	if l.On != nil {
@@ -484,6 +495,9 @@ func resolveNotify(l *notifyLayer) (Notify, error) {
 			URL:     derefStr(l.Webhook.URL),
 			Headers: l.Webhook.Headers,
 		},
+		Conversation: NotifyConversation{ReplyTTL: replyTTL, DedupeTTL: dedupeTTL},
+		Slack:        NotifySlack{Enabled: derefBool(l.Slack.Enabled), BotToken: derefStr(l.Slack.BotToken), SigningSecret: derefStr(l.Slack.SigningSecret), AllowedUsers: derefStrs(l.Slack.AllowedUsers), AllowedChats: derefStrs(l.Slack.AllowedChats)},
+		Telegram:     NotifyTelegram{Enabled: derefBool(l.Telegram.Enabled), BotToken: derefStr(l.Telegram.BotToken), AllowedUsers: derefStrs(l.Telegram.AllowedUsers), AllowedChats: derefStrs(l.Telegram.AllowedChats)},
 	}, nil
 }
 
@@ -495,6 +509,16 @@ func resolveNotify(l *notifyLayer) (Notify, error) {
 // Gate 3 (per-message: session exists, is live, is blocked) is enforced at
 // delivery time by the subscriber itself, not here.
 func ValidateReply(n Notify) error {
+	if n.Slack.Enabled {
+		if n.Slack.BotToken == "" || n.Slack.SigningSecret == "" || len(n.Slack.AllowedUsers) == 0 || len(n.Slack.AllowedChats) == 0 {
+			return fmt.Errorf("config: enabled notify.slack requires bot_token, signing_secret, allowed_users and allowed_chats")
+		}
+	}
+	if n.Telegram.Enabled {
+		if n.Telegram.BotToken == "" || len(n.Telegram.AllowedUsers) == 0 || len(n.Telegram.AllowedChats) == 0 {
+			return fmt.Errorf("config: enabled notify.telegram requires bot_token, allowed_users and allowed_chats")
+		}
+	}
 	r := n.Ntfy.Reply
 	if !r.Enabled {
 		return nil
@@ -687,6 +711,13 @@ func derefStr(p *string) string {
 		return ""
 	}
 	return *p
+}
+
+func derefStrs(p *[]string) []string {
+	if p == nil {
+		return nil
+	}
+	return append([]string(nil), (*p)...)
 }
 
 func derefInt(p *int) int {

@@ -41,8 +41,9 @@ type ConversationAccess struct {
 // Backends absent from Access are rejected. ReplyTTL is evaluated against the
 // local observation timestamp, never a provider-supplied timestamp.
 type ConversationOptions struct {
-	Access   map[string]ConversationAccess
-	ReplyTTL time.Duration
+	Access    map[string]ConversationAccess
+	ReplyTTL  time.Duration
+	DedupeTTL time.Duration
 }
 
 // ReplyDecision describes a completed, non-error admission decision. Provider
@@ -61,12 +62,13 @@ const (
 // message to a session PTY. It deliberately owns no HTTP listener or provider
 // credentials: adapters authenticate their protocol, then call Accept.
 type Conversation struct {
-	access   map[string]ConversationAccess
-	replyTTL time.Duration
-	store    *store.Store
-	input    InputWriter
-	clk      clock.Clock
-	log      *slog.Logger
+	access    map[string]ConversationAccess
+	replyTTL  time.Duration
+	dedupeTTL time.Duration
+	store     *store.Store
+	input     InputWriter
+	clk       clock.Clock
+	log       *slog.Logger
 }
 
 func NewConversation(opts ConversationOptions, st *store.Store, input InputWriter, clk clock.Clock, log *slog.Logger) *Conversation {
@@ -74,12 +76,13 @@ func NewConversation(opts ConversationOptions, st *store.Store, input InputWrite
 		log = slog.Default()
 	}
 	return &Conversation{
-		access:   opts.Access,
-		replyTTL: opts.ReplyTTL,
-		store:    st,
-		input:    input,
-		clk:      clk,
-		log:      log,
+		access:    opts.Access,
+		replyTTL:  opts.ReplyTTL,
+		dedupeTTL: opts.DedupeTTL,
+		store:     st,
+		input:     input,
+		clk:       clk,
+		log:       log,
 	}
 }
 
@@ -94,7 +97,7 @@ func (c *Conversation) Accept(ctx context.Context, msg IncomingMessage) (ReplyDe
 		return ReplyRejected, nil
 	}
 	now := c.clk.Now()
-	if c.replyTTL <= 0 || msg.ReceivedAt.After(now) || now.Sub(msg.ReceivedAt) > c.replyTTL {
+	if c.replyTTL <= 0 || c.dedupeTTL <= 0 || msg.ReceivedAt.After(now) || now.Sub(msg.ReceivedAt) > c.replyTTL {
 		return ReplyExpired, nil
 	}
 	name, text, ok := splitReply(msg.Body)
@@ -110,7 +113,7 @@ func (c *Conversation) Accept(ctx context.Context, msg IncomingMessage) (ReplyDe
 		return ReplyRejected, nil
 	}
 
-	claimed, err := c.store.ClaimIncomingMessage(ctx, msg.Backend, identifierHash(msg.Backend, msg.MessageID), msg.ReceivedAt.UnixMilli(), msg.ReceivedAt.Add(c.replyTTL).UnixMilli())
+	claimed, err := c.store.ClaimIncomingMessage(ctx, msg.Backend, identifierHash(msg.Backend, msg.MessageID), msg.ReceivedAt.UnixMilli(), msg.ReceivedAt.Add(c.dedupeTTL).UnixMilli())
 	if err != nil {
 		return "", fmt.Errorf("notify: claim incoming %s message: %w", msg.Backend, err)
 	}

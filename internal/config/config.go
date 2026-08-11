@@ -104,13 +104,16 @@ type Attach struct {
 // user-file/env only, never repo-settable; resolved by its own LoadNotify
 // pipeline, not LoadDaemon or LoadSession.
 type Notify struct {
-	Enabled  bool
-	On       []string // subset of ["blocked","exited"]
-	Debounce time.Duration
-	Timeout  time.Duration
-	Retries  int
-	Ntfy     NotifyNtfy
-	Webhook  NotifyWebhook
+	Enabled      bool
+	On           []string // subset of ["blocked","exited"]
+	Debounce     time.Duration
+	Timeout      time.Duration
+	Retries      int
+	Ntfy         NotifyNtfy
+	Webhook      NotifyWebhook
+	Conversation NotifyConversation
+	Slack        NotifySlack
+	Telegram     NotifyTelegram
 }
 
 // NotifyNtfy is the resolved [notify.ntfy] configuration.
@@ -135,6 +138,33 @@ type NotifyWebhook struct {
 	Enabled bool
 	URL     string
 	Headers map[string]string // secret-class
+}
+
+// NotifyConversation controls common inbound reply admission. It remains
+// inactive until a backend is enabled, but durations are parsed centrally so
+// every adapter shares one expiry and durable-dedup policy.
+type NotifyConversation struct {
+	ReplyTTL  time.Duration
+	DedupeTTL time.Duration
+}
+
+// NotifySlack is operator-only Slack configuration. Both secrets and both
+// allowlists are required when enabled; display names are never accepted.
+type NotifySlack struct {
+	Enabled       bool
+	BotToken      string
+	SigningSecret string
+	AllowedUsers  []string
+	AllowedChats  []string
+}
+
+// NotifyTelegram is operator-only Telegram configuration. Telegram's adapter
+// will use outbound long-polling, so this contains no inbound listener URL.
+type NotifyTelegram struct {
+	Enabled      bool
+	BotToken     string
+	AllowedUsers []string
+	AllowedChats []string
 }
 
 // Client is the resolved [client]-scope configuration (design doc m5.md

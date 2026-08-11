@@ -282,6 +282,58 @@ var envSpecs = []envSpec{
 		l.Notify.Webhook.URL = strPtr(v)
 		return nil
 	}},
+	{"notify.conversation.reply_ttl", "CORRAL_NOTIFY_CONVERSATION_REPLY_TTL", func(l *layer, v string) error {
+		l.Notify.Conversation.ReplyTTL = strPtr(v)
+		return nil
+	}},
+	{"notify.conversation.dedupe_ttl", "CORRAL_NOTIFY_CONVERSATION_DEDUPE_TTL", func(l *layer, v string) error {
+		l.Notify.Conversation.DedupeTTL = strPtr(v)
+		return nil
+	}},
+	{"notify.slack.enabled", "CORRAL_NOTIFY_SLACK_ENABLED", func(l *layer, v string) error {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("config: CORRAL_NOTIFY_SLACK_ENABLED=%q: %w", v, err)
+		}
+		l.Notify.Slack.Enabled = boolPtr(b)
+		return nil
+	}},
+	{"notify.slack.bot_token", "CORRAL_NOTIFY_SLACK_BOT_TOKEN", func(l *layer, v string) error {
+		l.Notify.Slack.BotToken = strPtr(v)
+		return nil
+	}},
+	{"notify.slack.signing_secret", "CORRAL_NOTIFY_SLACK_SIGNING_SECRET", func(l *layer, v string) error {
+		l.Notify.Slack.SigningSecret = strPtr(v)
+		return nil
+	}},
+	{"notify.slack.allowed_users", "CORRAL_NOTIFY_SLACK_ALLOWED_USERS", func(l *layer, v string) error {
+		l.Notify.Slack.AllowedUsers = strsPtr(splitCommaList(v))
+		return nil
+	}},
+	{"notify.slack.allowed_chats", "CORRAL_NOTIFY_SLACK_ALLOWED_CHATS", func(l *layer, v string) error {
+		l.Notify.Slack.AllowedChats = strsPtr(splitCommaList(v))
+		return nil
+	}},
+	{"notify.telegram.enabled", "CORRAL_NOTIFY_TELEGRAM_ENABLED", func(l *layer, v string) error {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("config: CORRAL_NOTIFY_TELEGRAM_ENABLED=%q: %w", v, err)
+		}
+		l.Notify.Telegram.Enabled = boolPtr(b)
+		return nil
+	}},
+	{"notify.telegram.bot_token", "CORRAL_NOTIFY_TELEGRAM_BOT_TOKEN", func(l *layer, v string) error {
+		l.Notify.Telegram.BotToken = strPtr(v)
+		return nil
+	}},
+	{"notify.telegram.allowed_users", "CORRAL_NOTIFY_TELEGRAM_ALLOWED_USERS", func(l *layer, v string) error {
+		l.Notify.Telegram.AllowedUsers = strsPtr(splitCommaList(v))
+		return nil
+	}},
+	{"notify.telegram.allowed_chats", "CORRAL_NOTIFY_TELEGRAM_ALLOWED_CHATS", func(l *layer, v string) error {
+		l.Notify.Telegram.AllowedChats = strsPtr(splitCommaList(v))
+		return nil
+	}},
 
 	// [client] (design doc m5.md §7): client.token and client.cacert are
 	// deliberately env/user-file only, never CLI flags — see cmd/corral/
