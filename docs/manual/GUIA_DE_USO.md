@@ -670,7 +670,31 @@ corral review --diff <dag-id>
 tareas reales o espere la ventana normal; el fallo no persiste un reporte
 parcial.
 
-## 16. Referencia rápida
+## 16. Usar corral desde un cliente MCP
+
+`corral mcp` sirve el protocolo MCP por entrada/salida estándar. No abre un
+puerto ni recibe un token por argumentos: usa exactamente la misma
+configuración `[client]`, TLS y token que los comandos normales. Por tanto un
+token con scope de sesión sigue limitado a esa sesión; MCP no puede crear
+tokens, cambiar scopes ni alterar permisos.
+
+```sh
+corral mcp
+corral mcp --host corral.example.test:8443
+```
+
+El cliente MCP descubre tres herramientas estables:
+
+- `corral_status`: sesiones y DAGs visibles para la credencial actual.
+- `corral_run`: crea una tarea mediante la admisión, presupuesto y scope del
+  daemon; requiere `prompt` y `repo`.
+- `corral_wait`: espera un DAG visible hasta que sus tareas terminen; requiere
+  `dag_id` y acepta `timeout_seconds`.
+
+Una integración que necesite gestionar tokens, permisos o servicio debe usar
+el CLI humano bajo control del operador, no MCP.
+
+## 17. Referencia rápida
 
 | Necesidad | Comando |
 |---|---|
@@ -692,6 +716,7 @@ parcial.
 | Descartar recuperable | `corral review discard TASK --expect SHA` |
 | Tokens remotos | `corral token create\|list\|revoke` |
 | Aprendizajes | `corral learnings scan\|list\|show\|adopt\|reject\|retire\|report` |
+| Servidor MCP | `corral mcp [--host HOST:PORT]` |
 
 Para entender por qué el sistema está construido de esta manera, continúe con
 [Arquitectura de corral](ARQUITECTURA.md).
