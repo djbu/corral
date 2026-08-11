@@ -441,6 +441,25 @@ También existe un backend webhook con `notify.webhook.url` y headers. Los
 topics, tokens y headers son secretos: mantenga el archivo en `0600` y no los
 coloque en `.corral.toml`.
 
+Slack y Telegram están apagados por defecto. Para activar avisos salientes se
+deben definir tokens y allowlists locales completos; cada chat permitido recibe
+el aviso. Nunca ponga esas claves en un repositorio:
+
+```toml
+[notify.slack]
+enabled = true
+bot_token = "xoxb-…"
+signing_secret = "…"
+allowed_users = ["U123"]
+allowed_chats = ["D123"]
+
+[notify.telegram]
+enabled = true
+bot_token = "123456:…"
+allowed_users = ["123456"]
+allowed_chats = ["-100123"]
+```
+
 El canal de respuestas ntfy es una capacidad de input remoto más sensible.
 Debe estar habilitado explícitamente, usar un topic diferente al de salida y
 tener token. Una configuración insegura hace fallar el arranque en vez de

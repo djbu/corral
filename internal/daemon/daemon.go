@@ -848,11 +848,25 @@ func buildNotifyBackends(cfg config.Notify) []notify.Backend {
 		backends = append(backends, notify.NewWebhookBackend(
 			cfg.Webhook.URL, cfg.Webhook.Headers, client))
 	}
+	// Each configured conversation is an independent delivery target. The
+	// config validator requires a token and non-empty allowlists before either
+	// backend can be enabled, so this loop cannot manufacture an anonymous
+	// notification destination.
+	if cfg.Slack.Enabled {
+		for _, chatID := range cfg.Slack.AllowedChats {
+			backends = append(backends, notify.NewSlackBackend(cfg.Slack.BotToken, chatID, client))
+		}
+	}
+	if cfg.Telegram.Enabled {
+		for _, chatID := range cfg.Telegram.AllowedChats {
+			backends = append(backends, notify.NewTelegramBackend(cfg.Telegram.BotToken, chatID, client))
+		}
+	}
 	return backends
 }
 
 // backendNames lists backend names for a startup log line. It never logs a
-// URL, topic, token, or header — only the backend kind ("ntfy"/"webhook").
+// URL, topic, token, chat identity, or header — only the backend kind.
 func backendNames(backends []notify.Backend) []string {
 	names := make([]string, 0, len(backends))
 	for _, b := range backends {
