@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Event is one decoded stream-json line. Type/Subtype/Raw are populated for
@@ -38,6 +39,9 @@ type Event struct {
 
 	// Result is non-nil only when Type == "result".
 	Result *Result
+	// RateLimit is populated for a top-level provider rate_limit_event when
+	// the event exposes a retry delay. Unknown shapes remain non-fatal.
+	RateLimit *RateLimit
 
 	// ToolUses holds the tool_use content blocks on an assistant message.
 	// In the real corpus each assistant record carries exactly one content
@@ -51,6 +55,8 @@ type Event struct {
 	// message, in array order. Empty for non-text-bearing lines.
 	Text string
 }
+
+type RateLimit struct{ RetryAfter time.Duration }
 
 // ToolUse is one tool_use content block from an assistant message.
 type ToolUse struct {
@@ -167,9 +173,28 @@ func ParseLine(b []byte) (Event, error) {
 		decodeAssistant(trimmed, &ev)
 	case "result":
 		decodeResult(trimmed, &ev)
+	case "rate_limit_event":
+		decodeRateLimit(trimmed, &ev)
 	}
 
 	return ev, nil
+}
+
+func decodeRateLimit(b []byte, ev *Event) {
+	var wire struct {
+		RetryAfterMS      int64 `json:"retry_after_ms"`
+		RetryAfterSeconds int64 `json:"retry_after_seconds"`
+	}
+	if json.Unmarshal(b, &wire) != nil {
+		return
+	}
+	d := time.Duration(wire.RetryAfterMS) * time.Millisecond
+	if d <= 0 {
+		d = time.Duration(wire.RetryAfterSeconds) * time.Second
+	}
+	if d > 0 {
+		ev.RateLimit = &RateLimit{RetryAfter: d}
+	}
 }
 
 // decodeAssistant populates ev.Text and ev.ToolUses from an assistant

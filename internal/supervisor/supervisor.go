@@ -147,6 +147,16 @@ type Registry struct {
 	// activity UPDATE never blocks unrelated registry operations.
 	activityMu        sync.Mutex
 	lastActivityTouch map[string]int64 // session id -> unix-ms of last DB touch
+	rateLimitObserver func(time.Duration)
+}
+
+// SetRateLimitObserver installs the daemon-owned quota feedback hook. It is
+// intentionally duration-only: provider payloads never become a control or
+// configuration channel.
+func (r *Registry) SetRateLimitObserver(observer func(time.Duration)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.rateLimitObserver = observer
 }
 
 // activityTouchIntervalMs throttles touchActivity so a burst of per-keystroke
@@ -795,6 +805,14 @@ func (r *Registry) handleHeadlessLine(ls *LiveSession, line []byte, streamLog io
 	_, _ = streamLog.Write([]byte("\n"))
 
 	if ev.Type != "result" || ev.Result == nil {
+		if ev.RateLimit != nil {
+			r.mu.Lock()
+			observer := r.rateLimitObserver
+			r.mu.Unlock()
+			if observer != nil {
+				observer(ev.RateLimit.RetryAfter)
+			}
+		}
 		return
 	}
 
