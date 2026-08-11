@@ -334,6 +334,8 @@ repo sin control del binario, drift y corpus golden faltante visibles en
 
 **Cierre de M9:** soak nocturno estable, límites comprobados, drift visible,
 cuota simulada y real sin 429 evitables, MCP confinado; tag `v0.9.0`.
+La matriz de evidencia y los gates de promoción viven en
+[`docs/dogfood/m9.md`](../dogfood/m9.md) y [`docs/design/m9.md`](../design/m9.md).
 
 ## 7. M10 — Integraciones y colaboración
 
