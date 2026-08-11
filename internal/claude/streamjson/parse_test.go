@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // goldenDir is the corpus m4.md §0 calls "golden corpus ready": 5 real
@@ -77,6 +78,16 @@ func TestParseLine_Golden(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestParseLine_RateLimitRetryDelay(t *testing.T) {
+	ev, err := ParseLine([]byte(`{"type":"rate_limit_event","retry_after_ms":1250}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev.RateLimit == nil || ev.RateLimit.RetryAfter != 1250*time.Millisecond {
+		t.Fatalf("rate limit = %+v", ev.RateLimit)
 	}
 }
 

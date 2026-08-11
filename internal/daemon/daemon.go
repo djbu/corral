@@ -424,6 +424,9 @@ func (d *Daemon) startup(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("daemon: configuring quota controller: %w", err)
 		}
+		registry.SetRateLimitObserver(func(retryAfter time.Duration) {
+			quotaController.PauseUntil(d.clk.Now().Add(retryAfter))
+		})
 	}
 	d.orchestrator = orchestrator.New(registry, d.store, d.clk, d.log, orchestrator.Config{
 		StateDir:      d.cfg.StateDir,
