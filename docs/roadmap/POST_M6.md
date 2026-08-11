@@ -358,6 +358,9 @@ frontera multiusuario haría demasiado grande la revisión de seguridad.
 **Cierre M10a:** blocked→notify→reply→continue funciona en ambos canales sin
 exponer tokens ni aceptar usuarios fuera de allowlist.
 
+El contrato de conversación, amenazas y gates de M10a se especifican en
+[`docs/design/m10a.md`](../design/m10a.md).
+
 ### M10b. Multiusuario y equipos
 
 #### 68. Modelo de tenancy y amenazas
