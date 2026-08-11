@@ -81,6 +81,23 @@ var envSpecs = []envSpec{
 		l.Daemon.MaxPendingDAGTasks = intPtr(n)
 		return nil
 	}},
+	{"daemon.quota_window", "CORRAL_DAEMON_QUOTA_WINDOW", func(l *layer, v string) error { l.Daemon.QuotaWindow = strPtr(v); return nil }},
+	{"daemon.quota_limit", "CORRAL_DAEMON_QUOTA_LIMIT", func(l *layer, v string) error {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return err
+		}
+		l.Daemon.QuotaLimit = intPtr(n)
+		return nil
+	}},
+	{"daemon.quota_interactive_reserve", "CORRAL_DAEMON_QUOTA_INTERACTIVE_RESERVE", func(l *layer, v string) error {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return err
+		}
+		l.Daemon.QuotaInteractiveReserve = intPtr(n)
+		return nil
+	}},
 
 	{"session.claude_bin", "CORRAL_SESSION_CLAUDE_BIN", func(l *layer, v string) error {
 		l.Session.ClaudeBin = strPtr(v)

@@ -17,18 +17,21 @@ type layer struct {
 }
 
 type daemonLayer struct {
-	Socket                 *string `toml:"socket"`
-	StateDir               *string `toml:"state_dir"`
-	LogLevel               *string `toml:"log_level"`
-	LogFormat              *string `toml:"log_format"`
-	ShutdownGrace          *string `toml:"shutdown_grace"`
-	Listen                 *string `toml:"listen"`
-	TLSCert                *string `toml:"tls_cert"`
-	TLSKey                 *string `toml:"tls_key"`
-	MinFreeBytes           *string `toml:"min_free_bytes"`
-	MaxInteractiveSessions *int    `toml:"max_interactive_sessions"`
-	MaxHeadlessTasks       *int    `toml:"max_headless_tasks"`
-	MaxPendingDAGTasks     *int    `toml:"max_pending_dag_tasks"`
+	Socket                  *string `toml:"socket"`
+	StateDir                *string `toml:"state_dir"`
+	LogLevel                *string `toml:"log_level"`
+	LogFormat               *string `toml:"log_format"`
+	ShutdownGrace           *string `toml:"shutdown_grace"`
+	Listen                  *string `toml:"listen"`
+	TLSCert                 *string `toml:"tls_cert"`
+	TLSKey                  *string `toml:"tls_key"`
+	MinFreeBytes            *string `toml:"min_free_bytes"`
+	MaxInteractiveSessions  *int    `toml:"max_interactive_sessions"`
+	MaxHeadlessTasks        *int    `toml:"max_headless_tasks"`
+	MaxPendingDAGTasks      *int    `toml:"max_pending_dag_tasks"`
+	QuotaWindow             *string `toml:"quota_window"`
+	QuotaLimit              *int    `toml:"quota_limit"`
+	QuotaInteractiveReserve *int    `toml:"quota_interactive_reserve"`
 }
 
 type sessionLayer struct {
@@ -225,6 +228,18 @@ func mergeDaemon(dst, src *daemonLayer, srcSource sourceFunc, sources map[string
 	if src.MaxPendingDAGTasks != nil {
 		dst.MaxPendingDAGTasks = src.MaxPendingDAGTasks
 		sources["daemon.max_pending_dag_tasks"] = srcSource("daemon.max_pending_dag_tasks")
+	}
+	if src.QuotaWindow != nil {
+		dst.QuotaWindow = src.QuotaWindow
+		sources["daemon.quota_window"] = srcSource("daemon.quota_window")
+	}
+	if src.QuotaLimit != nil {
+		dst.QuotaLimit = src.QuotaLimit
+		sources["daemon.quota_limit"] = srcSource("daemon.quota_limit")
+	}
+	if src.QuotaInteractiveReserve != nil {
+		dst.QuotaInteractiveReserve = src.QuotaInteractiveReserve
+		sources["daemon.quota_interactive_reserve"] = srcSource("daemon.quota_interactive_reserve")
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	"github.com/djbu/corral/internal/clock"
 	"github.com/djbu/corral/internal/config"
 	"github.com/djbu/corral/internal/git"
+	"github.com/djbu/corral/internal/quota"
 	"github.com/djbu/corral/internal/session"
 	"github.com/djbu/corral/internal/store"
 	"github.com/djbu/corral/internal/supervisor"
@@ -78,6 +79,7 @@ type Config struct {
 	// Templates is the daemon-start, operator-owned registry. Task rows only
 	// carry a selected name; the trusted registry supplies the env allowlist.
 	Templates map[string]config.Template
+	Quota     *quota.Controller
 }
 
 func (c Config) withDefaults() Config {
@@ -380,9 +382,18 @@ func (o *Orchestrator) launchOneReady(ctx context.Context, dagID string) bool {
 		if next, wait := o.nextAttemptAt[task.ID]; wait && o.clk.Now().Before(next) {
 			continue
 		}
+		if o.cfg.Quota != nil {
+			if decision := o.cfg.Quota.CanAdmit(quota.Headless, 1); !decision.Allowed {
+				o.log.Info("orchestrator: quota delaying headless task", "dag_id", dagID, "retry_after", decision.RetryAfter, "reason", decision.Reason)
+				return false
+			}
+		}
 		if err := o.launchTask(ctx, task, deps, byID); err != nil {
 			o.log.Error("orchestrator: launching task", "task_id", task.ID, "err", err)
 			return false
+		}
+		if o.cfg.Quota != nil {
+			o.cfg.Quota.Record(quota.Headless, 1)
 		}
 		return true
 	}

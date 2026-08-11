@@ -87,6 +87,20 @@ func TestLoadDaemonCapacityLimits(t *testing.T) {
 	}
 }
 
+func TestLoadDaemonQuotaControls(t *testing.T) {
+	withHome(t)
+	t.Setenv("CORRAL_DAEMON_QUOTA_WINDOW", "2h")
+	t.Setenv("CORRAL_DAEMON_QUOTA_LIMIT", "10")
+	t.Setenv("CORRAL_DAEMON_QUOTA_INTERACTIVE_RESERVE", "3")
+	d, _, err := LoadDaemon()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.QuotaWindow != 2*time.Hour || d.QuotaLimit != 10 || d.QuotaInteractiveReserve != 3 {
+		t.Fatalf("quota config = %+v", d)
+	}
+}
+
 func TestLoadDaemonRejectsNonPositiveCapacity(t *testing.T) {
 	home := withHome(t)
 	writeFile(t, filepath.Join(home, ".corral", "config.toml"), "[daemon]\nmax_headless_tasks = 0\n")
