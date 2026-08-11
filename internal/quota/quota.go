@@ -82,6 +82,16 @@ func (c *Controller) usage(class Class) int {
 // configured interactive reserve; interactive work may use any remaining
 // capacity. Calls are serialized by the orchestrator's single scheduling loop.
 func (c *Controller) Admit(class Class, units int) Decision {
+	d := c.CanAdmit(class, units)
+	if d.Allowed {
+		c.Record(class, units)
+	}
+	return d
+}
+
+// CanAdmit checks without mutating. The orchestrator uses it immediately
+// before spawning, then records only after a successful spawn.
+func (c *Controller) CanAdmit(class Class, units int) Decision {
 	now := c.clk.Now()
 	c.prune(now)
 	if units <= 0 {
@@ -100,8 +110,11 @@ func (c *Controller) Admit(class Class, units int) Decision {
 	if c.usage("")+units > limit {
 		return Decision{Reason: "quota window exhausted", RetryAfter: c.nextReset(now)}
 	}
-	c.entries = append(c.entries, entry{at: now, class: class, units: units})
 	return Decision{Allowed: true}
+}
+
+func (c *Controller) Record(class Class, units int) {
+	c.entries = append(c.entries, entry{at: c.clk.Now(), class: class, units: units})
 }
 
 // PauseUntil records a provider-provided retry boundary. It only extends an

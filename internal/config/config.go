@@ -45,6 +45,11 @@ type Daemon struct {
 	// creates durable work. It is deliberately separate from live headless
 	// capacity: queued tasks are durable but do not own a process slot.
 	MaxPendingDAGTasks int
+	// QuotaLimit=0 disables provider-use window scheduling. It remains
+	// daemon-only and separate from USD cost accounting.
+	QuotaWindow             time.Duration
+	QuotaLimit              int
+	QuotaInteractiveReserve int
 }
 
 // Session is the resolved session-scope configuration.

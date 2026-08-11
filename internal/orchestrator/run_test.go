@@ -16,6 +16,7 @@ import (
 	"github.com/djbu/corral/internal/clock"
 	"github.com/djbu/corral/internal/clock/clocktest"
 	"github.com/djbu/corral/internal/config"
+	"github.com/djbu/corral/internal/quota"
 	"github.com/djbu/corral/internal/session"
 	"github.com/djbu/corral/internal/state"
 	"github.com/djbu/corral/internal/store"
@@ -340,6 +341,30 @@ func TestOrchestrator_TaskTemplateLimitsSpawnEnvironment(t *testing.T) {
 	}
 	if got := reg.lastSpawn().EnvPassthrough; len(got) != 1 || got[0] != "GITHUB_TOKEN" {
 		t.Fatalf("spawn env passthrough = %v, want [GITHUB_TOKEN]", got)
+	}
+}
+
+func TestOrchestrator_QuotaDelaysHeadlessLaunch(t *testing.T) {
+	clk := clocktest.NewFake(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	st := newTestStore(t, clk)
+	reg := &fakeRegistry{}
+	mkTask(t, st, "dag-quota", "task-quota", "quota", t.TempDir(), 1)
+	q, err := quota.New(clk, quota.Config{Window: time.Hour, Limit: 2, InteractiveReserve: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !q.Admit(quota.Headless, 1).Allowed {
+		t.Fatal("setup quota admission")
+	}
+	orch := New(reg, st, clk, nil, Config{StateDir: t.TempDir(), Quota: q}, "/usr/bin/true")
+	orch.tickOnce(t.Context())
+	if got := reg.spawnCount(); got != 0 {
+		t.Fatalf("spawn count = %d, want 0 while quota exhausted", got)
+	}
+	clk.Advance(time.Hour)
+	orch.tickOnce(t.Context())
+	if got := reg.spawnCount(); got != 1 {
+		t.Fatalf("spawn count = %d, want 1 after quota window", got)
 	}
 }
 

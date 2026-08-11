@@ -27,6 +27,7 @@ import (
 	"github.com/djbu/corral/internal/config"
 	"github.com/djbu/corral/internal/notify"
 	"github.com/djbu/corral/internal/orchestrator"
+	"github.com/djbu/corral/internal/quota"
 	"github.com/djbu/corral/internal/reaper"
 	"github.com/djbu/corral/internal/review"
 	"github.com/djbu/corral/internal/session"
@@ -417,11 +418,19 @@ func (d *Daemon) startup(ctx context.Context) error {
 			orchClaudeBin = resolved
 		}
 	}
+	var quotaController *quota.Controller
+	if d.cfg.QuotaLimit > 0 {
+		quotaController, err = quota.New(d.clk, quota.Config{Window: d.cfg.QuotaWindow, Limit: d.cfg.QuotaLimit, InteractiveReserve: d.cfg.QuotaInteractiveReserve})
+		if err != nil {
+			return fmt.Errorf("daemon: configuring quota controller: %w", err)
+		}
+	}
 	d.orchestrator = orchestrator.New(registry, d.store, d.clk, d.log, orchestrator.Config{
 		StateDir:      d.cfg.StateDir,
 		ClaudeHome:    claudeHome,
 		MaxConcurrent: d.cfg.MaxHeadlessTasks,
 		Templates:     templates,
+		Quota:         quotaController,
 	}, orchClaudeBin)
 	d.orchestrator.Start()
 

@@ -16,18 +16,21 @@ import (
 func defaultsLayer() *layer {
 	return &layer{
 		Daemon: daemonLayer{
-			Socket:                 strPtr("~/.corral/corral.sock"),
-			StateDir:               strPtr("~/.corral"),
-			LogLevel:               strPtr("info"),
-			LogFormat:              strPtr("text"),
-			ShutdownGrace:          strPtr("5s"),
-			Listen:                 strPtr(""),
-			TLSCert:                strPtr(""),
-			TLSKey:                 strPtr(""),
-			MinFreeBytes:           strPtr("256MiB"),
-			MaxInteractiveSessions: intPtr(16),
-			MaxHeadlessTasks:       intPtr(4),
-			MaxPendingDAGTasks:     intPtr(1000),
+			Socket:                  strPtr("~/.corral/corral.sock"),
+			StateDir:                strPtr("~/.corral"),
+			LogLevel:                strPtr("info"),
+			LogFormat:               strPtr("text"),
+			ShutdownGrace:           strPtr("5s"),
+			Listen:                  strPtr(""),
+			TLSCert:                 strPtr(""),
+			TLSKey:                  strPtr(""),
+			MinFreeBytes:            strPtr("256MiB"),
+			MaxInteractiveSessions:  intPtr(16),
+			MaxHeadlessTasks:        intPtr(4),
+			MaxPendingDAGTasks:      intPtr(1000),
+			QuotaWindow:             strPtr("5h"),
+			QuotaLimit:              intPtr(0),
+			QuotaInteractiveReserve: intPtr(0),
 		},
 		Session: sessionLayer{
 			ClaudeBin:         strPtr("claude"),
@@ -290,6 +293,15 @@ func resolveDaemon(l *daemonLayer) (Daemon, error) {
 	if err != nil {
 		return Daemon{}, err
 	}
+	quotaWindow, err := time.ParseDuration(derefStr(l.QuotaWindow))
+	if err != nil || quotaWindow <= 0 {
+		return Daemon{}, fmt.Errorf("config: daemon.quota_window must be a positive duration")
+	}
+	quotaLimit := derefInt(l.QuotaLimit)
+	quotaReserve := derefInt(l.QuotaInteractiveReserve)
+	if quotaLimit < 0 || quotaReserve < 0 || (quotaLimit > 0 && quotaReserve >= quotaLimit) {
+		return Daemon{}, fmt.Errorf("config: invalid daemon quota limit/reserve")
+	}
 	return Daemon{
 		Socket:        expandHome(derefStr(l.Socket)),
 		StateDir:      expandHome(derefStr(l.StateDir)),
@@ -305,6 +317,7 @@ func resolveDaemon(l *daemonLayer) (Daemon, error) {
 		MaxInteractiveSessions: maxInteractive,
 		MaxHeadlessTasks:       maxHeadless,
 		MaxPendingDAGTasks:     maxPending,
+		QuotaWindow:            quotaWindow, QuotaLimit: quotaLimit, QuotaInteractiveReserve: quotaReserve,
 	}, nil
 }
 

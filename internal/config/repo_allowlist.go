@@ -70,6 +70,15 @@ func filterRepoLayer(file string, l *layer) (*layer, []Rejection) {
 	if l.Daemon.MaxPendingDAGTasks != nil {
 		reject("daemon.max_pending_dag_tasks")
 	}
+	if l.Daemon.QuotaWindow != nil {
+		reject("daemon.quota_window")
+	}
+	if l.Daemon.QuotaLimit != nil {
+		reject("daemon.quota_limit")
+	}
+	if l.Daemon.QuotaInteractiveReserve != nil {
+		reject("daemon.quota_interactive_reserve")
+	}
 
 	// [session] — only model, scrollback_lines, term are repo-settable.
 	if l.Session.ClaudeBin != nil {
