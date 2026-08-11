@@ -22,7 +22,8 @@ func testConversation(t *testing.T) (*Conversation, *fakeInputWriter, *clocktest
 		ReplyTTL:  10 * time.Minute,
 		DedupeTTL: 24 * time.Hour,
 		Access: map[string]ConversationAccess{
-			"slack": {AllowedSenders: map[string]struct{}{"user-1": {}, "private-user": {}}, AllowedChats: map[string]struct{}{"chat-1": {}, "private-chat": {}}},
+			"slack":    {AllowedSenders: map[string]struct{}{"user-1": {}, "private-user": {}}, AllowedChats: map[string]struct{}{"chat-1": {}, "private-chat": {}}},
+			"telegram": {AllowedSenders: map[string]struct{}{"7": {}}, AllowedChats: map[string]struct{}{"9": {}}},
 		},
 	}, st, writer, clk, discardLogger()), writer, clk
 }
