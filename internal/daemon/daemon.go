@@ -350,6 +350,13 @@ func (d *Daemon) startup(ctx context.Context) error {
 		return fmt.Errorf("daemon: resolving relay command: %w", err)
 	}
 
+	var quotaController *quota.Controller
+	if d.cfg.QuotaLimit > 0 {
+		quotaController, err = quota.New(d.clk, quota.Config{Window: d.cfg.QuotaWindow, Limit: d.cfg.QuotaLimit, InteractiveReserve: d.cfg.QuotaInteractiveReserve})
+		if err != nil {
+			return fmt.Errorf("daemon: configuring quota controller: %w", err)
+		}
+	}
 	registry := supervisor.New(d.store, d.engine, checkpointerAdapter{d.checkpointer}, d.clk, supervisor.Config{
 		StateDir:               d.cfg.StateDir,
 		SockPath:               d.sockPath,
@@ -368,6 +375,7 @@ func (d *Daemon) startup(ctx context.Context) error {
 		MinFreeBytes:           d.cfg.MinFreeBytes,
 		MaxInteractiveSessions: d.cfg.MaxInteractiveSessions,
 		MaxHeadlessTasks:       d.cfg.MaxHeadlessTasks,
+		Quota:                  quotaController,
 	}, d.log)
 	d.supervisor = registry
 
@@ -418,12 +426,7 @@ func (d *Daemon) startup(ctx context.Context) error {
 			orchClaudeBin = resolved
 		}
 	}
-	var quotaController *quota.Controller
-	if d.cfg.QuotaLimit > 0 {
-		quotaController, err = quota.New(d.clk, quota.Config{Window: d.cfg.QuotaWindow, Limit: d.cfg.QuotaLimit, InteractiveReserve: d.cfg.QuotaInteractiveReserve})
-		if err != nil {
-			return fmt.Errorf("daemon: configuring quota controller: %w", err)
-		}
+	if quotaController != nil {
 		registry.SetRateLimitObserver(func(retryAfter time.Duration) {
 			quotaController.PauseUntil(d.clk.Now().Add(retryAfter))
 		})

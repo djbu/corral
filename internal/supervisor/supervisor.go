@@ -26,6 +26,7 @@ import (
 	"github.com/djbu/corral/internal/diskspace"
 	corralgit "github.com/djbu/corral/internal/git"
 	"github.com/djbu/corral/internal/proto"
+	"github.com/djbu/corral/internal/quota"
 	"github.com/djbu/corral/internal/screen"
 	"github.com/djbu/corral/internal/session"
 	"github.com/djbu/corral/internal/state"
@@ -97,6 +98,7 @@ type Config struct {
 	// unit-test construction; daemon startup supplies explicit operator policy.
 	MaxInteractiveSessions int
 	MaxHeadlessTasks       int
+	Quota                  *quota.Controller
 }
 
 // ErrLowDisk identifies a spawn rejected by the state filesystem guard.
@@ -370,6 +372,13 @@ func (r *Registry) Spawn(ctx context.Context, spec session.Spec) (*session.Sessi
 		return nil, err
 	}
 	defer r.releaseCapacity(spec.ID)
+	if spec.Mode != session.ModeHeadless && r.cfg.Quota != nil {
+		if decision := r.cfg.Quota.CanAdmit(quota.Interactive, 1); !decision.Allowed {
+			err := fmt.Errorf("supervisor: interactive quota unavailable: %s", decision.Reason)
+			r.recordPreSpawnFailure(ctx, spec.ID, err)
+			return nil, err
+		}
+	}
 
 	if r.cfg.MinFreeBytes > 0 {
 		freeBytes := r.cfg.FreeBytes
@@ -482,6 +491,9 @@ func (r *Registry) Spawn(ctx context.Context, spec session.Spec) (*session.Sessi
 	}
 
 	r.appendEvent(ctx, spec.ID, session.EventSessionSpawned, map[string]any{"pid": info.PID, "pgid": info.PGID})
+	if spec.Mode != session.ModeHeadless && r.cfg.Quota != nil {
+		r.cfg.Quota.Record(quota.Interactive, 1)
+	}
 	if err := r.engine.OnLifecycle(ctx, spec.ID, session.EventSessionSpawned, nil); err != nil {
 		r.log.Warn("supervisor: engine.OnLifecycle spawned", "session_id", spec.ID, "err", err)
 	}
